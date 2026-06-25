@@ -26,11 +26,12 @@ type SourceLedgerRow = {
   keyword: string | null;
   source: string | null;
   url: string | null;
+  gclid: string | null;
   matterDisplayNumber?: string | null;
 };
 
 type EditableSelectField = 'aow' | 'moc' | 'poc' | 'source';
-type EditableInputField = 'acid' | 'datetime' | 'phone' | 'campaign' | 'keyword' | 'url';
+type EditableInputField = 'acid' | 'datetime' | 'phone' | 'campaign' | 'keyword' | 'url' | 'gclid';
 type EditableLedgerField = EditableInputField | EditableSelectField;
 type RowDrafts = Record<string, Partial<Record<EditableLedgerField, string>>>;
 type FieldOptions = Record<EditableSelectField, SourceOption[]>;
@@ -39,7 +40,7 @@ type SourceLedgerAttributionColumns = { campaign: boolean; keyword: boolean };
 type LedgerSortKey = 'date' | 'id' | 'aow' | 'moc' | 'poc' | 'campaign' | 'keyword' | 'source';
 type LedgerDirection = 'asc' | 'desc';
 
-type SourceLedgerColumnKey = 'select' | 'date' | 'id' | 'aow' | 'moc' | 'poc' | 'phone' | 'campaign' | 'keyword' | 'url' | 'source' | 'matter';
+type SourceLedgerColumnKey = 'select' | 'date' | 'id' | 'aow' | 'moc' | 'poc' | 'phone' | 'campaign' | 'keyword' | 'source' | 'url' | 'gclid' | 'tags' | 'matter';
 
 type CallRailInspectionRow = {
   startTime: string;
@@ -76,7 +77,7 @@ type EnquirySourceLedgerProps = {
 const SKELETON_ROW_COUNT = 6;
 const FULL_PAGE_LEDGER_RENDER_LIMIT = 80;
 const SOURCE_LEDGER_PAGE_SIZE = 200;
-const EDITABLE_LEDGER_FIELDS: EditableLedgerField[] = ['acid', 'datetime', 'aow', 'moc', 'poc', 'phone', 'campaign', 'keyword', 'source', 'url'];
+const EDITABLE_LEDGER_FIELDS: EditableLedgerField[] = ['acid', 'datetime', 'aow', 'moc', 'poc', 'phone', 'campaign', 'keyword', 'source', 'url', 'gclid'];
 const EDITABLE_SELECT_FIELDS: EditableSelectField[] = ['aow', 'moc', 'poc', 'source'];
 const SOURCE_OPTIONS_ENDPOINT = '/api/enquiries-unified/source/options';
 const SOURCE_LEDGER_ENDPOINT = '/api/enquiries-unified/source/ledger';
@@ -92,8 +93,10 @@ const SOURCE_LEDGER_TABLE_COLUMNS: ColumnDefinition[] = [
   { key: 'phone', label: 'Phone', defaultVisible: true },
   { key: 'campaign', label: 'Campaign', defaultVisible: true },
   { key: 'keyword', label: 'Keyword', defaultVisible: true },
-  { key: 'url', label: 'Landing URL', defaultVisible: true },
   { key: 'source', label: 'Source', defaultVisible: true },
+  { key: 'url', label: 'Landing URL', defaultVisible: true },
+  { key: 'gclid', label: 'GCLID', defaultVisible: false },
+  { key: 'tags', label: 'Tags', defaultVisible: true },
   { key: 'matter', label: 'Matter', defaultVisible: false },
 ];
 
@@ -107,8 +110,10 @@ const SOURCE_LEDGER_COLUMN_WEIGHTS: Record<SourceLedgerColumnKey, number> = {
   phone: 9.6,
   campaign: 12,
   keyword: 12,
-  url: 15,
-  source: 16,
+  source: 13,
+  url: 12,
+  gclid: 11,
+  tags: 7,
   matter: 8,
 };
 
@@ -223,6 +228,13 @@ function formatTeamInitialsLabel(value: string): string {
   return atIndex > 0 ? raw.slice(0, atIndex) : raw;
 }
 
+function truncateLedgerUrl(value: string, maxLength = 58): string {
+  const label = String(value || '').trim();
+  if (!label) return '';
+  if (label.length <= maxLength) return label;
+  return `${label.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
 function asBool(value: unknown): boolean {
   return value === true || value === 'true' || value === 1 || value === '1';
 }
@@ -284,6 +296,7 @@ function mapSourceLedgerRows(entries: any[]): SourceLedgerRow[] {
     keyword: String(entry?.keyword || ''),
     source: String(entry?.source || ''),
     url: String(entry?.url || ''),
+    gclid: String(entry?.gclid || ''),
     matterDisplayNumber: String(entry?.matterDisplayNumber || ''),
   }));
 }
@@ -417,10 +430,10 @@ function buildCallRailDecision(rows: CallRailInspectionRow[], currentSource: str
 
 const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, presentation = 'embedded' }) => {
   const isFullPage = presentation === 'fullPage';
-  const compactFontSize = isFullPage ? 8 : 10;
-  const compactInputPadding = isFullPage ? '1px 4px' : '5px 7px';
-  const compactCellPadding = isFullPage ? '2px 0' : '6px 0';
-  const compactShellMinHeight = isFullPage ? 18 : 28;
+  const compactFontSize = isFullPage ? 8 : 9;
+  const compactInputPadding = isFullPage ? '0 3px' : '3px 5px';
+  const compactCellPadding = isFullPage ? '1px 0' : '4px 0';
+  const compactShellMinHeight = isFullPage ? 16 : 24;
   const [fieldOptions, setFieldOptions] = React.useState<FieldOptions>(createEmptyFieldOptions);
   const [rows, setRows] = React.useState<SourceLedgerRow[]>([]);
   const [rowsLoading, setRowsLoading] = React.useState(true);
@@ -444,6 +457,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
   const [savingKey, setSavingKey] = React.useState<string | null>(null);
   const [callRailProcessingKey, setCallRailProcessingKey] = React.useState<string | null>(null);
   const [feedback, setFeedback] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [expandedRowKey, setExpandedRowKey] = React.useState<string | null>(null);
   const [processingPanel, setProcessingPanel] = React.useState<ReportProcessingRailItem | null>(null);
   const [processingPanelFolded, setProcessingPanelFolded] = React.useState(false);
   const [callRailModal, setCallRailModal] = React.useState<{
@@ -459,6 +473,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
     queuedCampaign: string | null;
     queuedKeyword: string | null;
     queuedUrl: string | null;
+    queuedGclid: string | null;
     loading: boolean;
     error: string | null;
     rows: CallRailInspectionRow[];
@@ -475,6 +490,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
     queuedCampaign: null,
     queuedKeyword: null,
     queuedUrl: null,
+    queuedGclid: null,
     loading: false,
     error: null,
     rows: [],
@@ -488,9 +504,24 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
     handleReset,
   } = useColumnVisibility('enquiry-source-ledger-v2', SOURCE_LEDGER_TABLE_COLUMNS);
 
+  const isAttributionColumnAvailable = React.useCallback((columnKey: SourceLedgerColumnKey): boolean => {
+    if (columnKey === 'campaign') return sourceLedgerAttributionColumns.campaign;
+    if (columnKey === 'keyword') return sourceLedgerAttributionColumns.keyword;
+    return true;
+  }, [sourceLedgerAttributionColumns.campaign, sourceLedgerAttributionColumns.keyword]);
+
+  const isColumnVisible = React.useCallback((columnKey: SourceLedgerColumnKey): boolean => (
+    visibleColumns.has(columnKey) && isAttributionColumnAvailable(columnKey)
+  ), [isAttributionColumnAvailable, visibleColumns]);
+
+  const selectorColumns = React.useMemo(
+    () => SOURCE_LEDGER_TABLE_COLUMNS.filter((column) => isAttributionColumnAvailable(column.key as SourceLedgerColumnKey)),
+    [isAttributionColumnAvailable],
+  );
+
   const visibleLedgerColumns = React.useMemo(
-    () => SOURCE_LEDGER_TABLE_COLUMNS.filter((column) => visibleColumns.has(column.key)),
-    [visibleColumns],
+    () => SOURCE_LEDGER_TABLE_COLUMNS.filter((column) => isColumnVisible(column.key as SourceLedgerColumnKey)),
+    [isColumnVisible],
   );
 
   const visibleLedgerColumnWeight = React.useMemo(
@@ -499,7 +530,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
   );
 
   const visibleLedgerColumnCount = Math.max(visibleLedgerColumns.length, 1);
-  const ledgerTableMinWidth = Math.round(Math.max(isFullPage ? 1040 : 940, visibleLedgerColumnWeight * (isFullPage ? 12.2 : 11.2)));
+  const ledgerTableMinWidth = Math.round(Math.max(isFullPage ? 900 : 780, visibleLedgerColumnWeight * (isFullPage ? 10.4 : 9.6)));
 
   const clearProcessingTimers = React.useCallback(() => {
     processingTimersRef.current.forEach(clearTimeout);
@@ -646,6 +677,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
       return next;
     });
     setActiveLedgerCell((current) => (current && validKeys.has(current.rowKey) ? current : null));
+    setExpandedRowKey((current) => (current && validKeys.has(current) ? current : null));
   }, [rows, getRowKey]);
 
   const getSelectChoices = React.useCallback((field: EditableSelectField, row: SourceLedgerRow, rowKey: string): string[] => {
@@ -671,7 +703,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
       const acidText = String(row.acid || '');
       if (!query) return true;
 
-      const haystack = [idText, acidText, row.aow, row.moc, row.poc, row.phone, row.campaign, row.keyword, row.source, row.url]
+      const haystack = [idText, acidText, row.aow, row.moc, row.poc, row.phone, row.campaign, row.keyword, row.source, row.url, row.gclid]
         .join(' ')
         .toLowerCase();
       return haystack.includes(query);
@@ -1041,6 +1073,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
       queuedCampaign: null,
       queuedKeyword: null,
       queuedUrl: null,
+      queuedGclid: null,
       loading: true,
       error: null,
       rows: [],
@@ -1098,6 +1131,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
       const suggestedCampaign = normaliseStagedCallRailValue(latestMatchedCall?.campaign || '');
       const suggestedKeyword = normaliseStagedCallRailValue(latestMatchedCall?.keywords || '');
       const suggestedUrl = pickStagedCallRailValue(latestMatchedCall?.landingPageUrl, latestMatchedCall?.lastRequestedUrl, latestMatchedCall?.referringUrl);
+      const suggestedGclid = normaliseStagedCallRailValue(latestMatchedCall?.gclid || '');
       const stagedUpdates: Partial<Record<EditableLedgerField, string>> = {};
       if (shouldSuggestChange) stagedUpdates.source = suggestedSource;
       if (sourceLedgerAttributionColumns.campaign && suggestedCampaign && normaliseEvidenceString(suggestedCampaign) !== normaliseEvidenceString(row.campaign || '')) {
@@ -1108,6 +1142,9 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
       }
       if (suggestedUrl && normaliseEvidenceString(suggestedUrl) !== normaliseEvidenceString(row.url || '')) {
         stagedUpdates.url = suggestedUrl;
+      }
+      if (suggestedGclid && normaliseEvidenceString(suggestedGclid) !== normaliseEvidenceString(row.gclid || '')) {
+        stagedUpdates.gclid = suggestedGclid;
       }
       const hasStagedUpdates = Object.keys(stagedUpdates).length > 0;
 
@@ -1136,6 +1173,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
         queuedCampaign: stagedUpdates.campaign || null,
         queuedKeyword: stagedUpdates.keyword || null,
         queuedUrl: stagedUpdates.url || null,
+        queuedGclid: stagedUpdates.gclid || null,
         rows: sanitizedRows,
       }));
     } catch (error) {
@@ -1148,6 +1186,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
         queuedCampaign: null,
         queuedKeyword: null,
         queuedUrl: null,
+        queuedGclid: null,
         error: error instanceof Error ? error.message : 'CallRail lookup failed.',
       }));
     } finally {
@@ -1478,6 +1517,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
     callRailModal.queuedCampaign ? 'campaign' : null,
     callRailModal.queuedKeyword ? 'keyword' : null,
     callRailModal.queuedUrl ? 'url' : null,
+    callRailModal.queuedGclid ? 'gclid' : null,
   ].filter(Boolean);
   const callRailHasQueuedFields = callRailQueuedFields.length > 0;
   const themeText = isDarkMode ? colours.dark.text : colours.light.text;
@@ -1703,7 +1743,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
           <span style={compactPillStyle}>{sourceDateRange.startDate} to {sourceDateRange.endDate}</span>
 
           <ColumnSelector
-            columns={SOURCE_LEDGER_TABLE_COLUMNS}
+            columns={selectorColumns}
             visibleColumns={visibleColumns}
             onToggleColumn={handleToggleColumn}
             onShowAll={handleShowAll}
@@ -1822,6 +1862,8 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                   if (key === 'keyword') return renderSortableHeader({ key: 'keyword', label: 'Keyword' });
                   if (key === 'source') return renderSortableHeader({ key: 'source', label: 'Source' });
                   if (key === 'url') return renderPlainHeader('url', 'Landing URL');
+                  if (key === 'gclid') return renderPlainHeader('gclid', 'GCLID');
+                  if (key === 'tags') return renderPlainHeader('tags', 'Tags');
                   if (key === 'matter') return renderPlainHeader('matter', 'Matter');
                   return renderPlainHeader(key, column.label);
                 })}
@@ -1855,6 +1897,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                   const rowKey = getRowKey(row, index);
                   const rowFieldDrafts = rowDrafts[rowKey] || {};
                   const isSelected = Boolean(selectedRowKeys[rowKey]);
+                  const isExpanded = expandedRowKey === rowKey;
                   const isChanged = changedRowKeys.has(rowKey);
                   const rowUpdateCount = Object.keys(rowFieldDrafts).length;
                   const isWebFormRow = isWebFormChannel(getDraftedFieldValue(row, rowKey, 'moc'));
@@ -1875,8 +1918,17 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                   };
 
                   return (
-                <tr className="enquiry-source-ledger-row" key={`source-ledger-row-${row.id ?? row.datetime ?? index}`}>
-                  {visibleColumns.has('select') && (
+                <React.Fragment key={`source-ledger-row-${row.id ?? row.datetime ?? index}`}>
+                <tr
+                  className="enquiry-source-ledger-row"
+                  onClick={(event) => {
+                    const target = event.target as HTMLElement;
+                    if (target.closest('button,input,select,textarea,a,label')) return;
+                    setExpandedRowKey((current) => (current === rowKey ? null : rowKey));
+                  }}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {isColumnVisible('select') && (
                     <td style={rowCellStyle}>
                       <input
                         className="enquiry-source-ledger-checkbox"
@@ -1891,7 +1943,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                       />
                     </td>
                   )}
-                  {visibleColumns.has('date') && (
+                  {isColumnVisible('date') && (
                     <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
                       {renderInputCell(row, rowKey, rowFieldDrafts, 'datetime', {
                         width: 144,
@@ -1912,7 +1964,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                       })}
                     </td>
                   )}
-                  {visibleColumns.has('id') && (
+                  {isColumnVisible('id') && (
                     <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: isFullPage ? 0 : 4 }}>
                         {!isFullPage && row.id != null && <span style={{ fontWeight: 700 }}>#{row.id}</span>}
@@ -1924,17 +1976,17 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                       </div>
                     </td>
                   )}
-                  {visibleColumns.has('aow') && (
+                  {isColumnVisible('aow') && (
                     <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
                       {renderSelectCell(row, rowKey, rowFieldDrafts, 'aow', { width: 150 })}
                     </td>
                   )}
-                  {visibleColumns.has('moc') && (
+                  {isColumnVisible('moc') && (
                     <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
                       {renderSelectCell(row, rowKey, rowFieldDrafts, 'moc', { width: 132 })}
                     </td>
                   )}
-                  {visibleColumns.has('poc') && (
+                  {isColumnVisible('poc') && (
                     <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
                       {renderSelectCell(row, rowKey, rowFieldDrafts, 'poc', {
                         width: 122,
@@ -1943,14 +1995,14 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                       })}
                     </td>
                   )}
-                  {visibleColumns.has('phone') && (
+                  {isColumnVisible('phone') && (
                     <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
                       <div style={{ display: 'grid', gap: isFullPage ? 0 : 4 }}>
                         {renderInputCell(row, rowKey, rowFieldDrafts, 'phone', {
                           width: 122,
                           placeholder: isWebFormRow ? 'Web form contact' : 'Phone',
                         })}
-                        {!visibleColumns.has('url') && !isFullPage && (isWebFormRow || isFieldDrafted(rowFieldDrafts, 'url')) && renderInputCell(row, rowKey, rowFieldDrafts, 'url', {
+                        {!isColumnVisible('url') && !isFullPage && (isWebFormRow || isFieldDrafted(rowFieldDrafts, 'url')) && renderInputCell(row, rowKey, rowFieldDrafts, 'url', {
                           width: 188,
                           type: 'url',
                           placeholder: 'Landing URL',
@@ -1959,34 +2011,23 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                       </div>
                     </td>
                   )}
-                  {visibleColumns.has('campaign') && (
+                  {isColumnVisible('campaign') && (
                     <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
-                      {!sourceLedgerAttributionColumns.campaign ? renderReadOnlyValue(null, 'No column') : renderInputCell(row, rowKey, rowFieldDrafts, 'campaign', {
+                      {renderInputCell(row, rowKey, rowFieldDrafts, 'campaign', {
                         width: 136,
                         placeholder: 'Campaign',
                       })}
                     </td>
                   )}
-                  {visibleColumns.has('keyword') && (
+                  {isColumnVisible('keyword') && (
                     <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
-                      {!sourceLedgerAttributionColumns.keyword ? renderReadOnlyValue(null, 'No column') : renderInputCell(row, rowKey, rowFieldDrafts, 'keyword', {
+                      {renderInputCell(row, rowKey, rowFieldDrafts, 'keyword', {
                         width: 136,
                         placeholder: 'Keyword',
                       })}
                     </td>
                   )}
-                  {visibleColumns.has('url') && (
-                    <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
-                      {renderInputCell(row, rowKey, rowFieldDrafts, 'url', {
-                        width: 188,
-                        type: 'url',
-                        placeholder: 'Landing URL',
-                        fallback: 'Landing URL',
-                        forceBoxInFullPage: true,
-                      })}
-                    </td>
-                  )}
-                  {visibleColumns.has('source') && (
+                  {isColumnVisible('source') && (
                     <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
                       <div style={{ display: 'flex', gap: isFullPage ? 4 : 6, alignItems: 'center', flexWrap: isFullPage ? 'nowrap' : 'wrap' }}>
                         <div style={{ display: 'inline-flex', alignItems: 'stretch', width: '100%', maxWidth: isFullPage ? 260 : 320, minWidth: 0 }}>
@@ -2044,7 +2085,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                             )}
                           </button>
                         </div>
-                        {!visibleColumns.has('matter') && String(row.matterDisplayNumber || '').trim() && (
+                        {!isColumnVisible('matter') && String(row.matterDisplayNumber || '').trim() && (
                           <span
                             style={{
                               display: 'inline-flex',
@@ -2100,12 +2141,132 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                       </div>
                     </td>
                   )}
-                  {visibleColumns.has('matter') && (
+                  {isColumnVisible('url') && (
+                    <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
+                      {(() => {
+                        const draftedUrl = getDraftedFieldValue(row, rowKey, 'url');
+                        const truncatedUrl = truncateLedgerUrl(draftedUrl);
+                        return renderInputCell(row, rowKey, rowFieldDrafts, 'url', {
+                          width: 188,
+                          type: 'url',
+                          placeholder: 'Landing URL',
+                          fallback: 'Landing URL',
+                          displayValue: truncatedUrl,
+                          forceBoxInFullPage: true,
+                          readOnlyContent: (
+                            <span
+                              className="enquiry-source-ledger-readonly"
+                              title={draftedUrl || 'Landing URL'}
+                              style={{ display: 'inline-block', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            >
+                              {truncatedUrl || 'Landing URL'}
+                            </span>
+                          ),
+                        });
+                      })()}
+                    </td>
+                  )}
+                  {isColumnVisible('gclid') && (
+                    <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
+                      {renderInputCell(row, rowKey, rowFieldDrafts, 'gclid', {
+                        width: 164,
+                        placeholder: 'GCLID',
+                      })}
+                    </td>
+                  )}
+                  {isColumnVisible('tags') && (
+                    <td style={{ ...rowCellStyle, fontSize: 12, color: themeMutedText }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          border: `1px solid ${dataHubBorder}`,
+                          background: dataHubControlSurface,
+                          color: themeMutedText,
+                          padding: isFullPage ? '0 5px' : '1px 6px',
+                          fontSize: isFullPage ? 8 : 10,
+                          fontWeight: 700,
+                          whiteSpace: 'nowrap',
+                        }}
+                        title="Tags placeholder"
+                      >
+                        -
+                      </span>
+                    </td>
+                  )}
+                  {isColumnVisible('matter') && (
                     <td style={{ ...rowCellStyle, fontSize: 12, color: themeText }}>
                       {renderReadOnlyValue(row.matterDisplayNumber, 'Not linked')}
                     </td>
                   )}
                 </tr>
+                {isExpanded && (
+                  <tr>
+                    <td
+                      colSpan={visibleLedgerColumnCount}
+                      style={{
+                        borderBottom: `1px solid ${dataHubBorder}`,
+                        background: withAlpha(dataHubBrandAccent, isDarkMode ? 0.06 : 0.05),
+                        padding: isFullPage ? '8px 10px' : '10px 12px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                          gap: isFullPage ? 6 : 8,
+                        }}
+                      >
+                        {[
+                          ['ID', row.id == null ? 'Not set' : String(row.id)],
+                          ['ACID', row.acid || 'Not set'],
+                          ['Date Time', row.datetime || 'Not set'],
+                          ['Area of Work', row.aow || 'Not set'],
+                          ['MOC', row.moc || 'Not set'],
+                          ['POC', row.poc || 'Not set'],
+                          ['Phone', row.phone || 'Not set'],
+                          ['Source', row.source || 'Not set'],
+                          ['Campaign', row.campaign || 'Not set'],
+                          ['Keyword', row.keyword || 'Not set'],
+                          ['Landing URL', row.url || 'Not set'],
+                          ['GCLID', row.gclid || 'Not set'],
+                          ['Matter', row.matterDisplayNumber || 'Not linked'],
+                          ['Tags', '-'],
+                        ].map(([label, value]) => (
+                          <div
+                            key={`${rowKey}-${label}`}
+                            style={{
+                              border: `1px solid ${dataHubBorder}`,
+                              background: dataHubControlSurface,
+                              padding: isFullPage ? '6px 7px' : '7px 8px',
+                              display: 'grid',
+                              gap: 2,
+                              minHeight: isFullPage ? 34 : 40,
+                            }}
+                          >
+                            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase', color: themeMutedText }}>
+                              {label}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: isFullPage ? 10 : 11,
+                                fontWeight: 600,
+                                color: themeText,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={String(value)}
+                            >
+                              {value}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
                   );
                 })()
               ))}
@@ -2272,6 +2433,7 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
                 <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>Medium {callRailDecision.latestMatchedCall.medium || 'Not set'}</span>
                 <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>Campaign {callRailDecision.latestMatchedCall.campaign || 'Not set'}</span>
                 <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>Keyword {callRailDecision.latestMatchedCall.keywords || 'Not set'}</span>
+                <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>GCLID {callRailDecision.latestMatchedCall.gclid || 'Not set'}</span>
                 <span style={{ fontSize: 11, color: isDarkMode ? colours.greyText : colours.subtleGrey }}>Time {formatDate(callRailDecision.latestMatchedCall.startTime || null)}</span>
               </div>
             </div>

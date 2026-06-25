@@ -200,10 +200,15 @@
 }
 
 .tasks-home__workspace,
-.tasks-home__support-grid {
+.tasks-home__support-grid,
+.tasks-home__ops {
   display: grid;
   gap: 14px;
   align-items: start;
+}
+
+.tasks-home__ops {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.34fr);
 }
 
 .tasks-home__workspace {
@@ -216,11 +221,159 @@
 
 .tasks-home__panel,
 .tasks-home__board,
-.tasks-home__workbench {
+.tasks-home__workbench,
+.tasks-home__composer,
+.tasks-home__processing {
   min-width: 0;
   padding: 13px;
   border: 1px solid var(--border-base);
   background: var(--surface-section);
+}
+
+.tasks-home__composer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 9px;
+}
+
+.tasks-home__field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.tasks-home__field--wide {
+  grid-column: span 2;
+}
+
+.tasks-home__field span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.tasks-home__field input,
+.tasks-home__field select,
+.tasks-home__field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-base);
+  border-radius: 0;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-family: Raleway, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tasks-home__field input,
+.tasks-home__field select {
+  min-height: 34px;
+  padding: 0 9px;
+}
+
+.tasks-home__field textarea {
+  resize: vertical;
+  padding: 9px;
+}
+
+.tasks-home__composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 11px;
+}
+
+.tasks-home__composer-note {
+  color: var(--text-body);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.tasks-home__progress-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.tasks-home__progress-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-base);
+  border-left: 3px solid var(--helix-highlight);
+  background: var(--surface-card);
+}
+
+.tasks-home__progress-row--completed {
+  border-left-color: var(--helix-green);
+}
+
+.tasks-home__progress-row--partial {
+  border-left-color: var(--helix-orange);
+}
+
+.tasks-home__progress-row--failed {
+  border-left-color: var(--helix-cta);
+}
+
+.tasks-home__progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tasks-home__progress-head strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.tasks-home__progress-head span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.tasks-home__progress-legs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tasks-home__leg {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border-base);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.tasks-home__leg--running {
+  border-color: var(--helix-highlight);
+  color: var(--helix-highlight);
+}
+
+.tasks-home__leg--ok {
+  border-color: var(--helix-green);
+  color: var(--helix-green);
+}
+
+.tasks-home__leg--skipped {
+  border-color: var(--helix-orange);
+  color: var(--helix-orange);
+}
+
+.tasks-home__leg--error {
+  border-color: var(--helix-cta);
+  color: var(--helix-cta);
 }
 
 .tasks-home__workbench {
@@ -307,6 +460,143 @@
   background: linear-gradient(90deg, var(--surface-card), color-mix(in srgb, var(--helix-highlight) 9%, var(--surface-card)), var(--surface-card));
   background-size: 220% 100%;
   animation: tasks-home-skeleton 1.2s ease-in-out infinite;
+}
+
+.tasks-home__direct-loading {
+  min-height: calc(100vh - 76px);
+  padding-top: 12px;
+}
+
+.tasks-home__direct-board {
+  min-height: calc(100vh - 112px);
+}
+
+.tasks-home__skeleton-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 88px minmax(20px, 1fr) minmax(190px, 260px) 34px 82px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.tasks-home__skeleton-toolbar span,
+.tasks-home__skeleton-section-nav span,
+.tasks-home__skeleton-card,
+.tasks-home__skeleton-line,
+.tasks-home__skeleton-card-meta span {
+  background: linear-gradient(90deg, var(--surface-card), color-mix(in srgb, var(--helix-highlight) 9%, var(--surface-card)), var(--surface-card));
+  background-size: 220% 100%;
+  animation: tasks-home-skeleton 1.2s ease-in-out infinite;
+}
+
+.tasks-home__skeleton-select,
+.tasks-home__skeleton-search {
+  height: 34px;
+  border: 1px solid var(--border-base);
+}
+
+.tasks-home__skeleton-pill,
+.tasks-home__skeleton-tool {
+  height: 30px;
+  border: 1px solid var(--border-base);
+}
+
+.tasks-home__skeleton-tool--wide {
+  width: 82px;
+}
+
+.tasks-home__skeleton-spacer {
+  height: 1px;
+  opacity: 0;
+}
+
+.tasks-home__skeleton-section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.tasks-home__skeleton-section-nav span {
+  display: inline-flex;
+  min-width: 74px;
+  height: 26px;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--border-base);
+  color: transparent;
+}
+
+.tasks-home__skeleton-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(190px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.tasks-home__skeleton-column {
+  display: grid;
+  gap: 8px;
+  min-height: 420px;
+  padding: 10px;
+  border: 1px solid var(--border-base);
+  background: color-mix(in srgb, var(--surface-section) 82%, transparent);
+}
+
+.tasks-home__skeleton-column-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-base);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.tasks-home__skeleton-card {
+  display: grid;
+  gap: 8px;
+  min-height: 112px;
+  padding: 10px;
+  border: 1px solid var(--border-base);
+}
+
+.tasks-home__skeleton-line {
+  display: block;
+  height: 11px;
+  border: 1px solid color-mix(in srgb, var(--border-base) 72%, transparent);
+}
+
+.tasks-home__skeleton-line--short {
+  width: 42%;
+}
+
+.tasks-home__skeleton-line--mid {
+  width: 68%;
+}
+
+.tasks-home__skeleton-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.tasks-home__skeleton-card-meta span {
+  width: 38%;
+  height: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-base) 72%, transparent);
+}
+
+.tasks-home__skeleton-user {
+  display: block;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 @keyframes tasks-home-skeleton {
@@ -589,7 +879,8 @@
 
 @media (max-width: 1220px) {
   .tasks-home__lanes,
-  .tasks-home__skeleton-grid {
+  .tasks-home__skeleton-grid,
+  .tasks-home__skeleton-board {
     grid-template-columns: repeat(2, minmax(220px, 1fr));
   }
 
@@ -601,7 +892,8 @@
 @media (max-width: 980px) {
   .tasks-home__masthead,
   .tasks-home__workspace,
-  .tasks-home__support-grid {
+  .tasks-home__support-grid,
+  .tasks-home__ops {
     grid-template-columns: 1fr;
   }
 
@@ -610,8 +902,19 @@
   }
 
   .tasks-home__modebar,
-  .tasks-home__metrics {
+  .tasks-home__metrics,
+  .tasks-home__composer-grid {
     grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+
+  .tasks-home__skeleton-toolbar {
+    grid-template-columns: minmax(180px, 1fr) 82px;
+  }
+
+  .tasks-home__skeleton-spacer,
+  .tasks-home__skeleton-search,
+  .tasks-home__skeleton-tool {
+    display: none;
   }
 }
 
@@ -634,7 +937,30 @@
   .tasks-home__modebar,
   .tasks-home__metrics,
   .tasks-home__lanes,
-  .tasks-home__skeleton-grid {
+  .tasks-home__skeleton-grid,
+  .tasks-home__skeleton-board,
+  .tasks-home__composer-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tasks-home__skeleton-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .tasks-home__skeleton-pill {
+    display: none;
+  }
+
+  .tasks-home__skeleton-column {
+    min-height: 260px;
+  }
+
+  .tasks-home__field--wide {
+    grid-column: auto;
+  }
+
+  .tasks-home__composer-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

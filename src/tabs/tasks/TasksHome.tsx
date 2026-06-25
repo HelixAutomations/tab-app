@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FiAlertTriangle, FiCheckCircle, FiChevronRight, FiClock, FiGitBranch, FiInbox, FiLayers, FiRefreshCw, FiSearch, FiShield, FiUserCheck } from 'react-icons/fi';
+import { FiAlertTriangle, FiCheckCircle, FiChevronRight, FiClock, FiGitBranch, FiInbox, FiLayers, FiRefreshCw, FiSearch, FiSend, FiShield, FiUserCheck } from 'react-icons/fi';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { UserData } from '../../app/functionality/types';
 import { getApiBase } from '../../utils/getApiUrl';
+import { disposeOnHmr } from '../../utils/devHmr';
+import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 import AsanaProjectMirror from '../roadmap/parts/AsanaProjectMirror';
 import AsanaTaskInspector from '../roadmap/parts/AsanaTaskInspector';
 import SystemTaskBoardEditor from '../roadmap/system/board-editor/SystemTaskBoardEditor';
@@ -24,6 +26,7 @@ interface TechTicketItem {
 
 interface TasksHomeProps {
   userData?: UserData[] | null;
+  featureToggles?: Record<string, boolean>;
 }
 
 interface QueueMetric {
@@ -36,6 +39,31 @@ interface QueueMetric {
 type BoardMode = 'mine' | 'intake' | 'team' | 'adapter';
 type TaskLaneId = 'needs-me' | 'intake' | 'in-flight' | 'watch';
 type CanvasSource = 'hub' | 'asana';
+type IntakeWorkflowType = 'individual' | 'team' | 'approval';
+type IntakeLegState = 'pending' | 'running' | 'ok' | 'skipped' | 'error';
+
+interface IntakeDraft {
+  workflowType: IntakeWorkflowType;
+  taskName: string;
+  taskDescription: string;
+  assigneeFirstName: string;
+  assigneeTeam: string;
+  matterLabel: string;
+  priority: 'normal' | 'low' | 'high' | 'urgent';
+  dueDate: string;
+  timeEstimateMinutes: string;
+  collaborators: string;
+  approvalRequired: boolean;
+}
+
+interface IntakeProgress {
+  requestId: string;
+  status: 'queued' | 'processing' | 'partial' | 'completed' | 'failed';
+  legs: Record<string, { state: IntakeLegState; message?: string | null; durationMs?: number }>;
+  asanaTaskUrl?: string | null;
+  startedAt: number;
+  finishedAt?: number;
+}
 
 interface AsanaTask {
   gid: string;
@@ -111,6 +139,53 @@ const LANE_ORDER: Array<Omit<LaneModel, 'items'>> = [
   { id: 'watch', label: 'Watch', intent: 'integration or confidence gaps', tone: 'gap' },
 ];
 
+const INTAKE_LEG_ORDER: Array<{ key: string; label: string }> = [
+  { key: 'team_lookup', label: 'Team' },
+  { key: 'asana', label: 'Asana' },
+  { key: 'clio', label: 'Clio' },
+  { key: 'teams', label: 'Teams' },
+  { key: 'email', label: 'Email' },
+];
+
+const TASK_BOARD_SKELETON_COLUMNS = [
+  { label: 'To do', cards: 3 },
+  { label: 'Doing', cards: 2 },
+  { label: 'Review', cards: 2 },
+  { label: 'Done', cards: 1 },
+];
+
+type TasksHomeAsanaCacheEntry = {
+  project: AsanaProject | null;
+  tasks: AsanaTask[];
+  cachedAt: number;
+};
+
+const tasksHomeAsanaCache = new Map<string, TasksHomeAsanaCacheEntry>();
+
+function getTasksHomeCacheKey(initials: string | null): string {
+  return initials || 'anon';
+}
+
+const EMPTY_INTAKE_DRAFT: IntakeDraft = {
+  workflowType: 'individual',
+  taskName: '',
+  taskDescription: '',
+  assigneeFirstName: '',
+  assigneeTeam: 'Operations',
+  matterLabel: '',
+  priority: 'normal',
+  dueDate: '',
+  timeEstimateMinutes: '30',
+  collaborators: '',
+  approvalRequired: false,
+};
+
+function createInitialIntakeProgress(requestId: string): IntakeProgress {
+  const legs: IntakeProgress['legs'] = {};
+  INTAKE_LEG_ORDER.forEach((leg) => { legs[leg.key] = { state: 'pending' }; });
+  return { requestId, status: 'queued', legs, startedAt: Date.now() };
+}
+
 function getStatusLabel(status: string | null | undefined): string {
   const normalized = String(status || '').toLowerCase().trim();
   if (!normalized || normalized === 'submitted') return 'Pending review';
@@ -138,6 +213,54 @@ function formatType(type: TechTicketType): string {
 
 function normalisePerson(value: string | null | undefined): string {
   return String(value || '').toLowerCase().replace(/[^a-z0-9@.]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function formatDurationLabel(value: number | undefined): string {
+  if (!Number.isFinite(value || NaN)) return '';
+  if ((value || 0) < 1000) return `${Math.round(value || 0)}ms`;
+  return `${((value || 0) / 1000).toFixed(1)}s`;
+}
+
+function TaskBoardEditorSkeleton({ initials }: { initials: string | null }) {
+  return (
+    <main className="tasks-home tasks-home__direct-loading" data-helix-region="tab/tasks">
+      <section className="tasks-home__board tasks-home__direct-board" data-helix-region="tasks/direct-board/loading">
+        <div className="tasks-home__skeleton-toolbar" aria-hidden="true">
+          <span className="tasks-home__skeleton-select" />
+          <span className="tasks-home__skeleton-pill" />
+          <span className="tasks-home__skeleton-spacer" />
+          <span className="tasks-home__skeleton-search" />
+          <span className="tasks-home__skeleton-tool" />
+          <span className="tasks-home__skeleton-tool tasks-home__skeleton-tool--wide" />
+        </div>
+        <div className="tasks-home__skeleton-section-nav" aria-hidden="true">
+          {TASK_BOARD_SKELETON_COLUMNS.map((column) => <span key={column.label}>{column.label}</span>)}
+        </div>
+        <div className="tasks-home__skeleton-board" aria-label="Loading task board">
+          {TASK_BOARD_SKELETON_COLUMNS.map((column) => (
+            <section key={column.label} className="tasks-home__skeleton-column">
+              <div className="tasks-home__skeleton-column-head">
+                <span>{column.label}</span>
+                <strong>{column.cards}</strong>
+              </div>
+              {Array.from({ length: column.cards }).map((_, index) => (
+                <div key={`${column.label}-${index}`} className="tasks-home__skeleton-card">
+                  <span className="tasks-home__skeleton-line tasks-home__skeleton-line--short" />
+                  <span className="tasks-home__skeleton-line" />
+                  <span className="tasks-home__skeleton-line tasks-home__skeleton-line--mid" />
+                  <div className="tasks-home__skeleton-card-meta">
+                    <span />
+                    <span />
+                  </div>
+                </div>
+              ))}
+            </section>
+          ))}
+        </div>
+        <span className="tasks-home__skeleton-user">Loading {initials || 'your'} board</span>
+      </section>
+    </main>
+  );
 }
 
 function getUserLabel(user: UserData | null): string {
@@ -235,11 +358,12 @@ function toAsanaCanvasItem(task: AsanaTask, currentUser: UserData | null, initia
   };
 }
 
-const TasksHome: React.FC<TasksHomeProps> = ({ userData }) => {
+const TasksHome: React.FC<TasksHomeProps> = ({ userData, featureToggles = {} }) => {
   const { isDarkMode } = useTheme();
   const currentUser = userData?.[0] || null;
   const initials = String(currentUser?.Initials || '').toUpperCase().trim() || null;
   const isDevPreview = DEV_PREVIEW_INITIALS.has(initials || '');
+  const isLukeLocalOptions = initials === 'LZ' && checkIsLocalDev(featureToggles);
   const [items, setItems] = useState<TechTicketItem[]>([]);
   const [asanaItems, setAsanaItems] = useState<AsanaTask[]>([]);
   const [asanaProject, setAsanaProject] = useState<AsanaProject | null>(null);
@@ -250,6 +374,10 @@ const TasksHome: React.FC<TasksHomeProps> = ({ userData }) => {
   const [boardMode, setBoardMode] = useState<BoardMode>('mine');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editorTarget, setEditorTarget] = useState<{ gid: string; name: string; teamName: string | null } | null>(null);
+  const [intakeDraft, setIntakeDraft] = useState<IntakeDraft>(EMPTY_INTAKE_DRAFT);
+  const [intakeSubmitting, setIntakeSubmitting] = useState(false);
+  const [intakeError, setIntakeError] = useState<string | null>(null);
+  const [intakeProgress, setIntakeProgress] = useState<Map<string, IntakeProgress>>(() => new Map());
 
   const loadQueue = useCallback(async () => {
     try {
@@ -273,10 +401,66 @@ const TasksHome: React.FC<TasksHomeProps> = ({ userData }) => {
   }, [loadQueue]);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') return undefined;
+    let source: EventSource | null = null;
+    try {
+      source = new EventSource('/api/tasks/intake/stream');
+    } catch {
+      return undefined;
+    }
+    const handleMessage = (event: MessageEvent) => {
+      let payload: any = null;
+      try { payload = JSON.parse(event.data); } catch { return; }
+      const requestId = String(payload?.requestId || '').trim();
+      if (!requestId) return;
+      setIntakeProgress((previous) => {
+        if (!previous.has(requestId)) return previous;
+        const next = new Map(previous);
+        const current = next.get(requestId)!;
+        const updated: IntakeProgress = { ...current, legs: { ...current.legs } };
+        if (payload.event === 'queued' || payload.event === 'processing') {
+          updated.status = 'processing';
+        } else if (payload.event === 'leg_started' && payload.leg) {
+          updated.legs[payload.leg] = { ...updated.legs[payload.leg], state: 'running' };
+        } else if (payload.event === 'leg_completed' && payload.leg) {
+          updated.legs[payload.leg] = { state: 'ok', durationMs: payload.durationMs };
+        } else if (payload.event === 'leg_skipped' && payload.leg) {
+          updated.legs[payload.leg] = { state: 'skipped', message: payload.message || null, durationMs: payload.durationMs };
+        } else if (payload.event === 'leg_failed' && payload.leg) {
+          updated.legs[payload.leg] = { state: 'error', message: payload.message || 'failed', durationMs: payload.durationMs };
+        } else if (payload.event === 'completed' || payload.event === 'partial' || payload.event === 'failed') {
+          updated.status = payload.event;
+          updated.finishedAt = Date.now();
+          updated.asanaTaskUrl = payload.ref?.asanaTaskUrl || updated.asanaTaskUrl || null;
+          window.setTimeout(() => { void loadQueue(); }, 250);
+        }
+        if (payload.ref?.asanaTaskUrl) updated.asanaTaskUrl = payload.ref.asanaTaskUrl;
+        next.set(requestId, updated);
+        return next;
+      });
+    };
+    source.addEventListener('message', handleMessage);
+    const cleanup = () => {
+      try { source?.removeEventListener('message', handleMessage); } catch { /* ignore */ }
+      try { source?.close(); } catch { /* ignore */ }
+    };
+    const undoHmr = disposeOnHmr(cleanup);
+    return () => { cleanup(); undoHmr(); };
+  }, [loadQueue]);
+
+  useEffect(() => {
     let disposed = false;
+    const cacheKey = getTasksHomeCacheKey(initials);
+    const cached = tasksHomeAsanaCache.get(cacheKey);
+    if (cached) {
+      setAsanaProject(cached.project);
+      setAsanaItems(cached.tasks);
+      setAsanaError(null);
+      setAsanaLoading(false);
+    }
     (async () => {
       try {
-        setAsanaLoading(true);
+        setAsanaLoading(!cached);
         setAsanaError(null);
         const params = new URLSearchParams();
         if (initials) params.set('initials', initials);
@@ -289,14 +473,17 @@ const TasksHome: React.FC<TasksHomeProps> = ({ userData }) => {
         if (disposed) return;
         if (!projectsResponse.ok || !projectsJson.success) {
           setAsanaError(projectsJson.error || `Asana projects HTTP ${projectsResponse.status}`);
-          setAsanaItems([]);
-          setAsanaProject(null);
+          if (!cached) {
+            setAsanaItems([]);
+            setAsanaProject(null);
+          }
           return;
         }
         const project = chooseBoardProject(Array.isArray(projectsJson.projects) ? projectsJson.projects : [], currentUser, initials, projectsJson.defaultProjectId || null);
         setAsanaProject(project);
         if (!project) {
           setAsanaItems([]);
+          tasksHomeAsanaCache.set(cacheKey, { project: null, tasks: [], cachedAt: Date.now() });
           return;
         }
         const mirrorParams = new URLSearchParams(params);
@@ -306,15 +493,19 @@ const TasksHome: React.FC<TasksHomeProps> = ({ userData }) => {
         if (disposed) return;
         if (!mirrorResponse.ok || !mirrorJson.success) {
           setAsanaError(mirrorJson.error || `Asana board HTTP ${mirrorResponse.status}`);
-          setAsanaItems([]);
+          if (!cached) setAsanaItems([]);
           return;
         }
-        setAsanaItems(Array.isArray(mirrorJson.tasks) ? mirrorJson.tasks : []);
+        const nextTasks = Array.isArray(mirrorJson.tasks) ? mirrorJson.tasks : [];
+        setAsanaItems(nextTasks);
+        tasksHomeAsanaCache.set(cacheKey, { project, tasks: nextTasks, cachedAt: Date.now() });
       } catch (err) {
         if (!disposed) {
           setAsanaError(err instanceof Error ? err.message : 'Failed to load Asana board');
-          setAsanaItems([]);
-          setAsanaProject(null);
+          if (!cached) {
+            setAsanaItems([]);
+            setAsanaProject(null);
+          }
         }
       } finally {
         if (!disposed) setAsanaLoading(false);
@@ -368,6 +559,65 @@ const TasksHome: React.FC<TasksHomeProps> = ({ userData }) => {
     { id: 'adapter', label: 'Asana', count: canvasItems.filter((item) => item.source === 'asana').length, icon: FiGitBranch },
   ], [canvasItems, mineCount]);
 
+  const progressRows = useMemo(() => Array.from(intakeProgress.values()).sort((left, right) => right.startedAt - left.startedAt), [intakeProgress]);
+
+  const submitIntake = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const taskName = intakeDraft.taskName.trim();
+    if (!taskName) {
+      setIntakeError('Task name is required.');
+      return;
+    }
+    if (!intakeDraft.dueDate) {
+      setIntakeError('Due date is required.');
+      return;
+    }
+    setIntakeSubmitting(true);
+    setIntakeError(null);
+    try {
+      const baseUrl = getApiBase();
+      const response = await fetch(`${baseUrl}/api/tasks/intake`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(initials ? { 'x-user-initials': initials } : {}),
+        },
+        body: JSON.stringify({
+          source: 'hub-form',
+          workflow_type: intakeDraft.workflowType,
+          task_name: taskName,
+          task_description: intakeDraft.taskDescription.trim() || undefined,
+          assignor_initials: initials || undefined,
+          assignor_first_name: (currentUser as any)?.First || undefined,
+          assignee_first_name: intakeDraft.workflowType !== 'team' ? intakeDraft.assigneeFirstName.trim() || undefined : undefined,
+          assignee_team: intakeDraft.workflowType === 'team' ? intakeDraft.assigneeTeam.trim() || undefined : undefined,
+          matter_label: intakeDraft.matterLabel.trim() || undefined,
+          priority: intakeDraft.priority,
+          due_date: intakeDraft.dueDate,
+          time_estimate_minutes: Number(intakeDraft.timeEstimateMinutes) || undefined,
+          collaborators: intakeDraft.collaborators.trim() || undefined,
+          approval_required: intakeDraft.workflowType === 'approval' || intakeDraft.approvalRequired,
+          auto_process: true,
+        }),
+      });
+      const json = (await response.json().catch(() => ({}))) as { success?: boolean; requestId?: string; error?: string; details?: string[] };
+      if (!response.ok || !json.success || !json.requestId) {
+        throw new Error(json.details?.join(' ') || json.error || `Task intake HTTP ${response.status}`);
+      }
+      setIntakeProgress((previous) => {
+        const next = new Map(previous);
+        next.set(json.requestId!, createInitialIntakeProgress(json.requestId!));
+        return next;
+      });
+      setIntakeDraft(EMPTY_INTAKE_DRAFT);
+      setBoardMode('intake');
+    } catch (err) {
+      setIntakeError(err instanceof Error ? err.message : 'Task intake failed');
+    } finally {
+      setIntakeSubmitting(false);
+    }
+  }, [currentUser, initials, intakeDraft]);
+
   const boardSubtitle = boardMode === 'mine'
     ? `${getUserLabel(currentUser)} lands here first. Shared queues stay one click away.`
     : boardMode === 'intake'
@@ -389,6 +639,41 @@ const TasksHome: React.FC<TasksHomeProps> = ({ userData }) => {
         boardTeamName="Team Tasks"
         onClose={() => setEditorTarget(null)}
       />
+    );
+  }
+
+  if (!isLukeLocalOptions) {
+    if (asanaLoading) {
+      return <TaskBoardEditorSkeleton initials={initials} />;
+    }
+    if (asanaProject) {
+      return (
+        <SystemTaskBoardEditor
+          initials={initials}
+          viewMode="roadmap"
+          isDarkMode={isDarkMode}
+          projectId={asanaProject.gid}
+          projectName={asanaProject.name}
+          teamName={asanaProject.teamName}
+          boardTeamName="Team Tasks"
+          onClose={() => undefined}
+          showBackButton={false}
+        />
+      );
+    }
+    return (
+      <main className="tasks-home" data-helix-region="tab/tasks">
+        <section className="tasks-home__board tasks-home__direct-board" data-helix-region="tasks/direct-board/unavailable">
+          <div className="tasks-home__panel-head">
+            <div>
+              <span className="tasks-home__panel-kicker">Tasks</span>
+              <h2>Board unavailable</h2>
+            </div>
+            <span className="tasks-home__panel-count">{initials || 'Hub'}</span>
+          </div>
+          <div className="tasks-home__notice tasks-home__notice--error">{asanaError || 'No task board is mapped for this user yet.'}</div>
+        </section>
+      </main>
     );
   }
 
@@ -439,6 +724,116 @@ const TasksHome: React.FC<TasksHomeProps> = ({ userData }) => {
             <span>{metric.note}</span>
           </article>
         ))}
+      </section>
+
+      <section className="tasks-home__ops" data-helix-region="tasks/operations">
+        <form className="tasks-home__composer" data-helix-region="tasks/operations/new-task" onSubmit={submitIntake}>
+          <div className="tasks-home__panel-head">
+            <div>
+              <span className="tasks-home__panel-kicker">Create</span>
+              <h2>New operational task</h2>
+            </div>
+            <span className="tasks-home__panel-count">Hub intake</span>
+          </div>
+          <div className="tasks-home__composer-grid">
+            <label className="tasks-home__field tasks-home__field--wide">
+              <span>Task name</span>
+              <input value={intakeDraft.taskName} onChange={(event) => setIntakeDraft((draft) => ({ ...draft, taskName: event.currentTarget.value }))} maxLength={200} required />
+            </label>
+            <label className="tasks-home__field">
+              <span>Workflow</span>
+              <select value={intakeDraft.workflowType} onChange={(event) => setIntakeDraft((draft) => ({ ...draft, workflowType: event.currentTarget.value as IntakeWorkflowType }))}>
+                <option value="individual">Individual</option>
+                <option value="team">Team</option>
+                <option value="approval">Approval</option>
+              </select>
+            </label>
+            <label className="tasks-home__field">
+              <span>{intakeDraft.workflowType === 'team' ? 'Team' : 'Assignee first name'}</span>
+              {intakeDraft.workflowType === 'team' ? (
+                <select value={intakeDraft.assigneeTeam} onChange={(event) => setIntakeDraft((draft) => ({ ...draft, assigneeTeam: event.currentTarget.value }))}>
+                  <option value="Operations">Operations</option>
+                  <option value="Reception">Reception</option>
+                  <option value="Marketing">Marketing</option>
+                  <option value="Tech & Automation">Tech & Automation</option>
+                </select>
+              ) : (
+                <input value={intakeDraft.assigneeFirstName} onChange={(event) => setIntakeDraft((draft) => ({ ...draft, assigneeFirstName: event.currentTarget.value }))} />
+              )}
+            </label>
+            <label className="tasks-home__field">
+              <span>Due date</span>
+              <input type="date" value={intakeDraft.dueDate} onChange={(event) => setIntakeDraft((draft) => ({ ...draft, dueDate: event.currentTarget.value }))} required />
+            </label>
+            <label className="tasks-home__field">
+              <span>Priority</span>
+              <select value={intakeDraft.priority} onChange={(event) => setIntakeDraft((draft) => ({ ...draft, priority: event.currentTarget.value as IntakeDraft['priority'] }))}>
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </label>
+            <label className="tasks-home__field">
+              <span>Minutes</span>
+              <input type="number" min="1" step="1" value={intakeDraft.timeEstimateMinutes} onChange={(event) => setIntakeDraft((draft) => ({ ...draft, timeEstimateMinutes: event.currentTarget.value }))} />
+            </label>
+            <label className="tasks-home__field">
+              <span>Matter</span>
+              <input value={intakeDraft.matterLabel} onChange={(event) => setIntakeDraft((draft) => ({ ...draft, matterLabel: event.currentTarget.value }))} />
+            </label>
+            <label className="tasks-home__field">
+              <span>Collaborators</span>
+              <input value={intakeDraft.collaborators} onChange={(event) => setIntakeDraft((draft) => ({ ...draft, collaborators: event.currentTarget.value }))} placeholder="Comma separated" />
+            </label>
+            <label className="tasks-home__field tasks-home__field--wide">
+              <span>Description</span>
+              <textarea value={intakeDraft.taskDescription} onChange={(event) => setIntakeDraft((draft) => ({ ...draft, taskDescription: event.currentTarget.value }))} rows={3} />
+            </label>
+          </div>
+          <div className="tasks-home__composer-actions">
+            {intakeError ? <span className="tasks-home__notice tasks-home__notice--error">{intakeError}</span> : <span className="tasks-home__composer-note">Creates an OpsTaskRequest and processes Asana, Clio, Teams, and email legs.</span>}
+            <button type="submit" className="tasks-home__button" disabled={intakeSubmitting}>
+              <FiSend aria-hidden="true" />
+              {intakeSubmitting ? 'Sending' : 'Send task'}
+            </button>
+          </div>
+        </form>
+
+        <section className="tasks-home__processing" data-helix-region="tasks/operations/processing">
+          <div className="tasks-home__panel-head">
+            <div>
+              <span className="tasks-home__panel-kicker">Processing</span>
+              <h2>{progressRows.length ? `${progressRows.length} live request${progressRows.length === 1 ? '' : 's'}` : 'No live requests'}</h2>
+            </div>
+          </div>
+          {progressRows.length === 0 ? (
+            <div className="tasks-home__empty tasks-home__empty--compact">
+              <FiCheckCircle aria-hidden="true" />
+              <strong>Ready</strong>
+              <span>New tasks will show per-leg progress here.</span>
+            </div>
+          ) : (
+            <div className="tasks-home__progress-stack">
+              {progressRows.map((row) => (
+                <article key={row.requestId} className={`tasks-home__progress-row tasks-home__progress-row--${row.status}`}>
+                  <div className="tasks-home__progress-head">
+                    <strong>{row.status === 'completed' ? 'Completed' : row.status === 'partial' ? 'Partial' : row.status === 'failed' ? 'Failed' : 'Processing'}</strong>
+                    <span>{row.requestId.slice(0, 8)}</span>
+                  </div>
+                  <div className="tasks-home__progress-legs">
+                    {INTAKE_LEG_ORDER.map((leg) => {
+                      const state = row.legs[leg.key]?.state || 'pending';
+                      const duration = formatDurationLabel(row.legs[leg.key]?.durationMs);
+                      return <span key={leg.key} className={`tasks-home__leg tasks-home__leg--${state}`} title={row.legs[leg.key]?.message || leg.label}>{leg.label}{duration ? ` ${duration}` : ''}</span>;
+                    })}
+                  </div>
+                  {row.asanaTaskUrl ? <a className="tasks-home__open-link" href={row.asanaTaskUrl} target="_blank" rel="noreferrer noopener">Open Asana</a> : null}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </section>
 
       <section className="tasks-home__workspace" data-helix-region="tasks/workspace">

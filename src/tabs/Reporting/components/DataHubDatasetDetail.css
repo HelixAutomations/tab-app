@@ -707,6 +707,254 @@
   min-width: 0;
 }
 
+.marketing-email-campaign-list-strip {
+  animation: emailListsPaneIn 180ms ease both;
+  background: var(--email-list-elevated);
+  border: 1px solid var(--email-list-edge);
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(6, minmax(112px, 1fr));
+  min-width: 0;
+  padding: 6px;
+}
+
+.marketing-email-campaign-list-strip-option {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--email-list-body);
+  cursor: pointer;
+  display: grid;
+  font-family: inherit;
+  gap: 8px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  min-height: 58px;
+  min-width: 0;
+  padding: 8px 9px;
+  position: relative;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 140ms ease;
+}
+
+.marketing-email-campaign-list-strip-option:hover:not(:disabled),
+.marketing-email-campaign-list-strip-option:focus-visible:not(:disabled) {
+  background: var(--email-list-hover);
+  border-color: color-mix(in srgb, var(--email-list-tone) 42%, var(--email-list-edge));
+  box-shadow: 0 8px 18px rgba(0, 3, 25, 0.10);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.marketing-email-campaign-list-strip-option.is-selected {
+  background: var(--email-list-selected);
+  border-color: var(--email-list-tone);
+  box-shadow: inset 0 -2px 0 var(--email-list-tone);
+}
+
+.marketing-email-campaign-list-strip-option:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.marketing-email-campaign-list-strip-label,
+.marketing-email-campaign-list-strip-growth {
+  display: grid;
+  min-width: 0;
+}
+
+.marketing-email-campaign-list-strip-label {
+  gap: 2px;
+}
+
+.marketing-email-campaign-list-strip-label strong,
+.marketing-email-campaign-list-strip-label small,
+.marketing-email-campaign-list-strip-growth span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketing-email-campaign-list-strip-label strong {
+  color: var(--email-list-text);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.marketing-email-campaign-list-strip-label small {
+  color: var(--email-list-muted);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.marketing-email-campaign-list-strip-growth {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.marketing-email-campaign-list-strip-growth span {
+  background: var(--email-list-control);
+  border: 1px solid var(--email-list-edge);
+  color: var(--email-list-tone);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  min-height: 20px;
+  padding: 5px 6px;
+  text-align: center;
+}
+
+.marketing-email-campaign-stage-layout {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.marketing-email-campaign-setup-stage,
+.marketing-email-campaign-draft-stage {
+  animation: emailListsPaneIn 190ms ease both;
+  min-width: 0;
+}
+
+.marketing-email-campaign-setup-stage {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(250px, 0.78fr) minmax(320px, 1.22fr);
+}
+
+.marketing-email-campaign-setup-controls,
+.marketing-email-campaign-setup-preview {
+  background: var(--email-list-elevated);
+  border: 1px solid var(--email-list-edge);
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.marketing-email-campaign-setup-stage[data-locked="true"] .marketing-email-campaign-setup-controls,
+.marketing-email-campaign-setup-stage[data-locked="true"] .marketing-email-campaign-setup-preview {
+  border-color: color-mix(in srgb, var(--email-list-tone) 36%, var(--email-list-edge));
+}
+
+.marketing-email-campaign-stage-header {
+  border-bottom: 1px solid var(--email-list-edge);
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding-bottom: 10px;
+}
+
+.marketing-email-campaign-stage-header strong {
+  color: var(--email-list-text);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.marketing-email-campaign-stage-header small {
+  color: var(--email-list-muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.marketing-email-campaign-setup-controls label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.marketing-email-campaign-setup-controls label > span:first-child {
+  color: var(--email-list-muted);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.marketing-email-campaign-lock-button {
+  background: var(--email-list-tone);
+  border: 1px solid var(--email-list-tone);
+  color: var(--email-list-surface);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  min-height: 34px;
+  padding: 0 12px;
+  text-transform: uppercase;
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 140ms ease;
+}
+
+.marketing-email-campaign-lock-button:hover:not(:disabled),
+.marketing-email-campaign-lock-button:focus-visible:not(:disabled) {
+  box-shadow: 0 8px 18px rgba(0, 3, 25, 0.14);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.marketing-email-campaign-lock-button:disabled {
+  background: var(--email-list-control);
+  border-color: var(--email-list-edge);
+  color: var(--email-list-muted);
+  cursor: default;
+}
+
+.marketing-email-campaign-setup-preview > header,
+.marketing-email-campaign-preview header {
+  align-items: end;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.marketing-email-campaign-setup-preview > header strong,
+.marketing-email-campaign-preview header strong {
+  color: var(--email-list-tone);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.marketing-email-campaign-preview-meta {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.marketing-email-campaign-preview-meta span {
+  background: var(--email-list-control);
+  border: 1px solid var(--email-list-edge);
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.marketing-email-campaign-preview-meta small,
+.marketing-email-campaign-preview-meta strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketing-email-campaign-preview-meta small {
+  color: var(--email-list-muted);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.marketing-email-campaign-preview-meta strong {
+  color: var(--email-list-text);
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .marketing-email-campaign-side-pane {
   align-content: start;
   background: var(--email-list-elevated);
@@ -745,6 +993,10 @@
   min-width: 0;
 }
 
+.marketing-email-campaign-side-pane.is-list-selected .marketing-email-campaign-list-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .marketing-email-campaign-list-option {
   align-items: center;
   background: transparent;
@@ -759,6 +1011,12 @@
   min-width: 0;
   padding: 8px 10px;
   text-align: left;
+}
+
+.marketing-email-campaign-side-pane.is-list-selected .marketing-email-campaign-list-option {
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 8px;
 }
 
 .marketing-email-campaign-list-option:hover:not(:disabled) {
@@ -839,6 +1097,34 @@
   max-height: 238px;
   min-width: 0;
   overflow: auto;
+  scrollbar-width: none;
+}
+
+.marketing-email-campaign-preview-list::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}
+
+html[data-show-scrollbars="1"] .marketing-email-campaign-preview-list {
+  scrollbar-color: var(--email-list-tone) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+html[data-show-scrollbars="1"] .marketing-email-campaign-preview-list::-webkit-scrollbar {
+  display: block;
+  height: 8px;
+  width: 8px;
+}
+
+html[data-show-scrollbars="1"] .marketing-email-campaign-preview-list::-webkit-scrollbar-thumb {
+  background: var(--email-list-tone);
+}
+
+.marketing-email-campaign-side-pane.is-list-selected .marketing-email-campaign-preview-list {
+  max-height: none;
+  overflow: visible;
 }
 
 .marketing-email-campaign-preview-row {
@@ -913,10 +1199,45 @@
 
 .marketing-email-campaign-composer {
   align-self: stretch;
+  width: 100%;
 }
 
 .marketing-email-campaign-composer-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.marketing-email-campaign-composer .email-lists-composer__header {
+  align-items: start;
+}
+
+.marketing-email-campaign-composer .email-lists-demo-send__target {
+  align-items: flex-start;
+  height: auto;
+  justify-content: start;
+  min-height: 30px;
+  padding: 5px 8px;
+}
+
+.marketing-email-campaign-composer .email-lists-composer__footer {
+  justify-content: flex-end;
+}
+
+.marketing-email-campaign-draft-stage .marketing-email-campaign-composer {
+  animation: emailListsPaneIn 210ms ease both;
+  border-top-color: var(--email-list-tone);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.marketing-email-campaign-draft-stage .email-lists-composer__grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.marketing-email-campaign-draft-stage .email-lists-composer__full textarea {
+  min-height: 220px;
+}
+
+.marketing-email-campaign-composer .email-lists-demo-send__result {
+  margin-right: auto;
 }
 
 .email-lists-area-card--loading span,
@@ -1438,6 +1759,19 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .marketing-email-campaign-list-strip,
+  .marketing-email-campaign-setup-stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .marketing-email-campaign-list-strip-option {
+    grid-template-columns: 20px minmax(0, 1fr) minmax(92px, auto);
+  }
+
+  .marketing-email-campaign-list-strip-growth {
+    grid-column: auto;
+  }
+
   .marketing-email-campaign-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1448,6 +1782,11 @@
 
   .marketing-email-campaign-composer-grid .email-lists-composer__wide {
     grid-column: 1 / -1;
+  }
+
+  .marketing-email-campaign-preview-meta,
+  .marketing-email-campaign-draft-stage .email-lists-composer__grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .marketing-email-campaign-preview-row {

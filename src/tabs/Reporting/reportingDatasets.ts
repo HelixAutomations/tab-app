@@ -17,6 +17,7 @@ export type ReportingLiveDatasetSummary = {
   updatedAt: number | null | undefined;
   count: number;
   cached: boolean;
+  data?: unknown;
 };
 
 export type Ga4ProviderCheckState = {
@@ -263,6 +264,38 @@ export const REPORTING_DATASET_DEFINITIONS = [
       refreshMode: 'manual-check',
       reportUsage: [],
       contextDatasets: ['enquiries', 'deals', 'instructions'],
+      buildFocus: true,
+    },
+  },
+  {
+    key: 'taskingHub',
+    name: 'Tasking',
+    provider: {
+      category: 'operational-cache',
+      providerLabel: 'Hub task intake',
+      sourceLabel: 'OpsTaskRequests and processing transitions',
+      purpose: 'Hub-generated task requests and per-leg processing movement.',
+      freshnessExpectation: 'Reports stream. Hub-generated movements only; legacy function-app movements are excluded.',
+      refreshMode: 'stream',
+      reportUsage: ['Tasks', 'Data Hub'],
+      contextDatasets: ['teamData'],
+      sourceRoute: '/api/tasks/intake',
+      buildFocus: true,
+    },
+  },
+  {
+    key: 'taskingLegacy',
+    name: 'Tasks DB',
+    provider: {
+      category: 'operational-cache',
+      providerLabel: 'Tasking function app',
+      sourceLabel: 'helix-project-data.dbo.tasks',
+      purpose: 'Task records written by the tasking-v3 Azure Function app.',
+      freshnessExpectation: 'Reports stream. Reads the tasking project database when the project-data connection string is configured.',
+      refreshMode: 'stream',
+      reportUsage: ['Tasks', 'Data Hub'],
+      contextDatasets: ['taskingHub'],
+      sourceRoute: '/api/reporting-stream/stream-datasets?datasets=taskingLegacy',
       buildFocus: true,
     },
   },

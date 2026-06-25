@@ -23,6 +23,7 @@ import ManagementDashboardTrustRail from './ManagementDashboardTrustRail';
 import DataHubDatasetDetail from './components/DataHubDatasetDetail';
 import DataHubDatasetPicker from './components/DataHubDatasetPicker';
 import DataHubAttributionWorkbench from './components/DataHubAttributionWorkbench';
+import { EXTRA_TOP_NAV_USERS } from '../../app/admin';
 import AccessMatrixConnector from './components/AccessMatrixConnector';
 import DataHubStreamsPanel from './components/DataHubStreamsPanel';
 import GoogleAnalyticsProviderPanel from './components/GoogleAnalyticsProviderPanel';
@@ -1111,6 +1112,8 @@ const DataCentre: React.FC<DataCentreProps> = ({
     deals: 'people',
     instructions: 'people',
     emailLists: 'datasetDetail',
+    taskingHub: 'datasetDetail',
+    taskingLegacy: 'datasetDetail',
     dubberCalls: 'people',
   }), []);
   const datasetTargetLabels = React.useMemo<Record<ActiveTab, string>>(() => ({
@@ -2664,10 +2667,21 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
             opsLogLoading={opsLogLoading}
           />
 
-          <DataHubAttributionWorkbench
-            isDarkMode={isDarkMode}
-            userInitials={userInitials}
-          />
+          {EXTRA_TOP_NAV_USERS.includes(String(userInitials || '').trim().toUpperCase() as any) && (
+            <div
+              style={{
+                outline: '1.5px dashed rgba(99, 102, 241, 0.45)',
+                outlineOffset: 3,
+                borderRadius: 2,
+              }}
+              title="Restricted: LZ AC KW EA"
+            >
+              <DataHubAttributionWorkbench
+                isDarkMode={isDarkMode}
+                userInitials={userInitials}
+              />
+            </div>
+          )}
 
           <DataHubDatasetPicker
             isDarkMode={isDarkMode}

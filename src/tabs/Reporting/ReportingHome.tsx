@@ -535,6 +535,8 @@ let cachedData: DatasetMap = {
   deals: null,
   instructions: null,
   emailLists: null,
+  taskingHub: null,
+  taskingLegacy: null,
   dubberCalls: null,
 };
 let cachedTimestamp: number | null = null;
@@ -944,6 +946,8 @@ interface DatasetMap {
   deals: DealRecord[] | null;
   instructions: InstructionRecord[] | null;
   emailLists: unknown[] | null;
+  taskingHub: unknown[] | null;
+  taskingLegacy: unknown[] | null;
   dubberCalls: DubberCallRecord[] | null;
 }
 
@@ -2536,6 +2540,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
     deals: cachedData.deals,
     instructions: cachedData.instructions,
     emailLists: cachedData.emailLists,
+    taskingHub: cachedData.taskingHub,
+    taskingLegacy: cachedData.taskingLegacy,
     dubberCalls: cachedData.dubberCalls,
   }));
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>(() => {
@@ -2721,6 +2727,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
       deals: [],
       instructions: [],
       emailLists: [],
+      taskingHub: [],
+      taskingLegacy: [],
       dubberCalls: [],
     };
   }, [propUserData, propTeamData]);
@@ -5238,6 +5246,7 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         updatedAt: activityIsNewer && externalActivity ? externalActivity.updatedAt : meta.updatedAt,
         count,
         cached,
+        data: value,
       };
     });
   }, [datasetData, datasetStatus, externalDatasetActivity, streamingDatasets, isStreamingConnected, isReportsDevPreview]);
@@ -7949,6 +7958,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
         deals: describeRangeKey(enquiriesRangeKey),
         instructions: describeRangeKey(enquiriesRangeKey),
         emailLists: 'Not connected',
+        taskingHub: 'Recent Hub intake',
+        taskingLegacy: 'Recent tasking DB rows',
         dubberCalls: 'All',
       };
 
@@ -8635,6 +8646,8 @@ const ReportingHome: React.FC<ReportingHomeProps> = ({
               (s.definition.provider.category === 'reconciled-ledger') ||
               s.definition.key === 'enquiries' ||
               s.definition.key === 'allMatters' ||
+              s.definition.key === 'taskingHub' ||
+              s.definition.key === 'taskingLegacy' ||
               s.definition.key === 'emailLists'
             ))
             : datasetSummariesSorted;

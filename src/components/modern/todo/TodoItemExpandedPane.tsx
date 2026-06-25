@@ -40,6 +40,9 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
   const surface = isDarkMode
     ? withAlpha(colours.websiteBlue, 0.45)
     : withAlpha(colours.highlightBlue, 0.35);
+  const raisedSurface = isDarkMode
+    ? withAlpha(colours.dark.cardBackground, 0.72)
+    : withAlpha(colours.light.cardBackground, 0.88);
   const divider = isDarkMode
     ? withAlpha(colours.dark.border, 0.4)
     : withAlpha(colours.helixBlue, 0.12);
@@ -56,11 +59,12 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
       style={{
         display: 'flex',
         gap: 0,
-        background: surface,
+        background: `linear-gradient(90deg, ${withAlpha(accent, isDarkMode ? 0.14 : 0.08)} 0%, ${surface} 34%, ${surface} 100%)`,
         borderTop: `1px solid ${divider}`,
         padding: '10px 12px',
         fontFamily: 'var(--font-primary)',
         animation: 'iabChipIn 0.18s ease both',
+        boxShadow: `inset 3px 0 0 ${withAlpha(accent, isDarkMode ? 0.65 : 0.52)}`,
       }}
     >
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -160,9 +164,8 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
               display: 'flex',
               flexDirection: 'column',
               border: `1px solid ${divider}`,
-              background: isDarkMode
-                ? withAlpha(colours.websiteBlue, 0.35)
-                : withAlpha('#ffffff', 0.6),
+              background: raisedSurface,
+              boxShadow: `inset 0 1px 0 ${withAlpha(accent, isDarkMode ? 0.10 : 0.08)}`,
             }}
           >
             {listRows.map((row, idx) => {
@@ -189,16 +192,18 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
                     width: '100%',
                     textAlign: 'left',
                     fontFamily: 'var(--font-primary)',
-                    transition: 'background 0.12s ease',
+                    transition: 'background 0.12s ease, box-shadow 0.12s ease',
                   }}
                   onMouseEnter={(e) => {
                     (e.currentTarget as HTMLButtonElement).style.background = withAlpha(
                       rowAccent,
                       isDarkMode ? 0.16 : 0.08,
                     );
+                    (e.currentTarget as HTMLButtonElement).style.boxShadow = `inset 2px 0 0 ${withAlpha(rowAccent, isDarkMode ? 0.72 : 0.58)}`;
                   }}
                   onMouseLeave={(e) => {
                     (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                    (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none';
                   }}
                 >
                   <span
@@ -305,7 +310,7 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
                   style={{
                     fontFamily: 'var(--font-primary)',
                     fontSize: 10.5,
-                    fontWeight: 600,
+                    fontWeight: 800,
                     letterSpacing: 0.2,
                     padding: '5px 10px',
                     borderRadius: 0,

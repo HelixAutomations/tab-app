@@ -32,7 +32,7 @@ import {
 import { useFormReadinessPulse } from './shared/useFormReadinessPulse';
 import { FormReadinessCue } from './shared/FormReadinessCue';
 import FormsStreamLanded from './shared/FormsStreamLanded';
-import { colours } from '../app/styles/colours';
+import { colours, withAlpha } from '../app/styles/colours';
 import { useTheme } from '../app/functionality/ThemeContext';
 import { isAdminUser } from '../app/admin';
 
@@ -590,15 +590,22 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
                 return (
                   <div style={{
                     padding: '12px 16px', border: `1px solid ${border}`,
+                    borderLeft: `3px solid ${progressColour}`,
                     background: isDarkMode ? colours.dark.sectionBackground : colours.light.sectionBackground,
                     display: 'grid', gap: 6,
+                    boxShadow: `inset 0 1px 0 ${withAlpha(progressColour, isDarkMode ? 0.12 : 0.08)}`,
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                      <Text style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-                        {currentYear} progress
-                      </Text>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, alignItems: 'baseline' }}>
+                      <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                        <Text style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                          {currentYear} progress
+                        </Text>
+                        <Text style={{ fontSize: 11, color: bodyText }}>
+                          {target - logged > 0 ? `${Math.max(0, target - logged).toFixed(1)}h remaining` : 'Target met'}
+                        </Text>
+                      </span>
                       <Stack horizontal verticalAlign="baseline" tokens={{ childrenGap: 8 }}>
-                        <Text style={{ fontSize: 13, fontWeight: 700, color: progressColour }}>
+                        <Text style={{ fontSize: 14, fontWeight: 900, color: progressColour }}>
                           {logged.toFixed(1)}h / {target}h
                         </Text>
                         <IconButton
@@ -609,8 +616,8 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
                         />
                       </Stack>
                     </div>
-                    <div style={{ height: 6, background: isDarkMode ? colours.dark.border : '#e5e7eb', overflow: 'hidden' }}>
-                      <div style={{ width: `${pct}%`, height: '100%', background: progressColour, transition: 'width 0.3s' }} />
+                    <div style={{ height: 7, background: isDarkMode ? colours.dark.border : withAlpha(colours.helixBlue, 0.10), overflow: 'hidden', boxShadow: `inset 0 0 0 1px ${withAlpha(progressColour, isDarkMode ? 0.14 : 0.10)}` }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: `linear-gradient(90deg, ${withAlpha(progressColour, 0.72)}, ${progressColour})`, transition: 'width 0.3s' }} />
                     </div>
                   </div>
                 );
@@ -770,7 +777,10 @@ const LearningDevelopmentForm: React.FC<LearningDevelopmentFormProps> = ({ userD
                           display: 'grid', gridTemplateColumns: '2fr 1fr 0.6fr 1fr 56px',
                           padding: '8px 12px', fontSize: 13, fontFamily: "'Raleway', sans-serif",
                           color: bodyText,
-                          borderBottom: `1px solid ${border}`,
+                          border: `1px solid ${border}`,
+                          borderLeft: `2px solid ${withAlpha(accentColor, isDarkMode ? 0.72 : 0.56)}`,
+                          background: isDarkMode ? withAlpha(colours.dark.cardBackground, 0.44) : withAlpha(colours.highlightBlue, 0.18),
+                          marginTop: 6,
                         }}>
                           <span style={{ fontWeight: 600 }}>{item.title}</span>
                           <span>{fmtDate(item.activity_date)}</span>

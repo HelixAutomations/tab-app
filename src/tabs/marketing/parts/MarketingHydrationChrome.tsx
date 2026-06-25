@@ -69,9 +69,11 @@ const MarketingHydrationChrome: React.FC<MarketingHydrationChromeProps> = ({
       : 'loading';
   const processingItem: ReportProcessingRailItem = {
     key: 'marketing-feed-breakdown',
-    title: isComplete ? 'Marketing data finalised' : 'Feed breakdown',
+    title: isComplete
+      ? (hasFeedAttention ? 'Marketing data ready, checks needed' : 'Marketing data ready')
+      : 'Feed breakdown',
     subtitle: isComplete
-      ? (hasFeedAttention ? 'Financial-year-to-date feeds landed with attention.' : 'Financial-year-to-date feeds have settled.')
+      ? (hasFeedAttention ? 'Feeds loaded for this financial year. Review attention lanes.' : 'Feeds settled for this financial year.')
       : phaseLabel,
     status: overallStatus,
     rows: feeds.map((feed) => ({
@@ -86,13 +88,13 @@ const MarketingHydrationChrome: React.FC<MarketingHydrationChromeProps> = ({
             ? 'Retry needed'
             : 'Waiting'),
     })),
-    ctaLabel: hasErrors ? 'Retry pull' : isComplete ? 'Settled' : 'Pulling...',
+    ctaLabel: hasErrors ? 'Retry pull' : isComplete ? 'Ready' : 'Pulling...',
     ctaDisabled: !hasErrors,
     onCta: hasErrors ? onRetry : undefined,
     detail: isComplete
-      ? (hasFeedAttention ? 'The workspace is ready. Attention lanes remain visible in the timeline while you work elsewhere.' : 'The workspace is ready and the panel can stay folded while you work elsewhere.')
+      ? (hasFeedAttention ? 'Ready to use. Fold the panel after checking the attention lanes.' : 'Ready to use. Fold this panel and keep working.')
       : progressLabel,
-    elapsedLabel: rangeLabel,
+    elapsedLabel: isComplete && folded ? 'FYTD settled' : rangeLabel,
   };
 
   return (

@@ -40,6 +40,8 @@ const DATASET_TTL = {
   metaMetrics: 3600,  // 1 hour - Meta metrics don't need frequent updates
   deals: 1800,        // 30 min - Deal/pitch data for Meta metrics conversion tracking
   instructions: 1800, // 30 min - Instruction data for conversion funnel
+  taskingHub: 120,    // 2 min - Hub task intake movements are operational
+  taskingLegacy: 300, // 5 min - tasking-v3 function app task rows
   dubberCalls: 300,   // 5 min - Dubber call recordings
 };
 
@@ -444,6 +446,10 @@ async function fetchDatasetByName(datasetName, { connectionString, instructionsC
       return fetchDeals({ connectionString, range: rangeOverrides.deals });
     case 'instructions':
       return fetchInstructions({ connectionString, range: rangeOverrides.instructions });
+    case 'taskingHub':
+      return fetchTaskingHub({ instructionsConnectionString });
+    case 'taskingLegacy':
+      return fetchTaskingLegacy();
     case 'dubberCalls':
       return fetchDubberCallsStream();
     default:
@@ -1199,15 +1205,13 @@ async function fetchInstructions({ connectionString, range }) {
   log.debug(`🔍 Instructions Query: Fetching data from ${formatDateOnly(from)} to ${formatDateOnly(to)}`);
   
   try {
-    // Use the instructions database connection string
     const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
     if (!instructionsConnStr) {
       log.debug(`⚠️  Instructions database connection string not found - returning empty dataset`);
       return [];
     }
     
-    // Add connection timeout for this query
-    const connectionTimeout = 30000; // 30 seconds
+    const connectionTimeout = 30000;
 
     return await Promise.race([
       withRequest(instructionsConnStr, async (request, sqlClient) => {
@@ -1232,6 +1236,127 @@ async function fetchInstructions({ connectionString, range }) {
   } catch (error) {
     log.error('❌ Instructions fetch error:', error);
     return [];
+  }
+}
+
+async function fetchTaskingHub({ instructionsConnectionString }) {
+  const conn = instructionsConnectionString || process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!conn) return [];
+  const startedAt = Date.now();
+  trackEvent('Reporting.Stream.TaskingHub.Started', { operation: 'fetchTaskingHub' });
+  try {
+    const rows = await withRequest(conn, async (request) => {
+      const result = await request.query(`
+        WITH recent_requests AS (
+          SELECT TOP 120
+            RequestId, Source, SourceExternalId, WorkflowType, AssignorInitials,
+            AssigneeFirstName, AssigneeTeam, AssigneeLevel, Priority, DueDate,
+            TimeEstimateMinutes, ApprovalRequired, Status, CreatedBy, CreatedAt, UpdatedAt
+          FROM [dbo].[OpsTaskRequests] WITH (NOLOCK)
+          WHERE LOWER(COALESCE(Source, '')) <> 'cognito-tasking'
+          ORDER BY CreatedAt DESC
+        ), ref_counts AS (
+          SELECT RequestId, System, COUNT(*) AS RefCount
+          FROM [dbo].[OpsTaskRequestExternalRefs] WITH (NOLOCK)
+          GROUP BY RequestId, System
+        )
+        SELECT
+          CONVERT(varchar(36), r.RequestId) AS requestId,
+          r.Source AS source,
+          r.SourceExternalId AS sourceExternalId,
+          r.WorkflowType AS workflowType,
+          r.AssignorInitials AS assignorInitials,
+          r.AssigneeFirstName AS assigneeFirstName,
+          r.AssigneeTeam AS assigneeTeam,
+          r.AssigneeLevel AS assigneeLevel,
+          r.Priority AS priority,
+          CONVERT(varchar(10), r.DueDate, 120) AS dueDate,
+          r.TimeEstimateMinutes AS timeEstimateMinutes,
+          r.ApprovalRequired AS approvalRequired,
+          r.Status AS requestStatus,
+          r.CreatedBy AS createdBy,
+          r.CreatedAt AS requestCreatedAt,
+          r.UpdatedAt AS requestUpdatedAt,
+          t.TransitionId AS transitionId,
+          t.Leg AS leg,
+          t.Outcome AS outcome,
+          t.Message AS message,
+          t.DurationMs AS durationMs,
+          t.CreatedAt AS movementAt,
+          t.CreatedBy AS movementBy,
+          COALESCE(asana.RefCount, 0) AS asanaRefs,
+          COALESCE(clio.RefCount, 0) AS clioRefs,
+          COALESCE(teams.RefCount, 0) AS teamsRefs
+        FROM recent_requests r
+        LEFT JOIN [dbo].[OpsTaskRequestTransitions] t WITH (NOLOCK)
+          ON r.RequestId = t.RequestId
+        LEFT JOIN ref_counts asana ON r.RequestId = asana.RequestId AND asana.System = 'asana'
+        LEFT JOIN ref_counts clio ON r.RequestId = clio.RequestId AND clio.System = 'clio'
+        LEFT JOIN ref_counts teams ON r.RequestId = teams.RequestId AND teams.System = 'teams'
+        ORDER BY COALESCE(t.CreatedAt, r.CreatedAt) DESC, t.TransitionId DESC;
+      `);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+    const durationMs = Date.now() - startedAt;
+    trackMetric('Reporting.Stream.TaskingHub.Duration', durationMs, { operation: 'fetchTaskingHub' });
+    trackEvent('Reporting.Stream.TaskingHub.Completed', { operation: 'fetchTaskingHub', durationMs: String(durationMs), rowCount: String(rows.length) });
+    return rows;
+  } catch (error) {
+    trackException(error, { operation: 'fetchTaskingHub', phase: 'query' });
+    trackEvent('Reporting.Stream.TaskingHub.Failed', { operation: 'fetchTaskingHub', error: error.message || 'error' });
+    throw error;
+  }
+}
+
+function getTaskingProjectConnectionString() {
+  return process.env.PROJECTS_SQL_CONNECTION_STRING
+    || process.env.PROJECT_SQL_CONNECTION_STRING
+    || process.env.TASKING_SQL_CONNECTION_STRING
+    || process.env.SQL_PROJECT_CONNECTION_STRING
+    || null;
+}
+
+async function fetchTaskingLegacy() {
+  const conn = getTaskingProjectConnectionString();
+  if (!conn) return [];
+  const startedAt = Date.now();
+  trackEvent('Reporting.Stream.TaskingLegacy.Started', { operation: 'fetchTaskingLegacy' });
+  try {
+    const rows = await withRequest(conn, async (request) => {
+      const result = await request.query(`
+        SELECT TOP 200
+          task_id AS taskId,
+          asana_task_id AS asanaTaskId,
+          clio_task_id AS clioTaskId,
+          task_name AS taskName,
+          workflow_type AS workflowType,
+          assignor_name AS assignorName,
+          assignee_first_name AS assigneeFirstName,
+          assignee_team AS assigneeTeam,
+          assignee_level AS assigneeLevel,
+          approver_first_name AS approverFirstName,
+          priority,
+          status,
+          CONVERT(varchar(10), due_date, 120) AS dueDate,
+          time_estimate AS timeEstimateMinutes,
+          approval_required AS approvalRequired,
+          CONVERT(varchar(30), date_created, 126) AS dateCreated,
+          CASE WHEN NULLIF(LTRIM(RTRIM(COALESCE(document_1_link, ''))), '') IS NULL THEN 0 ELSE 1 END AS documentRefs,
+          CASE WHEN NULLIF(LTRIM(RTRIM(COALESCE(asana_task_id, ''))), '') IS NULL THEN 0 ELSE 1 END AS hasAsanaTask,
+          CASE WHEN NULLIF(LTRIM(RTRIM(COALESCE(clio_task_id, ''))), '') IS NULL THEN 0 ELSE 1 END AS hasClioTask
+        FROM [dbo].[tasks] WITH (NOLOCK)
+        ORDER BY TRY_CONVERT(datetime2, date_created) DESC, task_id DESC;
+      `);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+    const durationMs = Date.now() - startedAt;
+    trackMetric('Reporting.Stream.TaskingLegacy.Duration', durationMs, { operation: 'fetchTaskingLegacy' });
+    trackEvent('Reporting.Stream.TaskingLegacy.Completed', { operation: 'fetchTaskingLegacy', durationMs: String(durationMs), rowCount: String(rows.length) });
+    return rows;
+  } catch (error) {
+    trackException(error, { operation: 'fetchTaskingLegacy', phase: 'query' });
+    trackEvent('Reporting.Stream.TaskingLegacy.Failed', { operation: 'fetchTaskingLegacy', error: error.message || 'error' });
+    throw error;
   }
 }
 

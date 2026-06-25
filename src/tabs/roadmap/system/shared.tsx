@@ -196,10 +196,11 @@ export const SystemLandingTile: React.FC<{
   isDarkMode: boolean;
   accent: string;
   onClick: () => void;
+  disabled?: boolean;
   variant?: 'primary' | 'tool' | 'info';
   eyebrow?: string;
   dataRegion?: string;
-}> = ({ label, description, isDarkMode, accent, onClick, variant = 'tool', eyebrow, dataRegion }) => {
+}> = ({ label, description, isDarkMode, accent, onClick, disabled = false, variant = 'tool', eyebrow, dataRegion }) => {
   const [hovered, setHovered] = React.useState(false);
   const { borderColour, cardBg, panelBg, mutedColour, textColour } = useSystemTokens(isDarkMode);
   const isPrimary = variant === 'primary';
@@ -208,17 +209,19 @@ export const SystemLandingTile: React.FC<{
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
+      onMouseEnter={() => !disabled && setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       data-helix-region={dataRegion}
       style={{
         minHeight: isPrimary ? 142 : isInfo ? 92 : 122,
-        border: `1px solid ${hovered ? accent : borderColour}`,
-        borderLeft: `${isPrimary ? 5 : 3}px solid ${accent}`,
+        borderStyle: 'solid',
+        borderColor: hovered ? accent : borderColour,
+        borderWidth: `1px 1px 1px ${isPrimary ? 5 : 3}px`,
         background: isPrimary ? cardBg : isInfo ? panelBg : cardBg,
         color: textColour,
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
         display: 'flex',
         alignItems: 'stretch',
         justifyContent: 'space-between',
@@ -227,6 +230,7 @@ export const SystemLandingTile: React.FC<{
         fontFamily: 'Raleway, sans-serif',
         textAlign: 'left',
         transform: hovered ? 'translateY(-1px)' : 'translateY(0)',
+        opacity: disabled ? 0.42 : 1,
         transition: 'transform 0.14s ease, border-color 0.14s ease, background 0.14s ease',
       }}
     >
@@ -255,7 +259,7 @@ export const SystemLandingTile: React.FC<{
           whiteSpace: 'nowrap',
         }}
       >
-        Open
+        {disabled ? 'Luke' : 'Open'}
       </span>
     </button>
   );

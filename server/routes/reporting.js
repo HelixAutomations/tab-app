@@ -6,6 +6,7 @@ const fetch = require('node-fetch');
 const { getRedisClient, cacheWrapper, generateCacheKey } = require('../utils/redisClient');
 const { performUnifiedEnquiriesQuery } = require('./enquiries-unified');
 const { resolveReportingEnquirySourceBias } = require('../utils/reportingEnquirySourceBias');
+const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
 
 const router = express.Router();
 const { annotate } = require('../utils/devConsole');
@@ -95,6 +96,16 @@ const datasetFetchers = {
   instructions: ({ connectionString, bypassCache }) => {
     const key = generateCacheKey('rpt', 'instructions');
     return cachedFetch(key, () => fetchInstructions({ connectionString }), 900, bypassCache);
+  },
+  // 2 min - Hub-generated tasking movements from OpsTaskRequests only
+  taskingHub: ({ bypassCache }) => {
+    const key = generateCacheKey('rpt', 'taskingHub');
+    return cachedFetch(key, () => fetchTaskingHub(), 120, bypassCache);
+  },
+  // 5 min - tasking-v3 function app task rows from helix-project-data.dbo.tasks
+  taskingLegacy: ({ bypassCache }) => {
+    const key = generateCacheKey('rpt', 'taskingLegacy');
+    return cachedFetch(key, () => fetchTaskingLegacy(), 300, bypassCache);
   },
   // 5 min - Dubber call recordings for Calls Report
   dubberCalls: ({ bypassCache }) => {
@@ -1211,6 +1222,127 @@ async function fetchInstructions({ connectionString }) {
   } catch (error) {
     console.error('[Reporting] Instructions fetch error:', error);
     return [];
+  }
+}
+
+async function fetchTaskingHub() {
+  const instructionsConnStr = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+  if (!instructionsConnStr) return [];
+  const startedAt = Date.now();
+  trackEvent('Reporting.TaskingHub.Started', { operation: 'fetchTaskingHub' });
+  try {
+    const rows = await withRequest(instructionsConnStr, async (request) => {
+      const result = await request.query(`
+        WITH recent_requests AS (
+          SELECT TOP 120
+            RequestId, Source, SourceExternalId, WorkflowType, AssignorInitials,
+            AssigneeFirstName, AssigneeTeam, AssigneeLevel, Priority, DueDate,
+            TimeEstimateMinutes, ApprovalRequired, Status, CreatedBy, CreatedAt, UpdatedAt
+          FROM [dbo].[OpsTaskRequests] WITH (NOLOCK)
+          WHERE LOWER(COALESCE(Source, '')) <> 'cognito-tasking'
+          ORDER BY CreatedAt DESC
+        ), ref_counts AS (
+          SELECT RequestId, System, COUNT(*) AS RefCount
+          FROM [dbo].[OpsTaskRequestExternalRefs] WITH (NOLOCK)
+          GROUP BY RequestId, System
+        )
+        SELECT
+          CONVERT(varchar(36), r.RequestId) AS requestId,
+          r.Source AS source,
+          r.SourceExternalId AS sourceExternalId,
+          r.WorkflowType AS workflowType,
+          r.AssignorInitials AS assignorInitials,
+          r.AssigneeFirstName AS assigneeFirstName,
+          r.AssigneeTeam AS assigneeTeam,
+          r.AssigneeLevel AS assigneeLevel,
+          r.Priority AS priority,
+          CONVERT(varchar(10), r.DueDate, 120) AS dueDate,
+          r.TimeEstimateMinutes AS timeEstimateMinutes,
+          r.ApprovalRequired AS approvalRequired,
+          r.Status AS requestStatus,
+          r.CreatedBy AS createdBy,
+          r.CreatedAt AS requestCreatedAt,
+          r.UpdatedAt AS requestUpdatedAt,
+          t.TransitionId AS transitionId,
+          t.Leg AS leg,
+          t.Outcome AS outcome,
+          t.Message AS message,
+          t.DurationMs AS durationMs,
+          t.CreatedAt AS movementAt,
+          t.CreatedBy AS movementBy,
+          COALESCE(asana.RefCount, 0) AS asanaRefs,
+          COALESCE(clio.RefCount, 0) AS clioRefs,
+          COALESCE(teams.RefCount, 0) AS teamsRefs
+        FROM recent_requests r
+        LEFT JOIN [dbo].[OpsTaskRequestTransitions] t WITH (NOLOCK)
+          ON r.RequestId = t.RequestId
+        LEFT JOIN ref_counts asana ON r.RequestId = asana.RequestId AND asana.System = 'asana'
+        LEFT JOIN ref_counts clio ON r.RequestId = clio.RequestId AND clio.System = 'clio'
+        LEFT JOIN ref_counts teams ON r.RequestId = teams.RequestId AND teams.System = 'teams'
+        ORDER BY COALESCE(t.CreatedAt, r.CreatedAt) DESC, t.TransitionId DESC;
+      `);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+    const durationMs = Date.now() - startedAt;
+    trackMetric('Reporting.TaskingHub.Duration', durationMs, { operation: 'fetchTaskingHub' });
+    trackEvent('Reporting.TaskingHub.Completed', { operation: 'fetchTaskingHub', durationMs: String(durationMs), rowCount: String(rows.length) });
+    return rows;
+  } catch (error) {
+    trackException(error, { operation: 'fetchTaskingHub', phase: 'query' });
+    trackEvent('Reporting.TaskingHub.Failed', { operation: 'fetchTaskingHub', error: error.message || 'error' });
+    throw error;
+  }
+}
+
+function getTaskingProjectConnectionString() {
+  return process.env.PROJECTS_SQL_CONNECTION_STRING
+    || process.env.PROJECT_SQL_CONNECTION_STRING
+    || process.env.TASKING_SQL_CONNECTION_STRING
+    || process.env.SQL_PROJECT_CONNECTION_STRING
+    || null;
+}
+
+async function fetchTaskingLegacy() {
+  const conn = getTaskingProjectConnectionString();
+  if (!conn) return [];
+  const startedAt = Date.now();
+  trackEvent('Reporting.TaskingLegacy.Started', { operation: 'fetchTaskingLegacy' });
+  try {
+    const rows = await withRequest(conn, async (request) => {
+      const result = await request.query(`
+        SELECT TOP 200
+          task_id AS taskId,
+          asana_task_id AS asanaTaskId,
+          clio_task_id AS clioTaskId,
+          task_name AS taskName,
+          workflow_type AS workflowType,
+          assignor_name AS assignorName,
+          assignee_first_name AS assigneeFirstName,
+          assignee_team AS assigneeTeam,
+          assignee_level AS assigneeLevel,
+          approver_first_name AS approverFirstName,
+          priority,
+          status,
+          CONVERT(varchar(10), due_date, 120) AS dueDate,
+          time_estimate AS timeEstimateMinutes,
+          approval_required AS approvalRequired,
+          CONVERT(varchar(30), date_created, 126) AS dateCreated,
+          CASE WHEN NULLIF(LTRIM(RTRIM(COALESCE(document_1_link, ''))), '') IS NULL THEN 0 ELSE 1 END AS documentRefs,
+          CASE WHEN NULLIF(LTRIM(RTRIM(COALESCE(asana_task_id, ''))), '') IS NULL THEN 0 ELSE 1 END AS hasAsanaTask,
+          CASE WHEN NULLIF(LTRIM(RTRIM(COALESCE(clio_task_id, ''))), '') IS NULL THEN 0 ELSE 1 END AS hasClioTask
+        FROM [dbo].[tasks] WITH (NOLOCK)
+        ORDER BY TRY_CONVERT(datetime2, date_created) DESC, task_id DESC;
+      `);
+      return Array.isArray(result.recordset) ? result.recordset : [];
+    });
+    const durationMs = Date.now() - startedAt;
+    trackMetric('Reporting.TaskingLegacy.Duration', durationMs, { operation: 'fetchTaskingLegacy' });
+    trackEvent('Reporting.TaskingLegacy.Completed', { operation: 'fetchTaskingLegacy', durationMs: String(durationMs), rowCount: String(rows.length) });
+    return rows;
+  } catch (error) {
+    trackException(error, { operation: 'fetchTaskingLegacy', phase: 'query' });
+    trackEvent('Reporting.TaskingLegacy.Failed', { operation: 'fetchTaskingLegacy', error: error.message || 'error' });
+    throw error;
   }
 }
 

@@ -82,21 +82,24 @@ const ProgressStrip: React.FC<{ used: number; target: number; isDarkMode: boolea
   const labelColour = isDarkMode ? '#d1d5db' : '#374151';
   const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 4px 8px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontFamily: 'var(--font-primary)' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: labelColour, letterSpacing: 0.2 }}>
-          {used}h <span style={{ color: muted, fontWeight: 500 }}>/ {target}h</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, padding: '7px 4px 10px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, alignItems: 'baseline', fontFamily: 'var(--font-primary)' }}>
+        <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+          <strong style={{ fontSize: 12, fontWeight: 900, color: labelColour, letterSpacing: 0.2 }}>
+            {used}h logged
+          </strong>
+          <small style={{ color: muted, fontSize: 10, fontWeight: 800 }}>{target}h annual target</small>
         </span>
-        <span style={{ fontSize: 11, color: muted }}>
+        <span style={{ fontSize: 11, color: remaining > 0 ? muted : fill, fontWeight: 800 }}>
           {remaining > 0 ? `${remaining}h to go` : 'target met'}
         </span>
       </div>
-      <div style={{ position: 'relative', width: '100%', height: 4, background: trackBg, borderRadius: 0, overflow: 'hidden' }}>
+      <div style={{ position: 'relative', width: '100%', height: 7, background: trackBg, borderRadius: 0, overflow: 'hidden', boxShadow: `inset 0 0 0 1px ${withAlpha(fill, isDarkMode ? 0.14 : 0.10)}` }}>
         <div
           style={{
             position: 'absolute', top: 0, left: 0, bottom: 0,
             width: `${pct}%`,
-            background: fill,
+            background: `linear-gradient(90deg, ${withAlpha(fill, 0.72)}, ${fill})`,
             transition: 'width 0.3s ease',
           }}
         />
@@ -249,10 +252,12 @@ const LDRecordPanel: React.FC<Props> = ({
                   appearance: 'none', border: 'none', textAlign: 'left',
                   display: 'flex', alignItems: 'center', gap: 8,
                   padding: '6px 4px',
-                  background: isMine ? withAlpha(accent, isDarkMode ? 0.06 : 0.05) : 'transparent',
+                  background: isMine ? withAlpha(accent, isDarkMode ? 0.09 : 0.06) : 'transparent',
                   borderBottom: `1px solid ${rowBorder}`,
+                  boxShadow: isMine ? `inset 2px 0 0 ${withAlpha(accent, isDarkMode ? 0.70 : 0.58)}` : 'none',
                   cursor: 'pointer',
                   fontFamily: 'var(--font-primary)',
+                  transition: 'background 0.14s ease, box-shadow 0.14s ease',
                 }}
               >
                 <span
@@ -381,9 +386,12 @@ const LDRecordPanel: React.FC<Props> = ({
             gridTemplateColumns: '52px minmax(0,1fr) auto',
             alignItems: 'baseline',
             gap: 8,
-            padding: '6px 4px',
-            borderBottom: `1px solid ${rowBorder}`,
+            padding: '7px 8px',
+            border: `1px solid ${rowBorder}`,
+            borderLeft: `2px solid ${withAlpha(accent, isDarkMode ? 0.70 : 0.56)}`,
+            background: isDarkMode ? withAlpha(colours.dark.cardBackground, 0.42) : withAlpha(colours.highlightBlue, 0.18),
             fontFamily: 'var(--font-primary)',
+            marginTop: 6,
           }}
           title={act.description || act.activity_type}
         >

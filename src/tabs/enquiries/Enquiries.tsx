@@ -169,6 +169,12 @@ interface EnquiriesProps {
 
 type EmailControlPreviewState = 'ready' | 'shared' | 'missing';
 
+const showLocalEmailControlPreview = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const hostname = window.location.hostname;
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+};
+
 const normaliseEmailControlText = (value: unknown): string => (
   typeof value === 'string' ? value.trim() : ''
 );
@@ -182,6 +188,7 @@ const getEmailControlPreview = (enquiry: Enquiry): { state: EmailControlPreviewS
 };
 
 const EnquiryEmailControlSpineStrip: React.FC<{ enquiry: Enquiry }> = ({ enquiry }) => {
+  if (!showLocalEmailControlPreview()) return null;
   const preview = getEmailControlPreview(enquiry);
   return (
     <section

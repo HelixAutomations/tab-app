@@ -1,11 +1,12 @@
 import { UserData } from './functionality/types';
 
 // Centralized list of admin users by initials
-export const ADMIN_USERS = ['LZ', 'AC', 'KW', 'JW', 'LA', 'EA', 'WH'] as const;
+export const ADMIN_USERS = ['LZ', 'AC', 'KW', 'JW', 'LA', 'LD', 'EA', 'WH'] as const;
 
 // Admins who can access the Reports tab (LA is admin but no reports access)
 export const REPORTS_USERS = ['LZ', 'AC', 'KW', 'JW', 'EA', 'WH'] as const;
-export const EXTRA_TOP_NAV_USERS = ['LZ', 'AC', 'EA'] as const;
+export const EXTRA_TOP_NAV_USERS = ['LZ', 'AC', 'KW', 'EA'] as const;
+export const DATA_HUB_USERS = ['LZ', 'AC', 'KW', 'EA', 'LD', 'WH'] as const;
 const REPORTS_USER_EMAILS = ['lz@helix-law.com', 'ac@helix-law.com', 'kw@helix-law.com', 'jw@helix-law.com', 'ea@helix-law.com', 'wh@helix-law.com'] as const;
 
 // CCL operations are clipped under the ZDR/LPP containment position. They are
@@ -18,9 +19,11 @@ export const CCL_USERS = ['localhost'] as const;
 // (broader admin tier) rather than this dev-preview gate.
 export const PRIVATE_HUB_CONTROL_USERS = ['LZ'] as const;
 export const SESSION_MODE_CONTROL_USERS = ['LZ', 'AC'] as const;
-export const DEMO_MODE_CONTROL_USERS = ['LZ', 'AC', 'EA'] as const;
-export const ACTIVITY_TAB_USERS = ['LZ', 'AC', 'EA'] as const;
-export const TASKS_TAB_USERS = ['LZ'] as const;
+export const DEMO_MODE_CONTROL_USERS = ['LZ', 'AC', 'KW', 'EA'] as const;
+export const ACTIVITY_TAB_USERS = ['LZ', 'AC', 'KW', 'EA'] as const;
+export const TASKS_TAB_USERS = ['LZ', 'KW'] as const;
+export const FORM_STREAM_USERS = ['LZ', 'AC', 'KW', 'EA', 'LD', 'WH'] as const;
+export const CALLS_ALL_USERS = ['LZ', 'AC', 'JW', 'LA'] as const;
 
 export function isCclOperationsAvailable(options?: { viewAsProd?: boolean }): boolean {
     if (options?.viewAsProd) return false;
@@ -44,6 +47,29 @@ export function canSeePrivateHubControls(user?: UserData | null): boolean {
         first === 'luke' ||
         nickname === 'luke' ||
         email === 'lz@helix-law.com'
+    );
+}
+
+export function canSeeAllCalls(user?: UserData | null): boolean {
+    if (!user) return false;
+    const initials = user.Initials?.toUpperCase().trim();
+    const first = user.First?.toLowerCase().trim();
+    const nickname = user.Nickname?.toLowerCase().trim();
+    const email = user.Email?.toLowerCase().trim();
+    return !!(
+        (initials && CALLS_ALL_USERS.includes(initials as any)) ||
+        first === 'luke' ||
+        nickname === 'luke' ||
+        email === 'lz@helix-law.com' ||
+        first === 'alex' ||
+        nickname === 'alex' ||
+        email === 'ac@helix-law.com' ||
+        first === 'jonathan' ||
+        nickname === 'jonathan' ||
+        email === 'jw@helix-law.com' ||
+        first === 'laura' ||
+        nickname === 'laura' ||
+        email === 'la@helix-law.com'
     );
 }
 
@@ -80,6 +106,9 @@ export function canUseDemoModeControls(user?: UserData | null): boolean {
         first === 'alex' ||
         nickname === 'alex' ||
         email === 'ac@helix-law.com' ||
+        first === 'kanchel' ||
+        nickname === 'kanchel' ||
+        email === 'kw@helix-law.com' ||
         first === 'emma' ||
         nickname === 'emma' ||
         email === 'ea@helix-law.com'
@@ -93,7 +122,7 @@ export function isAdminUser(user?: UserData | null): boolean {
     const initials = user.Initials?.toUpperCase().trim();
     const first = user.First?.toLowerCase().trim();
     const nickname = user.Nickname?.toLowerCase().trim();
-    const adminNames = ['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'laura', 'emma', 'wolfgang'];
+    const adminNames = ['lukasz', 'luke', 'alex', 'kanchel', 'jonathan', 'laura', 'libby', 'emma', 'wolfgang'];
     return !!(
         (initials && ADMIN_USERS.includes(initials as any)) ||
         (first && adminNames.includes(first)) ||
@@ -130,7 +159,7 @@ export function isDevOwner(user?: UserData | null): boolean {
  * - dev: LZ only — god mode, data-scope override, all features
  * - devGroup: LZ only (currently identical to dev — AC was previously here
  *   but is now plain admin so AC sees the app like other admins)
- * - admin: LZ, AC, KW, JW, LA — trusted internal feature tier
+ * - admin: LZ, AC, KW, JW, LA, LD, EA, WH — trusted internal feature tier
  * - user: everyone else — role/AoW personalised content
  */
 export type UserTier = 'dev' | 'devGroup' | 'admin' | 'user';
@@ -163,6 +192,9 @@ export function canSeeActivityTab(user?: UserData | null, isLocalDev = false): b
         first === 'alex' ||
         nickname === 'alex' ||
         email === 'ac@helix-law.com' ||
+        first === 'kanchel' ||
+        nickname === 'kanchel' ||
+        email === 'kw@helix-law.com' ||
         first === 'emma' ||
         nickname === 'emma' ||
         email === 'ea@helix-law.com'
@@ -180,7 +212,10 @@ export function canSeeTasksTab(user?: UserData | null): boolean {
         (initials && allowedInitials.includes(initials)) ||
         first === 'luke' ||
         nickname === 'luke' ||
-        email === 'lz@helix-law.com'
+        email === 'lz@helix-law.com' ||
+        first === 'kanchel' ||
+        nickname === 'kanchel' ||
+        email === 'kw@helix-law.com'
     );
 }
 
@@ -210,28 +245,12 @@ export function canAccessReports(user?: UserData | null): boolean {
 }
 
 /**
- * Home-only data-scope exception.
- * Grants firm-wide Home datasets to LZ, KW, and EA without widening the
+ * Home-only firm-data exception.
+ * Grants firm-wide Home billing and aggregate datasets to dev, operations,
+ * and reception users who do not bill time themselves, without widening the
  * broader non-Home data scope beyond `isDevOwner()`.
- *
- * Other admins (AC / JW / LA) can opt in per-browser via the Home firm-wide
- * toggle, which sets `helix.homeFirmWideAdmin` in localStorage. This keeps the
- * default cost profile unchanged (no extra firm-wide aggregations on every
- * load) while still letting any admin flip the master switch when they need
- * the wider view. The toggle reloads the page so all Home fetch effects re-run
- * against the new gate.
  */
-export const FIRM_WIDE_HOME_USERS = ['LZ', 'KW', 'EA'] as const;
-export const HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY = 'helix.homeFirmWideAdmin';
-
-function readHomeFirmWideAdminOptIn(): boolean {
-    if (typeof window === 'undefined') return false;
-    try {
-        return window.localStorage.getItem(HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY) === '1';
-    } catch {
-        return false;
-    }
-}
+export const FIRM_WIDE_HOME_USERS = ['LZ', 'KW', 'LD', 'EA', 'WH'] as const;
 
 export function isHomeFirmWideBuiltIn(user?: UserData | null): boolean {
     if (!user) return false;
@@ -241,15 +260,20 @@ export function isHomeFirmWideBuiltIn(user?: UserData | null): boolean {
         (initials && FIRM_WIDE_HOME_USERS.includes(initials as any)) ||
         email === 'lz@helix-law.com' ||
         email === 'kw@helix-law.com' ||
-        email === 'ea@helix-law.com'
+        email === 'ld@helix-law.com' ||
+        email === 'ea@helix-law.com' ||
+        email === 'wh@helix-law.com'
     );
 }
 
 export function canSeeFirmWideHomeData(user?: UserData | null): boolean {
     if (!user) return false;
-    if (isHomeFirmWideBuiltIn(user)) return true;
-    if (isAdminUser(user) && readHomeFirmWideAdminOptIn()) return true;
-    return false;
+    return isHomeFirmWideBuiltIn(user);
+}
+
+export function canSeeFirmWideHomeSupportStreams(user?: UserData | null): boolean {
+    if (!user) return false;
+    return canSeeFirmWideHomeData(user) || isAdminUser(user);
 }
 
 // Operations user — admin or has 'operations'/'tech' in AOW

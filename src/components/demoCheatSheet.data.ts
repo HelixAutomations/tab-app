@@ -114,7 +114,7 @@ export const DEMO_CHEAT_SHEET_SECTIONS: DemoSection[] = [
       'Conversion chart: enquiries as a line, matters as bars. Blue is this period, grey is the period before. Click a recent prospect chip to keep it open.',
       'Personal time, outstanding balances and conversion sit alongside, always visible.',
       'Team attendance is firm-wide.',
-      'External Calls panel is Mine by default. Admins can flip to All. Sourced from Dubber.',
+      'External Calls panel is Mine by default. Luke, Alex, Jonathan, and Laura can flip to All. Sourced from Dubber.',
       'Mine / Everyone toggle now sits in the To Do header itself. Subtle text pair, not a pill.',
       'UX is sharper across the board. Panels appear instantly, live updates fill in behind, no flicker on tab switches. Flag anything that still feels off, that is how it tightens further.',
     ],
@@ -545,7 +545,7 @@ export const DEMO_SECTION_BASIC_NOTES: Record<string, string[]> = {
   'home-todo': [
     'Home is the live working queue. It shows what needs doing next and keeps the key context visible.',
     'To Do cards clear themselves when the underlying step is complete. There is no manual dismiss theatre.',
-    'External Calls is now part of that working surface. It is sourced from Dubber and admins can switch from Mine to Everyone.',
+    'External Calls is now part of that working surface. It is sourced from Dubber and Luke, Alex, Jonathan, and Laura can switch from Mine to Everyone.',
     'Training, attendance, balances and conversion all sit alongside the queue so the page stays useful day to day.',
   ],
   'prospects-claim': [

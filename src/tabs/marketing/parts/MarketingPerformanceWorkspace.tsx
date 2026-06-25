@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { DefaultButton } from '@fluentui/react/lib/Button';
 import { FontIcon } from '@fluentui/react/lib/Icon';
 import { colours, withAlpha } from '../../../app/styles/colours';
@@ -11,6 +11,7 @@ import { getApiUrl } from '../../../utils/getApiUrl';
 import { getAreaGlyphMeta, renderAreaOfWorkGlyph } from '../../../components/filter/areaGlyphs';
 import { getNormalizedEnquiryMOC } from '../../../utils/enquirySource';
 import MarketingTimelineWorkbench, { type MarketingTimelineDay, type MarketingTimelineMonth, type MarketingTimelineTotals, type MarketingTimelineWeek } from './MarketingTimelineWorkbench';
+import MarketingEmailWorkbench from './MarketingEmailWorkbench';
 import '../../Reporting/components/DataHubDatasetDetail.css';
 import '../../Reporting/components/DataHubDatasetPicker.css';
 
@@ -83,8 +84,10 @@ type MarketingPerformanceWorkspaceProps = {
   operatorName?: string;
   operatorInitials?: string;
   operatorEmail?: string;
-  activePage?: MarketingWorkspacePageKey;
-  onActivePageChange?: (page: MarketingWorkspacePageKey) => void;
+  activePage?: MarketingWorkspacePageKey | null;
+  onActivePageChange?: (page: MarketingWorkspacePageKey | null) => void;
+  showDevDraftSurfaces?: boolean;
+  demoModeEnabled?: boolean;
 };
 
 type ChannelMetric = {
@@ -93,15 +96,48 @@ type ChannelMetric = {
   detail: string;
 };
 
+type SeoContentSnapshotStatus = {
+  key: string;
+  label: string;
+  count: number;
+  detail: string;
+};
+
+type SeoContentSnapshotList = {
+  key: string;
+  label: string;
+  total: number;
+  statuses: SeoContentSnapshotStatus[];
+};
+
+type SeoAnalyticsTrendRow = {
+  key: string;
+  label: string;
+  sessions: number;
+  enquiries: number;
+  matters: number;
+  value: number;
+};
+
+type PpcAnalyticsTrendRow = {
+  key: string;
+  label: string;
+  spend: number;
+  clicks: number;
+  conversions: number;
+  enquiries: number;
+  matters: number;
+  value: number;
+  rows: number;
+};
+
 type MarketingValueSheetRow = {
   key: MarketingValueSheetRowKey;
   source: string;
   activityLabel: string;
   activityValue: string;
   enquiries: number;
-  calls: number;
-  webforms: number;
-  other: number;
+  matters: number;
   spend: number;
   received: number;
   wip: number;
@@ -109,14 +145,16 @@ type MarketingValueSheetRow = {
   accent: string;
 };
 
-type MarketingValueSheetRowKey = 'organicSearch' | 'paidSearch' | 'totalSearch';
-type MarketingValueSheetMetricKey = 'activity' | 'enquiries' | 'calls' | 'webforms' | 'other' | 'spend' | 'received' | 'wip' | 'totalValue';
+type MarketingValueSheetRowKey = 'organicSearch' | 'paidSearch' | 'emailMarketing' | 'totalSearch';
+type MarketingValueSheetMetricKey = 'activity' | 'enquiries' | 'matters' | 'spend' | 'received' | 'wip' | 'totalValue';
 type MarketingValueSheetCellKey = 'source' | MarketingValueSheetMetricKey;
 
 type MarketingValueSheetTraySelection = {
   rowKey: MarketingValueSheetRowKey;
   metricKey: MarketingValueSheetCellKey;
 };
+
+type MarketingValueSheetHoverSelection = MarketingValueSheetTraySelection;
 
 type MarketingValueSheetSupportItem = {
   key: string;
@@ -267,13 +305,76 @@ type EmailCampaignRecipientPreview = {
   method: string;
   dateLabel: string;
   listKey: EmailCampaignRecipientListKey;
-  blockedReason?: 'missing-email' | 'duplicate-email';
+  blockedReason?: string;
 };
 
 type EmailCampaignRecipientStats = {
   scanned: number;
   qualified: number;
   blocked: number;
+};
+
+type EmailCampaignListGrowthStats = {
+  key: EmailCampaignAudienceKey;
+  label: string;
+  glyph: string;
+  stats: EmailCampaignRecipientStats;
+  monthStats: EmailCampaignRecipientStats;
+  quarterStats: EmailCampaignRecipientStats;
+  isSendable?: boolean;
+  withAcid?: number;
+  ranked?: number;
+  clients?: number;
+};
+
+type MarketingEmailAudienceStream = {
+  streamKey: EmailCampaignRecipientListKey;
+  label: string;
+  isSendable: boolean;
+  sortOrder: number;
+  status: string;
+  total: number;
+  sendable: number;
+  inspect: number;
+  blocked: number;
+  missingAcid: number;
+  missingEmail: number;
+  clients: number;
+  withAcid: number;
+  ranked: number;
+  lastSeenAt: string | null;
+  glyph?: string;
+};
+
+type MarketingEmailAudienceMember = {
+  memberId: string;
+  streamKey: EmailCampaignRecipientListKey;
+  acid: string;
+  sourceEnquiryId: string;
+  emailHash: string;
+  emailDomain: string;
+  areaOfWork: string;
+  rank: number | null;
+  tags: string[];
+  client: boolean;
+  matterId: string;
+  clientStatus: string;
+  qualificationStatus: string;
+  qualificationReason: string;
+  sendable: boolean;
+  lastSeenAt: string | null;
+  lastQualifiedAt: string | null;
+};
+
+type MarketingEmailCampaign = {
+  campaignId: string;
+  campaignKey: string;
+  streamKey: EmailCampaignRecipientListKey;
+  status: string;
+  campaignName: string;
+  selectedCount: number | null;
+  blockedCount: number | null;
+  lockedAt: string | null;
 };
 
 type MarketingReportDateRange = {
@@ -290,20 +391,77 @@ const SEO_MONTHLY_COST = 8400;
 const SEO_MONTHS_INCLUDED = 3;
 const SEO_SPEND_ESTIMATE = SEO_MONTHLY_COST * SEO_MONTHS_INCLUDED;
 const SEARCH_MARKETING_REPORT_MIN_DATE = '2026-04-01';
+const SEO_CONTENT_SNAPSHOT_CAPTURED_AT = '2026-06-24';
+const SEO_CONTENT_SNAPSHOT_SOURCE = 'ClickUp All Tasks - #SwishDM';
+
+const SEO_CONTENT_SNAPSHOT_LISTS: SeoContentSnapshotList[] = [
+  {
+    key: 'helix-content',
+    label: 'Helix Content',
+    total: 382,
+    statuses: [
+      { key: 'published-this-month', label: 'Published this month', count: 45, detail: 'Fresh content already shipped' },
+      { key: 'scheduled', label: 'Scheduled', count: 3, detail: 'Queued for publication' },
+      { key: 'approved-complete', label: 'Approved or complete', count: 6, detail: 'Ready or already cleared' },
+      { key: 'waiting-approval', label: 'Waiting approval', count: 6, detail: 'Needs final review' },
+      { key: 'update-editing-required', label: 'Update or editing required', count: 7, detail: 'Needs content work before release' },
+      { key: 'in-progress', label: 'In progress', count: 9, detail: 'Currently being worked' },
+      { key: 'planning', label: 'Planning', count: 10, detail: 'Being shaped before production' },
+      { key: 'order-content', label: 'Order content', count: 3, detail: 'Ready to commission' },
+      { key: 'pipeline', label: 'Pipeline', count: 293, detail: 'Content backlog and opportunity pool' },
+    ],
+  },
+  {
+    key: 'helix-tasks',
+    label: 'Helix Tasks',
+    total: 30,
+    statuses: [
+      { key: 'client-approval', label: 'Client approval', count: 1, detail: 'External approval needed' },
+      { key: 'in-review', label: 'In review', count: 5, detail: 'Being checked' },
+      { key: 'waiting', label: 'Waiting', count: 1, detail: 'Blocked or waiting' },
+      { key: 'in-progress', label: 'In progress', count: 1, detail: 'Active SEO task' },
+      { key: 'todo', label: 'To do', count: 16, detail: 'Task backlog' },
+      { key: 'planning', label: 'Planning', count: 6, detail: 'Work being shaped' },
+    ],
+  },
+  {
+    key: 'helix-dev',
+    label: 'Helix Dev',
+    total: 1,
+    statuses: [
+      { key: 'in-review', label: 'In review', count: 1, detail: 'Technical support item' },
+      { key: 'ideas', label: 'Ideas', count: 0, detail: 'No current idea backlog' },
+    ],
+  },
+  {
+    key: 'helix-reports',
+    label: 'Helix Reports',
+    total: 1,
+    statuses: [
+      { key: 'ideas', label: 'Ideas', count: 1, detail: 'Reporting idea linked to SEO' },
+    ],
+  },
+  {
+    key: 'dpr-coverage-tracker',
+    label: 'DPR Coverage Tracker',
+    total: 4,
+    statuses: [
+      { key: 'to-do', label: 'To do', count: 4, detail: 'Coverage actions to pick up' },
+    ],
+  },
+];
 
 const EMAIL_CAMPAIGN_DEMO_ENQUIRY_ID = 'DEMO-ENQ-0003';
 const EMAIL_CAMPAIGN_RANGE_SPAN_DAYS = 180;
 const EMAIL_CAMPAIGN_DEFAULT_WINDOW_DAYS = 30;
 const EMAIL_CAMPAIGN_PREVIEW_LIMIT = 8;
-const VALUE_SHEET_SUPPORT_LIMIT = 40;
+const VALUE_SHEET_SUPPORT_LIMIT = 18;
 
 const VALUE_SHEET_COLUMNS: Array<{ key: MarketingValueSheetCellKey; label: string; align: 'left' | 'right' }> = [
   { key: 'source', label: 'Source', align: 'left' },
   { key: 'activity', label: 'Activity', align: 'left' },
   { key: 'enquiries', label: 'Enq.', align: 'right' },
-  { key: 'calls', label: 'Calls', align: 'right' },
-  { key: 'webforms', label: 'Webforms', align: 'right' },
-  { key: 'other', label: 'Other', align: 'right' },
+  { key: 'matters', label: 'Matters', align: 'right' },
   { key: 'spend', label: 'Spend', align: 'right' },
   { key: 'received', label: 'Received', align: 'right' },
   { key: 'wip', label: 'WIP', align: 'right' },
@@ -311,21 +469,19 @@ const VALUE_SHEET_COLUMNS: Array<{ key: MarketingValueSheetCellKey; label: strin
 ];
 
 const EMAIL_CAMPAIGN_AUDIENCE_OPTIONS: EmailCampaignAudienceOption[] = [
-  { key: 'all', label: 'All new-space enquiries', glyph: 'Other/Unsure' },
   { key: 'commercial', label: 'Commercial', glyph: 'Commercial' },
   { key: 'construction', label: 'Construction', glyph: 'Construction' },
   { key: 'property', label: 'Property', glyph: 'Property' },
   { key: 'employment', label: 'Employment', glyph: 'Employment' },
-  { key: 'other', label: 'Unsure / Other', glyph: 'Other/Unsure' },
+  { key: 'other', label: 'Other', glyph: 'Other/Unsure' },
 ];
 
 const EMAIL_CAMPAIGN_PLACEHOLDERS: EmailCampaignPlaceholder[] = [
-  { key: 'all', title: 'All new-space update', subject: 'Helix update', status: 'Draft' },
   { key: 'commercial', title: 'Commercial update', subject: 'Commercial briefing', status: 'Draft' },
   { key: 'construction', title: 'Construction update', subject: 'Construction briefing', status: 'Draft' },
   { key: 'property', title: 'Property update', subject: 'Property briefing', status: 'Draft' },
   { key: 'employment', title: 'Employment update', subject: 'Employment briefing', status: 'Draft' },
-  { key: 'other', title: 'General update', subject: 'General briefing', status: 'Draft' },
+  { key: 'other', title: 'Inspection draft', subject: 'Inspection draft', status: 'Inspect' },
 ];
 
 const EMAIL_CAMPAIGN_SENDERS: EmailCampaignSenderOption[] = [
@@ -419,7 +575,7 @@ function createWorkspaceSupportItem(row: MarketingWorkspaceRow, kind: string, in
   const value = compactLabel(row.value, '');
   return {
     key: `${kind}-${row.id || index}`,
-    primary: compactLabel(row.primary, row.match?.matterRef || row.match?.enquiryId || row.id || 'Supporting row'),
+    primary: dateLabel,
     secondary: compactLabel(row.secondary || row.detail, 'No supporting detail'),
     meta: [dateLabel, status, owner].filter(Boolean).join(' | '),
     value: value || undefined,
@@ -453,6 +609,17 @@ function createMetricSupportItem(row: unknown, nestedKey: 'googleAnalytics' | 'g
 
 function createBasisSupportItem(key: string, primary: string, secondary: string, meta: string, value?: string, tone?: string): MarketingValueSheetSupportItem {
   return { key, primary, secondary, meta, value, tone };
+}
+
+function createEmailRecipientSupportItem(row: EmailCampaignRecipientPreview, index: number, tone?: string): MarketingValueSheetSupportItem {
+  return {
+    key: `email-recipient-${row.key || index}`,
+    primary: row.dateLabel || `Recipient ${index + 1}`,
+    secondary: `${row.displayName} | ${row.areaOfWork || 'Uncategorised'}`,
+    meta: row.blockedReason ? `Blocked: ${row.blockedReason}` : `${row.method || 'Unknown source'} | SendGrid ready`,
+    value: row.blockedReason ? 'Blocked' : 'Ready',
+    tone,
+  };
 }
 
 function parseMoneyLabel(value: string): number {
@@ -821,6 +988,21 @@ function dateKey(value: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function getEmailCampaignCurrentMonthRange(now = new Date()): EmailCampaignDateRange {
+  return {
+    startDate: dateKey(startOfMonth(now)),
+    endDate: dateKey(now),
+  };
+}
+
+function getEmailCampaignCurrentQuarterRange(now = new Date()): EmailCampaignDateRange {
+  const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+  return {
+    startDate: dateKey(new Date(now.getFullYear(), quarterStartMonth, 1)),
+    endDate: dateKey(now),
+  };
+}
+
 function isDateKeyValue(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
 }
@@ -933,6 +1115,7 @@ function buildEmailCampaignRecipientStats(rows: EmailCampaignRecipientPreview[])
     acc[option.key] = { scanned: 0, qualified: 0, blocked: 0 };
     return acc;
   }, {} as Record<EmailCampaignAudienceKey, EmailCampaignRecipientStats>);
+  stats.all = { scanned: 0, qualified: 0, blocked: 0 };
 
   rows.forEach((row) => {
     const keys: EmailCampaignAudienceKey[] = ['all', row.listKey];
@@ -947,6 +1130,48 @@ function buildEmailCampaignRecipientStats(rows: EmailCampaignRecipientPreview[])
   });
 
   return stats;
+}
+
+function buildEmailCampaignStatsFromStreams(streams: MarketingEmailAudienceStream[]): Record<EmailCampaignAudienceKey, EmailCampaignRecipientStats> {
+  const stats = EMAIL_CAMPAIGN_AUDIENCE_OPTIONS.reduce<Record<EmailCampaignAudienceKey, EmailCampaignRecipientStats>>((acc, option) => {
+    acc[option.key] = { scanned: 0, qualified: 0, blocked: 0 };
+    return acc;
+  }, {} as Record<EmailCampaignAudienceKey, EmailCampaignRecipientStats>);
+  stats.all = { scanned: 0, qualified: 0, blocked: 0 };
+
+  streams.forEach((stream) => {
+    const next = {
+      scanned: stream.total,
+      qualified: stream.sendable,
+      blocked: Math.max(0, stream.total - stream.sendable),
+    };
+    stats[stream.streamKey] = next;
+    stats.all.scanned += next.scanned;
+    stats.all.qualified += next.qualified;
+    stats.all.blocked += next.blocked;
+  });
+
+  return stats;
+}
+
+function emailAudienceMemberToPreview(member: MarketingEmailAudienceMember, index: number): EmailCampaignRecipientPreview {
+  const emailLabel = member.emailDomain
+    ? `*@${member.emailDomain}`
+    : member.emailHash
+      ? `${member.emailHash.slice(0, 10)}...`
+      : 'Email hash pending';
+  const rankLabel = member.rank == null ? 'Rank missing' : `Rank ${member.rank}`;
+  const clientLabel = member.client ? `Client${member.matterId ? ` | ${member.matterId}` : ''}` : 'Prospect';
+  return {
+    key: member.memberId || `${member.streamKey}-${member.acid || member.sourceEnquiryId || index}`,
+    displayName: member.acid ? `ACID ${member.acid}` : member.sourceEnquiryId ? `Enquiry ${member.sourceEnquiryId}` : `Member ${index + 1}`,
+    email: emailLabel,
+    areaOfWork: member.areaOfWork || member.streamKey,
+    method: `${rankLabel} | ${clientLabel}`,
+    dateLabel: member.tags.length > 0 ? member.tags.slice(0, 3).join(', ') : member.qualificationStatus,
+    listKey: member.streamKey,
+    blockedReason: member.sendable ? undefined : member.qualificationReason || member.qualificationStatus,
+  };
 }
 
 function monthKey(value: Date): string {
@@ -1256,6 +1481,8 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
   operatorEmail = '',
   activePage,
   onActivePageChange,
+  showDevDraftSurfaces = false,
+  demoModeEnabled = false,
 }) => {
   const metrics = useMemo(() => {
     const enquiries = ledgerRowsByTab.enquiries ?? [];
@@ -1308,25 +1535,34 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
     };
   }, [googleAdsRows, googleAnalyticsRows, ledgerRowsByTab]);
 
-  const [selectedMarketingChannel, setSelectedMarketingChannel] = useState<MarketingChannelKey>('seo');
   const [selectedIntakeByChannel, setSelectedIntakeByChannel] = useState<Record<MarketingChannelKey, IntakeFilterSelection>>({
     seo: 'all',
     ppc: 'all',
   });
   const [hoveredIntakeFilter, setHoveredIntakeFilter] = useState<string | null>(null);
-  const [selectedEmailCampaignKey, setSelectedEmailCampaignKey] = useState<EmailCampaignPlaceholder['key']>('all');
+  const [selectedEmailCampaignKey, setSelectedEmailCampaignKey] = useState<EmailCampaignPlaceholder['key']>('commercial');
   const [selectedEmailCampaignSender, setSelectedEmailCampaignSender] = useState<string>(EMAIL_CAMPAIGN_SENDERS[0].value);
   const [selectedEmailCampaignSignature, setSelectedEmailCampaignSignature] = useState<string>(EMAIL_CAMPAIGN_SIGNATURES[0].value);
-  const [selectedEmailCampaignAudience, setSelectedEmailCampaignAudience] = useState<EmailCampaignAudienceKey>('all');
-  const [emailCampaignSurfaceOpen, setEmailCampaignSurfaceOpen] = useState(false);
+  const [selectedEmailCampaignAudience, setSelectedEmailCampaignAudience] = useState<EmailCampaignRecipientListKey>('commercial');
   const [emailCampaignDateRange, setEmailCampaignDateRange] = useState<EmailCampaignDateRange>(() => getEmailCampaignDefaultWindow());
   const [appliedEmailCampaignDateRange, setAppliedEmailCampaignDateRange] = useState<EmailCampaignDateRange>(() => getEmailCampaignDefaultWindow());
   const [emailCampaignDraftSubject, setEmailCampaignDraftSubject] = useState<string>(EMAIL_CAMPAIGN_PLACEHOLDERS[0].subject);
   const [emailCampaignDraftPreview, setEmailCampaignDraftPreview] = useState<string>('A short Helix update for this list.');
   const [emailCampaignDraftBody, setEmailCampaignDraftBody] = useState<string>('Hello,\n\nWe are preparing a short update for this audience.\n\nKind regards,\nHelix Law');
   const [emailCampaignTestSending, setEmailCampaignTestSending] = useState(false);
+  const [emailCampaignLocking, setEmailCampaignLocking] = useState(false);
   const [emailCampaignSendResult, setEmailCampaignSendResult] = useState<EmailCampaignSendResult | null>(null);
+  const [emailCampaignSetupLocked, setEmailCampaignSetupLocked] = useState(false);
+  const [emailAudienceStreams, setEmailAudienceStreams] = useState<MarketingEmailAudienceStream[]>([]);
+  const [emailAudienceMembers, setEmailAudienceMembers] = useState<MarketingEmailAudienceMember[]>([]);
+  const [emailAudienceLoading, setEmailAudienceLoading] = useState(false);
+  const [emailAudienceRefreshing, setEmailAudienceRefreshing] = useState(false);
+  const [emailAudienceError, setEmailAudienceError] = useState<string | null>(null);
+  const [emailAudienceGeneratedAt, setEmailAudienceGeneratedAt] = useState<string | null>(null);
+  const [emailCampaignLockedRecord, setEmailCampaignLockedRecord] = useState<MarketingEmailCampaign | null>(null);
   const [activeValueSheetTray, setActiveValueSheetTray] = useState<MarketingValueSheetTraySelection | null>(null);
+  const [hoveredValueSheetCell, setHoveredValueSheetCell] = useState<MarketingValueSheetHoverSelection | null>(null);
+  const [hoveredValueSheetSupportItem, setHoveredValueSheetSupportItem] = useState<string | null>(null);
   const [marketingReportRange, setMarketingReportRange] = useState<MarketingReportDateRange>(() => ({
     startDate: SEARCH_MARKETING_REPORT_MIN_DATE,
     endDate: dateKey(new Date()),
@@ -1335,30 +1571,100 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
     status: 'idle',
     message: 'Choose a window and download the PDF.',
   });
-  const effectiveWorkspacePage: MarketingWorkspacePageKey = activePage ?? (emailCampaignSurfaceOpen ? 'email' : selectedMarketingChannel);
-  useEffect(() => {
-    if (!activePage) return;
-    if (activePage === 'email') {
-      setEmailCampaignSurfaceOpen(true);
-      return;
-    }
-    setEmailCampaignSurfaceOpen(false);
-    setSelectedMarketingChannel(activePage);
-  }, [activePage]);
+  const effectiveWorkspacePage: MarketingWorkspacePageKey | null = activePage ?? null;
+  const effectiveChannelPage: MarketingChannelKey = activePage === 'ppc' ? 'ppc' : 'seo';
   const setMarketingWorkspacePage = (page: MarketingWorkspacePageKey) => {
-    if (page === 'email') {
-      setEmailCampaignSurfaceOpen(true);
-    } else {
-      setEmailCampaignSurfaceOpen(false);
-      setSelectedMarketingChannel(page);
-    }
     onActivePageChange?.(page);
   };
-  const selectedChannelLabel = selectedMarketingChannel === 'seo' ? 'SEO' : 'PPC';
+  const returnToMarketingProof = (selection: MarketingValueSheetTraySelection) => {
+    setActiveValueSheetTray(selection);
+    onActivePageChange?.(null);
+    window.setTimeout(() => document.querySelector<HTMLElement>('[data-helix-region="marketing/value-sheet"]')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 0);
+  };
+
+  const loadMarketingEmailStreams = useCallback(async (signal?: AbortSignal) => {
+    setEmailAudienceLoading(true);
+    setEmailAudienceError(null);
+    try {
+      const response = await fetch(getApiUrl('/api/marketing-email/streams'), {
+        method: 'GET',
+        credentials: 'include',
+        signal,
+      });
+      const payload = await response.json() as { ok?: boolean; error?: string; streams?: MarketingEmailAudienceStream[]; generatedAt?: string };
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || `Marketing Email streams failed (${response.status})`);
+      setEmailAudienceStreams(Array.isArray(payload.streams) ? payload.streams : []);
+      setEmailAudienceGeneratedAt(payload.generatedAt || null);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setEmailAudienceError(error instanceof Error ? error.message : 'Marketing Email streams failed');
+    } finally {
+      if (!signal?.aborted) setEmailAudienceLoading(false);
+    }
+  }, []);
+
+  const loadMarketingEmailMembers = useCallback(async (streamKey: EmailCampaignRecipientListKey, signal?: AbortSignal) => {
+    try {
+      const response = await fetch(getApiUrl(`/api/marketing-email/streams/${encodeURIComponent(streamKey)}/members?limit=120`), {
+        method: 'GET',
+        credentials: 'include',
+        signal,
+      });
+      const payload = await response.json() as { ok?: boolean; error?: string; members?: MarketingEmailAudienceMember[] };
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || `Marketing Email members failed (${response.status})`);
+      setEmailAudienceMembers(Array.isArray(payload.members) ? payload.members : []);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setEmailAudienceMembers([]);
+      setEmailAudienceError(error instanceof Error ? error.message : 'Marketing Email members failed');
+    }
+  }, []);
+
+  const refreshMarketingEmailStreams = useCallback(async () => {
+    setEmailAudienceRefreshing(true);
+    setEmailAudienceError(null);
+    try {
+      const response = await fetch(getApiUrl('/api/marketing-email/streams/refresh'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 2500 }),
+      });
+      const payload = await response.json() as { ok?: boolean; error?: string; streams?: MarketingEmailAudienceStream[]; generatedAt?: string; sourceCount?: number };
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || `Marketing Email refresh failed (${response.status})`);
+      setEmailAudienceStreams(Array.isArray(payload.streams) ? payload.streams : []);
+      setEmailAudienceGeneratedAt(payload.generatedAt || null);
+      await loadMarketingEmailMembers(selectedEmailCampaignAudience);
+      setEmailCampaignSendResult({ status: 'saved', message: `Audience refreshed from ${(payload.sourceCount ?? 0).toLocaleString('en-GB')} source rows` });
+    } catch (error) {
+      setEmailAudienceError(error instanceof Error ? error.message : 'Marketing Email refresh failed');
+    } finally {
+      setEmailAudienceRefreshing(false);
+    }
+  }, [loadMarketingEmailMembers, selectedEmailCampaignAudience]);
+
+  useEffect(() => {
+    if (effectiveWorkspacePage !== 'email') return undefined;
+    const controller = new AbortController();
+    void loadMarketingEmailStreams(controller.signal);
+    return () => controller.abort();
+  }, [effectiveWorkspacePage, loadMarketingEmailStreams]);
+
+  useEffect(() => {
+    if (effectiveWorkspacePage !== 'email') return undefined;
+    const controller = new AbortController();
+    void loadMarketingEmailMembers(selectedEmailCampaignAudience, controller.signal);
+    return () => controller.abort();
+  }, [effectiveWorkspacePage, loadMarketingEmailMembers, selectedEmailCampaignAudience]);
+
+  const selectedChannelLabel = effectiveChannelPage === 'seo' ? 'SEO' : 'PPC';
   const seoChannelEnquiries = useMemo(() => metrics.enquiries.filter((row) => readStraightSourceChannel(row) === 'seo'), [metrics.enquiries]);
   const ppcChannelEnquiries = useMemo(() => metrics.enquiries.filter((row) => readStraightSourceChannel(row) === 'ppc'), [metrics.enquiries]);
-  const selectedChannelIntake = selectedIntakeByChannel[selectedMarketingChannel] ?? 'all';
-  const selectedChannelBaseEnquiries = selectedMarketingChannel === 'seo' ? seoChannelEnquiries : ppcChannelEnquiries;
+  const ppcLedgerRows = ledgerRowsByTab.ppc ?? [];
+  const googleAdsFeedTotals = useMemo(() => buildGoogleAdsTotals(googleAdsRows), [googleAdsRows]);
+  const hasGoogleAdsFeedTotals = hasGoogleAdsTotals(googleAdsFeedTotals);
+  const selectedChannelIntake = selectedIntakeByChannel[effectiveChannelPage] ?? 'all';
+  const selectedChannelBaseEnquiries = effectiveChannelPage === 'seo' ? seoChannelEnquiries : ppcChannelEnquiries;
   const selectedChannelEnquiries = filterEnquiriesByIntake(selectedChannelBaseEnquiries, selectedChannelIntake);
 
   const intakeSelectionLabel = (selection: IntakeFilterSelection): string => (
@@ -1435,7 +1741,7 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
 
   const seoJourney = buildJourneyForChannel('seo', 'Organic search', seoChannelEnquiries);
   const ppcJourney = buildJourneyForChannel('ppc', 'Paid search', ppcChannelEnquiries);
-  const selectedJourney = selectedMarketingChannel === 'seo' ? seoJourney : ppcJourney;
+  const selectedJourney = effectiveChannelPage === 'seo' ? seoJourney : ppcJourney;
   const attributionSpend = searchAttributionValue?.spendAssumption ?? {
     ppcSpend: metrics.paid.cost,
     seoEstimate: SEO_SPEND_ESTIMATE,
@@ -1450,7 +1756,20 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
   const ppcReceived = searchAttributionValue?.combinedCollectedAndUpfront.paidSearch ?? ppcJourney.downstream.collected;
   const seoWip = searchAttributionValue?.chargeableWip.organicSearch.amount ?? 0;
   const ppcWip = searchAttributionValue?.chargeableWip.paidSearch.amount ?? 0;
-  const searchSheetAccent = isDarkMode ? colours.blue : colours.helixBlue;
+  const seoMatterCount = searchAttributionValue?.searchMatters.organicSearch ?? seoJourney.downstream.matters.length;
+  const ppcMatterCount = searchAttributionValue?.searchMatters.paidSearch ?? ppcJourney.downstream.matters.length;
+  const fallbackEmailCampaignRecipients = useMemo(() => buildEmailCampaignRecipients(metrics.enquiries, appliedEmailCampaignDateRange), [appliedEmailCampaignDateRange, metrics.enquiries]);
+  const emailAudienceMemberPreviews = useMemo(() => emailAudienceMembers.map(emailAudienceMemberToPreview), [emailAudienceMembers]);
+  const emailCampaignRecipients = emailAudienceStreams.length > 0 ? emailAudienceMemberPreviews : fallbackEmailCampaignRecipients;
+  const fallbackEmailCampaignRecipientStats = useMemo(() => buildEmailCampaignRecipientStats(fallbackEmailCampaignRecipients), [fallbackEmailCampaignRecipients]);
+  const emailAudienceRecipientStats = useMemo(() => buildEmailCampaignStatsFromStreams(emailAudienceStreams), [emailAudienceStreams]);
+  const emailCampaignRecipientStats = emailAudienceStreams.length > 0 ? emailAudienceRecipientStats : fallbackEmailCampaignRecipientStats;
+  const emailCampaignAllStats = emailCampaignRecipientStats.all ?? { scanned: 0, qualified: 0, blocked: 0 };
+  const searchSheetAccent = colours.highlight;
+  const valueSheetSpendAccent = colours.highlight;
+  const valueSheetReturnAccent = colours.green;
+  const valueSheetSourceAccent = isDarkMode ? colours.subtleGrey : colours.greyText;
+  const valueSheetEmailAccent = isDarkMode ? colours.highlight : colours.green;
   const valueSheetRows: MarketingValueSheetRow[] = [
     {
       key: 'organicSearch',
@@ -1458,14 +1777,12 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
       activityLabel: 'Sessions',
       activityValue: formatNumber(metrics.website.sessions),
       enquiries: seoEnquiryCount,
-      calls: seoMethodCounts.calls,
-      webforms: seoMethodCounts.webforms,
-      other: seoMethodCounts.other,
+      matters: seoMatterCount,
       spend: attributionSpend.seoEstimate,
       received: seoReceived,
       wip: seoWip,
       totalValue: seoReceived + seoWip,
-      accent: searchSheetAccent,
+      accent: valueSheetSourceAccent,
     },
     {
       key: 'paidSearch',
@@ -1473,30 +1790,37 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
       activityLabel: 'Clicks',
       activityValue: formatNumber(metrics.paid.clicks),
       enquiries: ppcEnquiryCount,
-      calls: ppcMethodCounts.calls,
-      webforms: ppcMethodCounts.webforms,
-      other: ppcMethodCounts.other,
+      matters: ppcMatterCount,
       spend: attributionSpend.ppcSpend,
       received: ppcReceived,
       wip: ppcWip,
       totalValue: ppcReceived + ppcWip,
-      accent: colours.green,
+      accent: valueSheetSourceAccent,
+    },
+    {
+      key: 'emailMarketing',
+      source: 'Email',
+      activityLabel: 'Recipients',
+      activityValue: formatNumber(emailCampaignAllStats.qualified),
+      enquiries: emailCampaignAllStats.qualified,
+      matters: 0,
+      spend: 0,
+      received: 0,
+      wip: 0,
+      totalValue: 0,
+      accent: valueSheetEmailAccent,
     },
   ];
   const valueSheetTotals = valueSheetRows.reduce((acc, row) => ({
     enquiries: acc.enquiries + row.enquiries,
-    calls: acc.calls + row.calls,
-    webforms: acc.webforms + row.webforms,
-    other: acc.other + row.other,
+    matters: acc.matters + row.matters,
     spend: acc.spend + row.spend,
     received: acc.received + row.received,
     wip: acc.wip + row.wip,
     totalValue: acc.totalValue + row.totalValue,
-  }), { enquiries: 0, calls: 0, webforms: 0, other: 0, spend: 0, received: 0, wip: 0, totalValue: 0 });
-  const valueSheetTotalValue = searchAttributionValue
-    ? searchAttributionValue.combinedCollectedAndUpfront.totalSearch + searchAttributionValue.chargeableWip.totalSearch.amount
-    : valueSheetTotals.totalValue;
-  const valueSheetReceivedValue = searchAttributionValue?.combinedCollectedAndUpfront.totalSearch ?? valueSheetTotals.received;
+  }), { enquiries: 0, matters: 0, spend: 0, received: 0, wip: 0, totalValue: 0 });
+  const valueSheetTotalValue = valueSheetTotals.totalValue;
+  const valueSheetReceivedValue = valueSheetTotals.received;
   const valueSheetSpendValue = valueSheetTotals.spend;
   const totalReturnMultiple = formatReturnMultiple(valueSheetTotalValue, valueSheetSpendValue);
   const receivedReturnMultiple = formatReturnMultiple(valueSheetReceivedValue, valueSheetSpendValue);
@@ -1504,18 +1828,16 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
     ...valueSheetRows,
     {
       key: 'totalSearch',
-      source: 'Total search',
-      activityLabel: 'All',
-      activityValue: '-',
+      source: 'Total channels',
+      activityLabel: 'Channels',
+      activityValue: formatNumber(valueSheetRows.length),
       enquiries: valueSheetTotals.enquiries,
-      calls: valueSheetTotals.calls,
-      webforms: valueSheetTotals.webforms,
-      other: valueSheetTotals.other,
+      matters: valueSheetTotals.matters,
       spend: valueSheetTotals.spend,
       received: valueSheetTotals.received,
       wip: valueSheetTotals.wip,
       totalValue: valueSheetTotalValue,
-      accent: colours.green,
+      accent: valueSheetSourceAccent,
     },
   ];
 
@@ -1555,7 +1877,7 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
       key: 'ppc',
       label: 'PPC',
       sourceLabel: 'Paid search',
-      headline: formatNumber(metrics.paid.conversions, 1),
+      headline: formatNumber(metrics.paid.conversions),
       liveLabel: 'PPC live view',
       subline: `${formatCurrency(metrics.paid.cost)} spend`,
       attribution: `${formatNumber(ppcChannelEnquiries.length)} attributed enquiries`,
@@ -1615,7 +1937,7 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
     value: intake[key],
   }));
 
-  const selectedJourneyBanner = channelJourneyBanners.find((banner) => banner.key === selectedMarketingChannel);
+  const selectedJourneyBanner = channelJourneyBanners.find((banner) => banner.key === effectiveChannelPage);
 
   const evidenceCards: ChannelMetric[] = [
     {
@@ -1638,72 +1960,10 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
   const textColour = isDarkMode ? colours.dark.text : colours.darkBlue;
   const mutedColour = isDarkMode ? 'var(--text-body)' : colours.greyText;
   const valueSheetAccent = searchSheetAccent;
-  const selectedChannelAccent = selectedMarketingChannel === 'ppc'
+  const selectedChannelAccent = effectiveChannelPage === 'ppc'
     ? colours.green
     : searchSheetAccent;
-  const renderMarketingHeroBanner = (blueprint = false) => {
-    const heroSurface = isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground;
-    const heroInset = isDarkMode ? withAlpha(colours.dark.sectionBackground, 0.62) : withAlpha(colours.sectionBackground, 0.74);
-    const heroBorder = reportingPanelBorder(isDarkMode);
-    const heroStats = [
-      { label: 'Spend', value: formatCurrency(valueSheetSpendValue), detail: `${formatNumber(valueSheetTotals.enquiries)} search enquiries`, tone: valueSheetAccent },
-      { label: 'Received', value: formatCurrency(valueSheetReceivedValue), detail: `${receivedReturnMultiple} cash return`, tone: colours.green },
-      { label: 'Total value', value: formatCurrency(valueSheetTotalValue), detail: 'Received plus chargeable WIP', tone: textColour },
-      { label: 'Return', value: totalReturnMultiple, detail: 'Total value against spend', tone: colours.green },
-    ];
-    return (
-      <section
-        data-helix-region="marketing/hero"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: 0,
-          minWidth: 0,
-          overflow: 'hidden',
-          borderStyle: 'solid',
-          borderWidth: '2px 1px 1px',
-          borderColor: `${valueSheetAccent} ${heroBorder} ${heroBorder}`,
-          background: heroSurface,
-          boxShadow: reportingPanelShadow(isDarkMode),
-        }}
-      >
-        <div style={{ display: 'grid', alignContent: 'center', gap: 9, minWidth: 0, padding: '18px 20px' }}>
-          <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: valueSheetAccent }}>
-            Search marketing
-          </span>
-          <span style={{ display: 'grid', gap: 6, minWidth: 0 }}>
-            {blueprint ? (
-              <span className="marketing-skeleton-line" style={{ width: 210, maxWidth: '80%', height: 20 }} />
-            ) : (
-              <strong style={{ color: textColour, fontSize: 24, lineHeight: 1.04, fontWeight: 900 }}>
-                {reportingWindowTitle}
-              </strong>
-            )}
-            <span style={{ color: mutedColour, fontSize: 13, lineHeight: 1.25, fontWeight: 800 }}>
-              {timelineRangeLabel}
-            </span>
-          </span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(128px, 1fr))', gap: 8, minWidth: 0, padding: 14, background: heroInset, borderLeft: `1px solid ${heroBorder}` }}>
-          {heroStats.map((item) => (
-            <span key={item.label} style={{ display: 'grid', alignContent: 'center', gap: 6, minWidth: 0, minHeight: 92, padding: '11px 12px', border: `1px solid ${heroBorder}`, background: reportingPanelBackground(isDarkMode, 'elevated') }}>
-              <small style={{ color: mutedColour, fontSize: 9, fontWeight: 900, textTransform: 'uppercase' }}>{item.label}</small>
-              {blueprint ? (
-                <span className="marketing-skeleton-line" style={{ width: item.label === 'Return' ? 74 : 112, maxWidth: '100%', height: 20 }} />
-              ) : (
-                <strong style={{ color: item.tone, fontSize: item.label === 'Return' ? 24 : 19, lineHeight: 1, fontWeight: 900 }}>{item.value}</strong>
-              )}
-              <small style={{ color: mutedColour, fontSize: 10, lineHeight: 1.25, fontWeight: 800 }}>{item.detail}</small>
-            </span>
-          ))}
-        </div>
-      </section>
-    );
-  };
   const marketingReportToday = useMemo(() => dateKey(new Date()), []);
-  const marketingReportWindowDays = isDateKeyValue(marketingReportRange.startDate) && isDateKeyValue(marketingReportRange.endDate)
-    ? getEmailCampaignRangeDays(marketingReportRange)
-    : 0;
   const marketingReportRangeError = (() => {
     if (!isDateKeyValue(marketingReportRange.startDate) || !isDateKeyValue(marketingReportRange.endDate)) return 'Use valid dates.';
     if (marketingReportRange.startDate < SEARCH_MARKETING_REPORT_MIN_DATE) return `Start on or after ${SEARCH_MARKETING_REPORT_MIN_DATE}.`;
@@ -1711,25 +1971,6 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
     if (marketingReportRange.startDate > marketingReportRange.endDate) return 'Start must be before end.';
     return '';
   })();
-  const marketingReportStatusTone = marketingReportDownloadState.status === 'error'
-    ? colours.red
-    : marketingReportDownloadState.status === 'ready'
-      ? colours.green
-      : mutedColour;
-  const setMarketingReportStartDate = (value: string) => {
-    setMarketingReportRange((current) => ({
-      startDate: value,
-      endDate: isDateKeyValue(value) && isDateKeyValue(current.endDate) && current.endDate < value ? value : current.endDate,
-    }));
-    setMarketingReportDownloadState({ status: 'idle', message: 'Choose a window and download the PDF.' });
-  };
-  const setMarketingReportEndDate = (value: string) => {
-    setMarketingReportRange((current) => ({
-      startDate: isDateKeyValue(value) && isDateKeyValue(current.startDate) && current.startDate > value ? value : current.startDate,
-      endDate: value,
-    }));
-    setMarketingReportDownloadState({ status: 'idle', message: 'Choose a window and download the PDF.' });
-  };
   const downloadMarketingReport = async () => {
     if (marketingReportRangeError) {
       setMarketingReportDownloadState({ status: 'error', message: marketingReportRangeError });
@@ -1765,114 +2006,6 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
     } catch (error) {
       setMarketingReportDownloadState({ status: 'error', message: error instanceof Error ? error.message : 'Report download failed.' });
     }
-  };
-  const renderMarketingReportDownloadTool = (blueprint = false) => {
-    const reportBorder = reportingPanelBorder(isDarkMode);
-    const reportSurface = reportingPanelBackground(isDarkMode, 'elevated');
-    const reportControlSurface = withAlpha(isDarkMode ? colours.dark.text : colours.helixBlue, isDarkMode ? 0.05 : 0.045);
-    const inputStyle: React.CSSProperties = {
-      width: '100%',
-      minHeight: 32,
-      border: `1px solid ${reportBorder}`,
-      borderRadius: 0,
-      background: reportControlSurface,
-      color: textColour,
-      fontFamily: 'Raleway, sans-serif',
-      fontSize: 11,
-      fontWeight: 800,
-      padding: '0 8px',
-    };
-    return (
-      <section
-        data-helix-region="marketing/value-report-download"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) auto',
-          gap: 12,
-          alignItems: 'stretch',
-          minWidth: 0,
-          padding: '12px 14px',
-          borderStyle: 'solid',
-          borderWidth: '2px 1px 1px',
-          borderColor: `${valueSheetAccent} ${reportBorder} ${reportBorder}`,
-          background: reportSurface,
-          boxShadow: reportingPanelShadow(isDarkMode),
-        }}
-      >
-        <div style={{ display: 'grid', gap: 10, minWidth: 0 }}>
-          <span style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-            <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: valueSheetAccent }}>
-              Report download
-            </span>
-            <strong style={{ color: textColour, fontSize: 17, lineHeight: 1.08, fontWeight: 900 }}>
-              Search value backing sheet
-            </strong>
-          </span>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(142px, 1fr))', gap: 8, minWidth: 0 }}>
-            <label style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-              <span style={{ color: mutedColour, fontSize: 9, fontWeight: 900, textTransform: 'uppercase' }}>From</span>
-              <input
-                type="date"
-                min={SEARCH_MARKETING_REPORT_MIN_DATE}
-                max={marketingReportToday}
-                value={marketingReportRange.startDate}
-                onChange={(event) => setMarketingReportStartDate(event.currentTarget.value)}
-                disabled={blueprint || marketingReportDownloadState.status === 'downloading'}
-                style={inputStyle}
-              />
-            </label>
-            <label style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-              <span style={{ color: mutedColour, fontSize: 9, fontWeight: 900, textTransform: 'uppercase' }}>To</span>
-              <input
-                type="date"
-                min={marketingReportRange.startDate || SEARCH_MARKETING_REPORT_MIN_DATE}
-                max={marketingReportToday}
-                value={marketingReportRange.endDate}
-                onChange={(event) => setMarketingReportEndDate(event.currentTarget.value)}
-                disabled={blueprint || marketingReportDownloadState.status === 'downloading'}
-                style={inputStyle}
-              />
-            </label>
-            <span style={{ display: 'grid', gap: 4, minWidth: 0, padding: '7px 8px', border: `1px solid ${reportBorder}`, background: reportControlSurface }}>
-              <span style={{ color: mutedColour, fontSize: 9, fontWeight: 900, textTransform: 'uppercase' }}>Window</span>
-              <strong style={{ color: textColour, fontSize: 15, fontWeight: 900 }}>{blueprint ? '-' : `${formatNumber(marketingReportWindowDays)}d`}</strong>
-            </span>
-          </div>
-          <span role="status" aria-live="polite" style={{ color: marketingReportRangeError ? colours.red : marketingReportStatusTone, fontSize: 10, fontWeight: 800 }}>
-            {blueprint ? 'Preparing report controls.' : marketingReportRangeError || marketingReportDownloadState.message}
-          </span>
-        </div>
-        <span style={{ display: 'grid', gap: 8, alignContent: 'center', minWidth: 148 }}>
-          <DefaultButton
-            text={marketingReportDownloadState.status === 'downloading' ? 'Preparing' : 'Download PDF'}
-            iconProps={{ iconName: 'Download' }}
-            onClick={downloadMarketingReport}
-            disabled={blueprint || Boolean(marketingReportRangeError) || marketingReportDownloadState.status === 'downloading'}
-            styles={{
-              root: {
-                borderRadius: 0,
-                height: 36,
-                minWidth: 148,
-                padding: '0 12px',
-                fontWeight: 900,
-                fontSize: 11,
-                border: `1px solid ${valueSheetAccent}`,
-                background: valueSheetAccent,
-                color: colours.light.cardBackground,
-              },
-              rootDisabled: {
-                border: `1px solid ${reportBorder}`,
-                background: reportControlSurface,
-                color: mutedColour,
-              },
-            }}
-          />
-          <small style={{ color: mutedColour, fontSize: 9, fontWeight: 800, lineHeight: 1.25 }}>
-            PDF uses the preserved report generator.
-          </small>
-        </span>
-      </section>
-    );
   };
   const [rightPanelMode, setRightPanelMode] = useState<'enquiries' | 'matters'>('enquiries');
   const rightPanelRows = rightPanelMode === 'matters' ? selectedJourney.downstream.matters.slice(0, 6) : selectedChannelEnquiries.slice(0, 6);
@@ -1931,7 +2064,6 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
           const channelKey = banner.key === 'seo' || banner.key === 'ppc' ? banner.key : null;
           const opensEmailWorkspace = banner.key === 'email';
           const canOpen = channelKey !== null || opensEmailWorkspace;
-          const selected = opensEmailWorkspace ? effectiveWorkspacePage === 'email' : channelKey !== null && channelKey === selectedMarketingChannel && effectiveWorkspacePage !== 'email';
           const dimmed = !canOpen;
           const statusValue = opensEmailWorkspace ? 'Email page' : 'Channel page';
           const statusDetail = opensEmailWorkspace ? 'List and draft workspace' : 'Report and campaign workspace';
@@ -1939,7 +2071,6 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
             <button
               key={banner.key}
               type="button"
-              aria-pressed={selected}
               aria-disabled={!canOpen}
               disabled={blueprint}
               onClick={() => {
@@ -1962,10 +2093,10 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                 textAlign: 'left',
                 borderStyle: 'solid',
                 borderWidth: 1,
-                borderColor: selected ? banner.accent : channelEntryBorder,
+                borderColor: channelEntryBorder,
                 borderRadius: 0,
                 background: dimmed ? (isDarkMode ? withAlpha(colours.dark.cardHover, 0.42) : channelEntryCardFill) : channelEntryCardFill,
-                boxShadow: selected ? `inset 3px 0 0 ${banner.accent}` : (dimmed ? 'none' : reportingPanelShadow(isDarkMode)),
+                boxShadow: dimmed ? 'none' : reportingPanelShadow(isDarkMode),
                 color: textColour,
                 opacity: dimmed ? 0.64 : 1,
                 overflow: 'hidden',
@@ -1981,7 +2112,7 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                   {banner.sourceLabel}
                 </span>
               </span>
-              <span style={{ display: 'block', width: '100%', padding: '9px 11px 10px 13px', background: channelEntryFooterFill, borderTop: `1px solid ${selected ? withAlpha(banner.accent, 0.5) : channelEntryBorder}`, boxShadow: selected && isDarkMode ? `inset 3px 0 0 ${banner.accent}` : undefined }}>
+              <span style={{ display: 'block', width: '100%', padding: '9px 11px 10px 13px', background: channelEntryFooterFill, borderTop: `1px solid ${channelEntryBorder}` }}>
                 <span style={{ display: 'grid', alignItems: 'center', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10, minWidth: 0, width: '100%' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                     <span aria-hidden="true" style={{ width: 3, height: 24, flex: '0 0 auto', background: banner.accent, opacity: dimmed ? 0.48 : 1 }} />
@@ -1989,7 +2120,7 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                       {blueprint ? (
                         <span className="marketing-skeleton-line" style={{ width: 90, height: 11 }} />
                       ) : (
-                        <span style={{ color: selected ? banner.accent : textColour, fontSize: 11, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ color: textColour, fontSize: 11, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {statusValue}
                         </span>
                       )}
@@ -2003,8 +2134,8 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                     style={{
                       ['--data-hub-dataset-open-tone' as string]: banner.accent,
                       border: `1px solid ${channelEntryBorder}`,
-                      background: selected ? withAlpha(banner.accent, isDarkMode ? 0.16 : 0.09) : 'transparent',
-                      color: selected ? banner.accent : textColour,
+                      background: 'transparent',
+                      color: textColour,
                       padding: '0 10px',
                       minHeight: 28,
                       fontSize: 9,
@@ -2012,7 +2143,7 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                       textTransform: 'uppercase',
                     } as React.CSSProperties}
                   >
-                    <span>{canOpen ? (selected ? 'Open' : 'Enter') : 'Soon'}</span>
+                    <span>{canOpen ? 'Enter' : 'Soon'}</span>
                   </span>
                 </span>
               </span>
@@ -2024,7 +2155,6 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
   );
   const emailCampaignAccent = isDarkMode ? colours.highlight : colours.green;
   const emailCampaignPanelBorder = reportingPanelBorder(isDarkMode);
-  const emailCampaignHeaderBackground = withAlpha(isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground, 0.76);
   const emailCampaignCardBackground = reportingPanelBackground(isDarkMode, 'elevated');
   const emailCampaignControlBackground = withAlpha(isDarkMode ? colours.dark.cardBackground : colours.sectionBackground, isDarkMode ? 0.64 : 0.84);
   const emailCampaignWindowMinDate = useMemo(() => dateKey(addDays(new Date(), -(EMAIL_CAMPAIGN_RANGE_SPAN_DAYS - 1))), []);
@@ -2039,12 +2169,30 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
   const selectedEmailCampaignListLabel = EMAIL_CAMPAIGN_AUDIENCE_OPTIONS.find((option) => option.key === selectedEmailCampaignAudience)?.label ?? 'All new-space enquiries';
   const operatorEmailForCampaign = String(operatorEmail || '').trim();
   const emailCampaignCanSendTest = Boolean(operatorEmailForCampaign && emailCampaignDraftSubject.trim() && emailCampaignDraftBody.trim());
-  const emailCampaignRecipients = useMemo(() => buildEmailCampaignRecipients(metrics.enquiries, emailCampaignDateRange), [emailCampaignDateRange, metrics.enquiries]);
-  const emailCampaignRecipientStats = useMemo(() => buildEmailCampaignRecipientStats(emailCampaignRecipients), [emailCampaignRecipients]);
   const selectedEmailCampaignRecipients = useMemo(() => emailCampaignRecipients.filter((row) => !row.blockedReason && emailCampaignRecipientMatchesList(row, selectedEmailCampaignAudience)), [emailCampaignRecipients, selectedEmailCampaignAudience]);
   const selectedEmailCampaignBlockedRecipients = useMemo(() => emailCampaignRecipients.filter((row) => row.blockedReason && emailCampaignRecipientMatchesList(row, selectedEmailCampaignAudience)), [emailCampaignRecipients, selectedEmailCampaignAudience]);
   const selectedEmailCampaignPreviewRows = selectedEmailCampaignRecipients.slice(0, EMAIL_CAMPAIGN_PREVIEW_LIMIT);
   const selectedEmailCampaignStats = emailCampaignRecipientStats[selectedEmailCampaignAudience] ?? { scanned: 0, qualified: 0, blocked: 0 };
+  const selectedEmailAudienceStream = emailAudienceStreams.find((stream) => stream.streamKey === selectedEmailCampaignAudience) || null;
+  const selectedEmailCampaignIsLiveStream = selectedEmailAudienceStream?.isSendable ?? selectedEmailCampaignAudience !== 'other';
+  const emailCampaignMonthRecipients = useMemo(() => buildEmailCampaignRecipients(metrics.enquiries, getEmailCampaignCurrentMonthRange()), [metrics.enquiries]);
+  const emailCampaignQuarterRecipients = useMemo(() => buildEmailCampaignRecipients(metrics.enquiries, getEmailCampaignCurrentQuarterRange()), [metrics.enquiries]);
+  const emailCampaignMonthStats = useMemo(() => buildEmailCampaignRecipientStats(emailCampaignMonthRecipients), [emailCampaignMonthRecipients]);
+  const emailCampaignQuarterStats = useMemo(() => buildEmailCampaignRecipientStats(emailCampaignQuarterRecipients), [emailCampaignQuarterRecipients]);
+  const emailAudienceStreamByKey = useMemo(() => new Map(emailAudienceStreams.map((stream) => [stream.streamKey, stream])), [emailAudienceStreams]);
+  const emailCampaignListGrowthStats: EmailCampaignListGrowthStats[] = EMAIL_CAMPAIGN_AUDIENCE_OPTIONS.map((option) => ({
+    ...option,
+    stats: emailCampaignRecipientStats[option.key] ?? { scanned: 0, qualified: 0, blocked: 0 },
+    monthStats: emailCampaignMonthStats[option.key] ?? { scanned: 0, qualified: 0, blocked: 0 },
+    quarterStats: emailCampaignQuarterStats[option.key] ?? { scanned: 0, qualified: 0, blocked: 0 },
+    isSendable: emailAudienceStreamByKey.get(option.key as EmailCampaignRecipientListKey)?.isSendable ?? option.key !== 'other',
+    withAcid: emailAudienceStreamByKey.get(option.key as EmailCampaignRecipientListKey)?.withAcid,
+    ranked: emailAudienceStreamByKey.get(option.key as EmailCampaignRecipientListKey)?.ranked,
+    clients: emailAudienceStreamByKey.get(option.key as EmailCampaignRecipientListKey)?.clients,
+  }));
+  const selectedEmailCampaignSenderLabel = EMAIL_CAMPAIGN_SENDERS.find((sender) => sender.value === selectedEmailCampaignSender)?.label ?? selectedEmailCampaignSender;
+  const selectedEmailCampaignSignatureLabel = EMAIL_CAMPAIGN_SIGNATURES.find((signature) => signature.value === selectedEmailCampaignSignature)?.label ?? selectedEmailCampaignSignature;
+  const emailCampaignSetupCanLock = Boolean(selectedEmailCampaignIsLiveStream && selectedEmailCampaignSender && selectedEmailCampaignSignature && selectedEmailCampaignStats.qualified > 0);
   const emailCampaignSelectStyle: React.CSSProperties = {
     width: '100%',
     minHeight: 32,
@@ -2065,8 +2213,64 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
     setEmailCampaignSendResult(null);
   };
   const setEmailCampaignList = (key: EmailCampaignAudienceKey) => {
-    setSelectedEmailCampaignAudience(key);
-    setEmailCampaignTemplate(key);
+    const nextKey = (key === 'all' ? 'commercial' : key) as EmailCampaignRecipientListKey;
+    setSelectedEmailCampaignAudience(nextKey as EmailCampaignRecipientListKey);
+    setEmailCampaignTemplate(nextKey);
+    setEmailCampaignSetupLocked(false);
+    setEmailCampaignLockedRecord(null);
+  };
+  const setEmailCampaignSender = (value: string) => {
+    setSelectedEmailCampaignSender(value);
+    setEmailCampaignSetupLocked(false);
+    setEmailCampaignSendResult(null);
+  };
+  const setEmailCampaignSignature = (value: string) => {
+    setSelectedEmailCampaignSignature(value);
+    setEmailCampaignSetupLocked(false);
+    setEmailCampaignSendResult(null);
+  };
+  const lockEmailCampaignSetup = async () => {
+    if (!emailCampaignSetupCanLock) return;
+    setEmailCampaignLocking(true);
+    setEmailCampaignSendResult(null);
+    try {
+      const createResponse = await fetch(getApiUrl('/api/marketing-email/campaigns'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          streamKey: selectedEmailCampaignAudience,
+          campaignName: selectedEmailCampaignTemplate.title,
+          subject: emailCampaignDraftSubject.trim(),
+          preheader: emailCampaignDraftPreview.trim(),
+          body: emailCampaignDraftBody,
+          senderEmail: selectedEmailCampaignSender,
+          signatureMode: selectedEmailCampaignSignature,
+          excludeClients: true,
+        }),
+      });
+      const createPayload = await createResponse.json() as { ok?: boolean; error?: string; campaign?: MarketingEmailCampaign };
+      if (!createResponse.ok || createPayload.ok === false || !createPayload.campaign?.campaignId) {
+        throw new Error(createPayload.error || `Campaign create failed (${createResponse.status})`);
+      }
+      const lockResponse = await fetch(getApiUrl(`/api/marketing-email/campaigns/${encodeURIComponent(createPayload.campaign.campaignId)}/lock`), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const lockPayload = await lockResponse.json() as { ok?: boolean; error?: string; campaign?: MarketingEmailCampaign };
+      if (!lockResponse.ok || lockPayload.ok === false || !lockPayload.campaign) {
+        throw new Error(lockPayload.error || `Campaign lock failed (${lockResponse.status})`);
+      }
+      setEmailCampaignLockedRecord(lockPayload.campaign);
+      setEmailCampaignSetupLocked(true);
+      setEmailCampaignSendResult({ status: 'saved', message: `Campaign locked for ${(lockPayload.campaign.selectedCount ?? selectedEmailCampaignStats.qualified).toLocaleString('en-GB')} sendable members` });
+    } catch (error) {
+      setEmailCampaignSendResult({ status: 'error', message: error instanceof Error ? error.message : 'Campaign lock failed' });
+    } finally {
+      setEmailCampaignLocking(false);
+    }
   };
   const saveEmailCampaignDraft = () => {
     setEmailCampaignSendResult({ status: 'saved', message: 'Draft held in this workspace' });
@@ -2121,6 +2325,8 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
       const clampedOffset = Math.min(Math.max(0, nextOffset), currentEndOffset);
       return { ...current, startDate: getEmailCampaignDateAtOffset(emailCampaignWindowMinDate, clampedOffset) };
     });
+    setEmailCampaignSetupLocked(false);
+    setEmailCampaignSendResult(null);
   };
   const setEmailCampaignWindowEndOffset = (nextOffset: number) => {
     setEmailCampaignDateRange((current) => {
@@ -2128,14 +2334,18 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
       const clampedOffset = Math.max(currentStartOffset, Math.min(EMAIL_CAMPAIGN_RANGE_SPAN_DAYS - 1, nextOffset));
       return { ...current, endDate: getEmailCampaignDateAtOffset(emailCampaignWindowMinDate, clampedOffset) };
     });
+    setEmailCampaignSetupLocked(false);
+    setEmailCampaignSendResult(null);
+  };
+  const applyEmailCampaignDateRange = () => {
+    setAppliedEmailCampaignDateRange(emailCampaignDateRange);
+    setEmailCampaignSetupLocked(false);
+    setEmailCampaignSendResult(null);
   };
   const renderEmailCampaignWorkbench = (blueprint = false) => {
     const surfaceOpen = effectiveWorkspacePage === 'email' && !blueprint;
     return (
-    <section data-helix-region="marketing/email-campaigns" style={{ display: 'grid', gap: 8, minWidth: 0 }}>
-      <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-        Email channel workbench
-      </span>
+    <section data-helix-region="marketing/email-campaigns" style={{ display: 'grid', gap: surfaceOpen ? 0 : 8, minWidth: 0 }}>
       {!surfaceOpen ? (
         <button
           type="button"
@@ -2206,70 +2416,6 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
         }}
       >
         <div
-          data-helix-region="marketing/email-campaigns/governor"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            padding: '12px 14px 10px',
-            borderBottom: `1px solid ${emailCampaignPanelBorder}`,
-            backgroundColor: emailCampaignHeaderBackground,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-            <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: emailCampaignAccent }}>
-              Email channel
-            </span>
-            <strong style={{ display: 'block', fontSize: 17, lineHeight: 1.08, fontWeight: 900, color: emailCampaignAccent }}>
-              New-space recipient lists
-            </strong>
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <DefaultButton
-              text="Back to channels"
-              onClick={() => setMarketingWorkspacePage(selectedMarketingChannel)}
-              styles={{
-                root: {
-                  borderRadius: 0,
-                  height: 30,
-                  minWidth: 124,
-                  padding: '0 10px',
-                  fontWeight: 800,
-                  fontSize: 10,
-                  border: `1px solid ${emailCampaignPanelBorder}`,
-                  background: emailCampaignControlBackground,
-                  color: textColour,
-                },
-              }}
-            />
-            {['Preview visible', 'Demo send only', 'Bulk locked'].map((label, index) => (
-              <span
-                key={label}
-                style={{
-                  minHeight: 22,
-                  padding: '0 8px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  border: `1px solid ${index === 0 ? withAlpha(emailCampaignAccent, 0.48) : emailCampaignPanelBorder}`,
-                  background: index === 0 ? withAlpha(emailCampaignAccent, isDarkMode ? 0.12 : 0.07) : withAlpha(isDarkMode ? colours.dark.text : colours.helixBlue, 0.045),
-                  color: index === 0 ? emailCampaignAccent : mutedColour,
-                  fontSize: 9,
-                  lineHeight: 1,
-                  fontWeight: 900,
-                  letterSpacing: 0,
-                  textTransform: 'uppercase',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {label}
-              </span>
-            ))}
-          </span>
-        </div>
-
-        <div
           className="email-lists-workbench"
           style={{
             display: 'flex',
@@ -2330,8 +2476,26 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
             </div>
             <div className="email-lists-window-actions">
               <DefaultButton
+                text={emailAudienceRefreshing ? 'Refreshing' : 'Refresh audience'}
+                onClick={refreshMarketingEmailStreams}
+                disabled={blueprint || emailAudienceRefreshing || emailAudienceLoading}
+                styles={{
+                  root: {
+                    borderRadius: 0,
+                    height: 32,
+                    minWidth: 138,
+                    padding: '0 10px',
+                    fontWeight: 800,
+                    fontSize: 10,
+                    border: `1px solid ${emailCampaignPanelBorder}`,
+                    background: withAlpha(emailCampaignAccent, isDarkMode ? 0.12 : 0.07),
+                    color: emailCampaignAccent,
+                  },
+                }}
+              />
+              <DefaultButton
                 text={emailCampaignDraftChanged ? 'Apply' : 'Applied'}
-                onClick={() => setAppliedEmailCampaignDateRange(emailCampaignDateRange)}
+                onClick={applyEmailCampaignDateRange}
                 disabled={blueprint || !emailCampaignDraftChanged}
                 styles={{
                   root: {
@@ -2350,43 +2514,58 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
             </div>
           </div>
 
+          {(emailAudienceError || emailAudienceGeneratedAt) && (
+            <span className={`email-lists-demo-send__result${emailAudienceError ? ' email-lists-demo-send__result--error' : ' email-lists-demo-send__result--ready'}`}>
+              {emailAudienceError || `Audience spine loaded ${emailAudienceGeneratedAt ? formatSupportDate(Date.parse(emailAudienceGeneratedAt)) : ''}`}
+            </span>
+          )}
+
           <div
-            className="marketing-email-campaign-layout"
+            className="marketing-email-campaign-list-strip"
+            data-helix-region="marketing/email-campaigns/list-strip"
+            aria-label="Email send lists"
+          >
+            {emailCampaignListGrowthStats.map((option) => {
+              const meta = getAreaGlyphMeta(option.glyph);
+              const selected = selectedEmailCampaignAudience === option.key;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={selected ? 'marketing-email-campaign-list-strip-option is-selected' : 'marketing-email-campaign-list-strip-option'}
+                  aria-pressed={selected}
+                  onClick={() => setEmailCampaignList(option.key)}
+                  disabled={blueprint}
+                  title={`${option.label}: ${formatNumber(option.stats.qualified)} sendable, ${formatNumber(option.withAcid ?? 0)} ACID, ${formatNumber(option.ranked ?? 0)} ranked, ${formatNumber(option.clients ?? 0)} clients`}
+                >
+                  <span className="email-lists-area-icon">{renderAreaOfWorkGlyph(option.glyph, meta.color, 'glyph', 15)}</span>
+                  <span className="marketing-email-campaign-list-strip-label">
+                    <strong>{option.label}</strong>
+                    <small>{option.isSendable ? `${formatNumber(option.stats.qualified)} sendable` : `${formatNumber(option.stats.scanned)} inspect`}</small>
+                  </span>
+                  <span className="marketing-email-campaign-list-strip-growth">
+                    <span>{formatNumber(option.withAcid ?? option.stats.qualified)} ACID / {formatNumber(option.ranked ?? 0)} rank</span>
+                    <span>{formatNumber(option.clients ?? 0)} clients / {formatNumber(option.stats.blocked)} held</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            className="marketing-email-campaign-stage-layout"
             data-helix-region="marketing/email-campaigns/layout"
           >
-            <aside className="marketing-email-campaign-side-pane" data-helix-region="marketing/email-campaigns/list-pane">
-              <div className="marketing-email-campaign-side-header">
-                <span className="email-lists-eyebrow">Send list</span>
-                <strong>{selectedEmailCampaignListLabel}</strong>
-                <small>{formatNumber(selectedEmailCampaignStats.qualified)} qualified, {formatNumber(selectedEmailCampaignStats.blocked)} held back</small>
-              </div>
-              <div className="marketing-email-campaign-list-options" aria-label="Email send list">
-                {EMAIL_CAMPAIGN_AUDIENCE_OPTIONS.map((option) => {
-                  const meta = getAreaGlyphMeta(option.glyph);
-                  const selected = selectedEmailCampaignAudience === option.key;
-                  const stats = emailCampaignRecipientStats[option.key];
-                  return (
-                    <button
-                      key={option.key}
-                      type="button"
-                      className={selected ? 'marketing-email-campaign-list-option is-selected' : 'marketing-email-campaign-list-option'}
-                      aria-pressed={selected}
-                      onClick={() => setEmailCampaignList(option.key)}
-                      disabled={blueprint}
-                    >
-                      <span className="email-lists-area-icon">{renderAreaOfWorkGlyph(option.glyph, meta.color, 'glyph', 15)}</span>
-                      <span>
-                        <strong>{option.label}</strong>
-                        <small>{formatNumber(stats.qualified)} qualified</small>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="marketing-email-campaign-send-settings" data-helix-region="marketing/email-campaigns/send-settings">
+            <section className="marketing-email-campaign-setup-stage" data-helix-region="marketing/email-campaigns/setup-stage" data-locked={emailCampaignSetupLocked ? 'true' : 'false'}>
+              <div className="marketing-email-campaign-setup-controls" data-helix-region="marketing/email-campaigns/send-settings">
+                <div className="marketing-email-campaign-stage-header">
+                  <span className="email-lists-eyebrow">Setup</span>
+                  <strong>{selectedEmailCampaignListLabel}</strong>
+                  <small>{selectedEmailCampaignIsLiveStream ? `${formatNumber(selectedEmailCampaignStats.qualified)} sendable, ${formatNumber(selectedEmailCampaignStats.blocked)} held back` : 'Inspection stream only, not a live campaign key'}</small>
+                </div>
                 <label>
                   <span>From</span>
-                  <select value={selectedEmailCampaignSender} onChange={(event) => setSelectedEmailCampaignSender(event.currentTarget.value)} disabled={blueprint || emailCampaignTestSending} style={emailCampaignSelectStyle}>
+                  <select value={selectedEmailCampaignSender} onChange={(event) => setEmailCampaignSender(event.currentTarget.value)} disabled={blueprint || emailCampaignTestSending || emailCampaignLocking} style={emailCampaignSelectStyle}>
                     {EMAIL_CAMPAIGN_SENDERS.map((sender) => (
                       <option key={sender.value} value={sender.value}>{sender.label}</option>
                     ))}
@@ -2394,18 +2573,45 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                 </label>
                 <label>
                   <span>Signature</span>
-                  <select value={selectedEmailCampaignSignature} onChange={(event) => setSelectedEmailCampaignSignature(event.currentTarget.value)} disabled={blueprint || emailCampaignTestSending} style={emailCampaignSelectStyle}>
+                  <select value={selectedEmailCampaignSignature} onChange={(event) => setEmailCampaignSignature(event.currentTarget.value)} disabled={blueprint || emailCampaignTestSending || emailCampaignLocking} style={emailCampaignSelectStyle}>
                     {EMAIL_CAMPAIGN_SIGNATURES.map((signature) => (
                       <option key={signature.value} value={signature.value}>{signature.label}</option>
                     ))}
                   </select>
                 </label>
+                <button
+                  type="button"
+                  className="marketing-email-campaign-lock-button"
+                  onClick={lockEmailCampaignSetup}
+                  disabled={blueprint || !emailCampaignSetupCanLock || emailCampaignSetupLocked || emailCampaignLocking}
+                  title={selectedEmailCampaignIsLiveStream ? 'Create and lock a campaign against this stream.' : 'Other is inspection-only and cannot be used as a live campaign key.'}
+                >
+                  {emailCampaignLocking ? 'Locking' : emailCampaignSetupLocked ? 'Setup locked' : 'Lock setup'}
+                </button>
               </div>
-              <div className="marketing-email-campaign-preview" data-helix-region="marketing/email-campaigns/recipient-preview">
+
+              <aside className="marketing-email-campaign-setup-preview" data-helix-region="marketing/email-campaigns/setup-preview">
                 <header>
-                  <span className="email-lists-eyebrow">Recipient preview</span>
+                  <span className="email-lists-eyebrow">Preview</span>
                   <strong>{formatNumber(selectedEmailCampaignRecipients.length)}</strong>
                 </header>
+                <div className="marketing-email-campaign-preview-meta">
+                  {[
+                    { label: 'List', value: selectedEmailCampaignListLabel },
+                    { label: 'From', value: selectedEmailCampaignSenderLabel },
+                    { label: emailCampaignLockedRecord ? 'Campaign' : 'Signature', value: emailCampaignLockedRecord ? `${emailCampaignLockedRecord.status} / ${formatNumber(emailCampaignLockedRecord.selectedCount ?? selectedEmailCampaignStats.qualified)}` : selectedEmailCampaignSignatureLabel },
+                  ].map((item) => (
+                    <span key={item.label}>
+                      <small>{item.label}</small>
+                      <strong>{item.value}</strong>
+                    </span>
+                  ))}
+                </div>
+                <div className="marketing-email-campaign-preview" data-helix-region="marketing/email-campaigns/recipient-preview">
+                  <header>
+                    <span className="email-lists-eyebrow">Recipient preview</span>
+                    <strong>{formatNumber(selectedEmailCampaignRecipients.length)}</strong>
+                  </header>
                 <div className="marketing-email-campaign-preview-list">
                   {selectedEmailCampaignPreviewRows.length === 0 ? (
                     <span className="marketing-email-campaign-preview-empty">No qualified recipients in this window.</span>
@@ -2428,9 +2634,12 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                   </small>
                 )}
               </div>
-            </aside>
+              </aside>
+            </section>
 
-            <form
+            {emailCampaignSetupLocked && (
+            <section className="marketing-email-campaign-draft-stage" data-helix-region="marketing/email-campaigns/draft-stage">
+              <form
               className="email-lists-demo-send email-lists-composer marketing-email-campaign-composer"
               data-helix-region="marketing/email-campaigns/composer"
               onSubmit={sendEmailCampaignTest}
@@ -2488,27 +2697,31 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                 </label>
               </div>
               <div className="email-lists-composer__footer">
-                <span
-                  className={`email-lists-demo-send__result${emailCampaignSendResult?.status === 'ready' || emailCampaignSendResult?.status === 'saved' ? ' email-lists-demo-send__result--ready' : ''}${emailCampaignSendResult?.status === 'error' ? ' email-lists-demo-send__result--error' : ''}`}
-                  role="status"
-                  aria-live="polite"
-                >
-                  {emailCampaignSendResult?.message || 'Draft held in Marketing. Bulk send locked.'}
-                </span>
+                {emailCampaignSendResult && (
+                  <span
+                    className={`email-lists-demo-send__result${emailCampaignSendResult.status === 'ready' || emailCampaignSendResult.status === 'saved' ? ' email-lists-demo-send__result--ready' : ''}${emailCampaignSendResult.status === 'error' ? ' email-lists-demo-send__result--error' : ''}`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {emailCampaignSendResult.message}
+                  </span>
+                )}
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <button type="button" onClick={saveEmailCampaignDraft} disabled={blueprint || emailCampaignTestSending}>Save draft</button>
                   <button type="submit" disabled={blueprint || emailCampaignTestSending || !emailCampaignCanSendTest}>{emailCampaignTestSending ? 'Sending' : 'Send test to me'}</button>
-                  <button type="button" disabled title="Needs recipient table, suppression checks, ops log batch events, error telemetry, audit job, and approval gate">Bulk send</button>
+                  <button type="button" disabled title="Mass sending is off until suppression, audit, telemetry, and approval controls are in place">Mass send off</button>
                 </span>
               </div>
-            </form>
+              </form>
+            </section>
+            )}
           </div>
           <div className="marketing-email-campaign-send-guard" data-helix-region="marketing/email-campaigns/send-guard">
             {[
               { label: 'Source', value: `${formatNumber(emailCampaignRecipients.length)} new-space enquiries scanned` },
               { label: 'Area qualification', value: `${formatNumber(selectedEmailCampaignRecipients.length)} in selected list` },
               { label: 'Held back', value: `${formatNumber(selectedEmailCampaignBlockedRecipients.length)} missing or duplicate email` },
-              { label: 'Bulk send guard', value: 'Requires ops log, error telemetry, suppression, audit, and approval before unlock' },
+              { label: 'Mass sending', value: 'Off until suppression, audit, telemetry, and approval controls are in place' },
             ].map((item) => (
               <span key={item.label}>
                 <strong>{item.label}</strong>
@@ -2562,28 +2775,141 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
     },
     {
       label: 'Conversions',
-      value: formatNumber(metrics.paid.conversions, 1),
+      value: formatNumber(metrics.paid.conversions),
       detail: 'Platform-reported conversions',
     },
   ];
-  const leftPanelRows = selectedMarketingChannel === 'ppc' ? ppcStatRows : seoStatRows;
+  const leftPanelRows = effectiveChannelPage === 'ppc' ? ppcStatRows : seoStatRows;
   const timelineMonths = useMemo<MarketingTimelineMonth[]>(() => (
     buildMarketingTimelineMonths(timelineRangeStartTs, timelineRangeEndTs, googleAnalyticsRows, googleAdsRows, ledgerRowsByTab, searchAttributionValue)
   ), [googleAdsRows, googleAnalyticsRows, ledgerRowsByTab, searchAttributionValue, timelineRangeEndTs, timelineRangeStartTs]);
+  const seoContentPrimaryList = SEO_CONTENT_SNAPSHOT_LISTS[0];
+  const seoContentStatusRows = seoContentPrimaryList.statuses;
+  const seoRelatedSnapshotLists = SEO_CONTENT_SNAPSHOT_LISTS.slice(1);
+  const seoContentPublished = seoContentStatusRows.find((row) => row.key === 'published-this-month')?.count ?? 0;
+  const seoContentPipeline = seoContentStatusRows.find((row) => row.key === 'pipeline')?.count ?? 0;
+  const seoContentActive = seoContentStatusRows
+    .filter((row) => !['published-this-month', 'pipeline'].includes(row.key))
+    .reduce((sum, row) => sum + row.count, 0);
+  const seoContentApprovalQueue = seoContentStatusRows
+    .filter((row) => ['approved-complete', 'waiting-approval', 'update-editing-required'].includes(row.key))
+    .reduce((sum, row) => sum + row.count, 0);
+  const seoAnalyticsTrendRows: SeoAnalyticsTrendRow[] = timelineMonths
+    .flatMap((month) => month.weeks)
+    .sort((left, right) => left.startTs - right.startTs)
+    .map((week) => ({
+      key: week.key,
+      label: formatTimelineDate(new Date(week.startTs)),
+      sessions: Math.round(week.seoSessions),
+      enquiries: week.seoEnquiries,
+      matters: week.seoMatters,
+      value: week.seoCollected + week.seoMatterValue,
+    }))
+    .filter((row) => row.sessions > 0 || row.enquiries > 0 || row.matters > 0 || row.value > 0);
+  const seoAnalyticsValue = seoReceived + seoWip;
+  const seoAnalyticsEnquiryRate = metrics.website.sessions > 0 ? (seoEnquiryCount / metrics.website.sessions) * 100 : 0;
+  const ppcAnalyticsTrendRows: PpcAnalyticsTrendRow[] = timelineMonths
+    .flatMap((month) => month.weeks)
+    .sort((left, right) => left.startTs - right.startTs)
+    .map((week) => ({
+      key: week.key,
+      label: formatTimelineDate(new Date(week.startTs)),
+      spend: week.ppcSpend,
+      clicks: Math.round(week.ppcClicks),
+      conversions: week.ppcConversions,
+      enquiries: week.ppcEnquiries,
+      matters: week.ppcMatters,
+      value: week.ppcCollected + week.ppcMatterValue,
+      rows: week.ppcRows,
+    }))
+    .filter((row) => row.spend > 0 || row.clicks > 0 || row.conversions > 0 || row.enquiries > 0 || row.matters > 0 || row.value > 0 || row.rows > 0);
+  const ppcAnalyticsValue = ppcReceived + ppcWip;
+  const ppcReturnMultiple = formatReturnMultiple(ppcAnalyticsValue, attributionSpend.ppcSpend);
+  const ppcConversionRate = metrics.paid.clicks > 0 ? (metrics.paid.conversions / metrics.paid.clicks) * 100 : 0;
+  const ppcEnquiryRate = metrics.paid.clicks > 0 ? (ppcEnquiryCount / metrics.paid.clicks) * 100 : 0;
+  const ppcDataSourceLabel = hasGoogleAdsFeedTotals
+    ? 'Google Ads feed'
+    : ppcLedgerRows.length > 0
+      ? 'PPC ledger rows'
+      : googleAdsRows.length > 0
+        ? 'Google Ads rows with no activity'
+        : 'No PPC telemetry';
+  const ppcHasTelemetry = metrics.paid.rows > 0 || hasGoogleAdsFeedTotals || ppcLedgerRows.length > 0;
+  const ppcAttributionIsLoading = searchAttributionStatus === 'loading' || searchAttributionStatus === 'idle';
+  const seoDrilldownFigures: ChannelMetric[] = [
+    {
+      label: 'Organic sessions',
+      value: formatNumber(metrics.website.sessions),
+      detail: `${formatNumber(metrics.website.rows)} GA4 rows in the selected window`,
+    },
+    {
+      label: 'Organic enquiries',
+      value: formatNumber(seoEnquiryCount),
+      detail: `${formatNumber(seoMethodCounts.calls)} calls, ${formatNumber(seoMethodCounts.webforms)} webforms, ${formatNumber(seoMethodCounts.other)} other`,
+    },
+    {
+      label: 'Enquiry rate',
+      value: `${formatNumber(seoAnalyticsEnquiryRate, 2)}%`,
+      detail: 'organic enquiries divided by organic sessions',
+    },
+    {
+      label: 'Attributed value',
+      value: formatCurrency(seoAnalyticsValue),
+      detail: `${formatCurrency(seoReceived)} received, ${formatCurrency(seoWip)} WIP`,
+    },
+    {
+      label: 'Content pipeline',
+      value: formatNumber(seoContentPipeline),
+      detail: `${SEO_CONTENT_SNAPSHOT_SOURCE} backlog and opportunity pool`,
+    },
+  ];
+  const ppcDrilldownFigures: ChannelMetric[] = [
+    {
+      label: 'Spend',
+      value: formatCurrency(attributionSpend.ppcSpend),
+      detail: `${ppcDataSourceLabel}; ${formatNumber(metrics.paid.rows)} rows in the selected window`,
+    },
+    {
+      label: 'Clicks',
+      value: formatNumber(metrics.paid.clicks),
+      detail: `${formatNumber(metrics.paid.impressions)} impressions; ${formatNumber(ppcConversionRate, 2)}% platform conversion rate`,
+    },
+    {
+      label: 'Conversions',
+      value: formatNumber(metrics.paid.conversions),
+      detail: 'Platform-reported Google Ads conversions',
+    },
+    {
+      label: 'Recorded paid enquiries',
+      value: ppcAttributionIsLoading ? 'Updating' : formatNumber(ppcEnquiryCount),
+      detail: `${formatNumber(ppcMethodCounts.calls)} calls, ${formatNumber(ppcMethodCounts.webforms)} webforms, ${formatNumber(ppcMethodCounts.other)} other`,
+    },
+    {
+      label: 'Attributed value',
+      value: ppcAttributionIsLoading ? 'Updating' : formatCurrency(ppcAnalyticsValue),
+      detail: `${formatCurrency(ppcReceived)} received, ${formatCurrency(ppcWip)} WIP; ${ppcReturnMultiple} return`,
+    },
+  ];
   const valueSheetBorder = reportingPanelBorder(isDarkMode);
-  const valueSheetTableColumns = 'minmax(128px, 1.1fr) minmax(96px, 0.7fr) repeat(4, minmax(64px, 0.45fr)) repeat(4, minmax(84px, 0.7fr))';
-  const valueSheetDeckSurface = withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.025 : 0.54);
+  const valueSheetTableColumns = 'minmax(140px, 1.15fr) minmax(116px, 0.82fr) repeat(2, minmax(76px, 0.52fr)) repeat(4, minmax(88px, 0.72fr))';
+  const valueSheetDeckSurface = isDarkMode ? colours.dark.sectionBackground : withAlpha(colours.sectionBackground, 0.54);
+  const valueSheetHeaderBarStyle: React.CSSProperties = {
+    gridColumn: '1 / -1',
+    display: 'grid',
+    gridTemplateColumns: valueSheetTableColumns,
+    gap: 0,
+    border: `1px solid ${withAlpha(colours.darkBlue, isDarkMode ? 0.72 : 0.88)}`,
+    background: colours.helixBlue,
+  };
   const valueSheetHeaderCellStyle: React.CSSProperties = {
     padding: '8px 9px',
-    border: `1px solid ${withAlpha(isDarkMode ? colours.dark.text : colours.greyText, isDarkMode ? 0.10 : 0.12)}`,
-    background: withAlpha(isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground, isDarkMode ? 0.54 : 0.88),
-    color: mutedColour,
+    color: colours.dark.text,
     fontSize: 9,
     fontWeight: 900,
     letterSpacing: 0,
     textTransform: 'uppercase',
   };
-  const valueSheetTraySurface = withAlpha(isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground, isDarkMode ? 0.72 : 0.94);
+  const valueSheetTraySurface = isDarkMode ? colours.dark.cardBackground : withAlpha(colours.light.cardBackground, 0.94);
   const makeMetricItems = (rows: unknown[], nestedKey: 'googleAnalytics' | 'googleAds', tone: string) => (
     rows.map((row, index) => createMetricSupportItem(row, nestedKey, index, tone))
   );
@@ -2591,36 +2917,58 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
     rows.map((row, index) => createWorkspaceSupportItem(row, kind, index, tone))
   );
   const seoSignalItems = googleAnalyticsRows.length > 0
-    ? makeMetricItems(googleAnalyticsRows, 'googleAnalytics', searchSheetAccent)
-    : makeWorkspaceItems(ledgerRowsByTab.seo ?? [], 'seo-ledger', searchSheetAccent);
+    ? makeMetricItems(googleAnalyticsRows, 'googleAnalytics', valueSheetSourceAccent)
+    : makeWorkspaceItems(ledgerRowsByTab.seo ?? [], 'seo-ledger', valueSheetSourceAccent);
   const ppcSignalItems = googleAdsRows.length > 0
-    ? makeMetricItems(googleAdsRows, 'googleAds', colours.green)
-    : makeWorkspaceItems(ledgerRowsByTab.ppc ?? [], 'ppc-ledger', colours.green);
-  const seoEnquiryItems = makeWorkspaceItems(seoChannelEnquiries, 'seo-enquiry', searchSheetAccent);
-  const ppcEnquiryItems = makeWorkspaceItems(ppcChannelEnquiries, 'ppc-enquiry', colours.green);
-  const seoMatterItems = makeWorkspaceItems(seoJourney.downstream.matters, 'seo-matter', searchSheetAccent);
-  const ppcMatterItems = makeWorkspaceItems(ppcJourney.downstream.matters, 'ppc-matter', colours.green);
-  const seoCollectedItems = makeWorkspaceItems(seoJourney.downstream.collectedRows, 'seo-collected', searchSheetAccent);
-  const ppcCollectedItems = makeWorkspaceItems(ppcJourney.downstream.collectedRows, 'ppc-collected', colours.green);
+    ? makeMetricItems(googleAdsRows, 'googleAds', valueSheetSourceAccent)
+    : makeWorkspaceItems(ledgerRowsByTab.ppc ?? [], 'ppc-ledger', valueSheetSourceAccent);
+  const ppcSpendItems = googleAdsRows.length > 0
+    ? makeMetricItems(googleAdsRows, 'googleAds', valueSheetSpendAccent)
+    : makeWorkspaceItems(ledgerRowsByTab.ppc ?? [], 'ppc-spend', valueSheetSpendAccent);
+  const seoEnquiryItems = makeWorkspaceItems(seoChannelEnquiries, 'seo-enquiry', valueSheetSourceAccent);
+  const ppcEnquiryItems = makeWorkspaceItems(ppcChannelEnquiries, 'ppc-enquiry', valueSheetSourceAccent);
+  const seoMatterItems = makeWorkspaceItems(seoJourney.downstream.matters, 'seo-matter', valueSheetReturnAccent);
+  const ppcMatterItems = makeWorkspaceItems(ppcJourney.downstream.matters, 'ppc-matter', valueSheetReturnAccent);
+  const seoCollectedItems = makeWorkspaceItems(seoJourney.downstream.collectedRows, 'seo-collected', valueSheetReturnAccent);
+  const ppcCollectedItems = makeWorkspaceItems(ppcJourney.downstream.collectedRows, 'ppc-collected', valueSheetReturnAccent);
+  const emailRecipientItems = emailCampaignRecipients.map((row, index) => createEmailRecipientSupportItem(row, index, row.blockedReason ? valueSheetSpendAccent : valueSheetEmailAccent));
+  const qualifiedEmailRecipientItems = emailCampaignRecipients
+    .filter((row) => !row.blockedReason)
+    .map((row, index) => createEmailRecipientSupportItem(row, index, valueSheetEmailAccent));
+  const emailNotLinkedItems = [createBasisSupportItem(
+    'email-attribution-not-linked',
+    'Not linked yet',
+    'Email send attribution is reserved for the channel, but no spend, matter, received or WIP chain is active yet.',
+    'Email attribution',
+    '-',
+    valueSheetEmailAccent,
+  )];
   const seoSpendItems = Array.from({ length: SEO_MONTHS_INCLUDED }).map((_, index) => createBasisSupportItem(
     `seo-spend-${index}`,
     `SEO estimate ${index + 1}`,
     attributionSpend.seoBasis,
     'Spend assumption',
     formatCurrency(SEO_MONTHLY_COST),
-    searchSheetAccent,
+    valueSheetSpendAccent,
   ));
+  const makeSourceBreakdownItems = (prefix: string, counts: { calls: number; webforms: number; other: number; total: number }) => [
+    createBasisSupportItem(`${prefix}-calls`, 'Calls', 'Call enquiries attributed to this source', 'Source breakdown', formatNumber(counts.calls), valueSheetSourceAccent),
+    createBasisSupportItem(`${prefix}-webforms`, 'Webforms', 'Form enquiries attributed to this source', 'Source breakdown', formatNumber(counts.webforms), valueSheetSourceAccent),
+    createBasisSupportItem(`${prefix}-other`, 'Other', 'Other attributed enquiry routes', 'Source breakdown', formatNumber(counts.other), valueSheetSourceAccent),
+  ];
+  const seoSourceBreakdownItems = makeSourceBreakdownItems('seo-source-breakdown', seoMethodCounts);
+  const ppcSourceBreakdownItems = makeSourceBreakdownItems('ppc-source-breakdown', ppcMethodCounts);
+  const emailSourceBreakdownItems = [
+    createBasisSupportItem('email-source-scanned', 'Scanned', 'New-space enquiries in the current Email campaign window', 'Recipient readiness', formatNumber(emailCampaignAllStats.scanned), valueSheetEmailAccent),
+    createBasisSupportItem('email-source-qualified', 'Qualified', 'Unique usable email recipients ready for SendGrid', 'Recipient readiness', formatNumber(emailCampaignAllStats.qualified), valueSheetEmailAccent),
+    createBasisSupportItem('email-source-blocked', 'Blocked', 'Missing or duplicate email addresses excluded from send lists', 'Recipient readiness', formatNumber(emailCampaignAllStats.blocked), valueSheetSpendAccent),
+  ];
   const getValueSheetChannelItems = (rowKey: MarketingValueSheetRowKey) => {
     if (rowKey === 'organicSearch') {
-      const calls = seoChannelEnquiries.filter(isCallEnquiry);
-      const webforms = seoChannelEnquiries.filter(isFormEnquiry);
-      const other = seoChannelEnquiries.filter((row) => !isCallEnquiry(row) && !isFormEnquiry(row));
       return {
         signal: seoSignalItems,
         enquiries: seoEnquiryItems,
-        calls: makeWorkspaceItems(calls, 'seo-call', searchSheetAccent),
-        webforms: makeWorkspaceItems(webforms, 'seo-webform', searchSheetAccent),
-        other: makeWorkspaceItems(other, 'seo-other', searchSheetAccent),
+        matters: seoMatterItems,
         spend: seoSpendItems,
         received: seoCollectedItems,
         wip: seoMatterItems,
@@ -2628,37 +2976,32 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
       };
     }
     if (rowKey === 'paidSearch') {
-      const calls = ppcChannelEnquiries.filter(isCallEnquiry);
-      const webforms = ppcChannelEnquiries.filter(isFormEnquiry);
-      const other = ppcChannelEnquiries.filter((row) => !isCallEnquiry(row) && !isFormEnquiry(row));
       return {
         signal: ppcSignalItems,
         enquiries: ppcEnquiryItems,
-        calls: makeWorkspaceItems(calls, 'ppc-call', colours.green),
-        webforms: makeWorkspaceItems(webforms, 'ppc-webform', colours.green),
-        other: makeWorkspaceItems(other, 'ppc-other', colours.green),
-        spend: ppcSignalItems,
+        matters: ppcMatterItems,
+        spend: ppcSpendItems,
         received: ppcCollectedItems,
         wip: ppcMatterItems,
         totalValue: [...ppcCollectedItems, ...ppcMatterItems],
       };
     }
+    if (rowKey === 'emailMarketing') {
+      return {
+        signal: emailRecipientItems,
+        enquiries: qualifiedEmailRecipientItems,
+        matters: emailNotLinkedItems,
+        spend: emailNotLinkedItems,
+        received: emailNotLinkedItems,
+        wip: emailNotLinkedItems,
+        totalValue: emailNotLinkedItems,
+      };
+    }
     return {
-      signal: [...seoSignalItems, ...ppcSignalItems],
-      enquiries: [...seoEnquiryItems, ...ppcEnquiryItems],
-      calls: [
-        ...makeWorkspaceItems(seoChannelEnquiries.filter(isCallEnquiry), 'total-seo-call', searchSheetAccent),
-        ...makeWorkspaceItems(ppcChannelEnquiries.filter(isCallEnquiry), 'total-ppc-call', colours.green),
-      ],
-      webforms: [
-        ...makeWorkspaceItems(seoChannelEnquiries.filter(isFormEnquiry), 'total-seo-webform', searchSheetAccent),
-        ...makeWorkspaceItems(ppcChannelEnquiries.filter(isFormEnquiry), 'total-ppc-webform', colours.green),
-      ],
-      other: [
-        ...makeWorkspaceItems(seoChannelEnquiries.filter((row) => !isCallEnquiry(row) && !isFormEnquiry(row)), 'total-seo-other', searchSheetAccent),
-        ...makeWorkspaceItems(ppcChannelEnquiries.filter((row) => !isCallEnquiry(row) && !isFormEnquiry(row)), 'total-ppc-other', colours.green),
-      ],
-      spend: [...seoSpendItems, ...ppcSignalItems],
+      signal: [...seoSignalItems, ...ppcSignalItems, ...emailRecipientItems],
+      enquiries: [...seoEnquiryItems, ...ppcEnquiryItems, ...qualifiedEmailRecipientItems],
+      matters: [...seoMatterItems, ...ppcMatterItems],
+      spend: [...seoSpendItems, ...ppcSpendItems],
       received: [...seoCollectedItems, ...ppcCollectedItems],
       wip: [...seoMatterItems, ...ppcMatterItems],
       totalValue: [...seoCollectedItems, ...ppcCollectedItems, ...seoMatterItems, ...ppcMatterItems],
@@ -2666,25 +3009,37 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
   };
   const getValueSheetCells = (row: MarketingValueSheetRow): MarketingValueSheetCell[] => {
     const channelItems = getValueSheetChannelItems(row.key);
+    const isEmailRow = row.key === 'emailMarketing';
     return [
       { key: 'source', label: 'Source', value: row.source, align: 'left', supportItems: channelItems.signal, basis: 'Source-level signal rows' },
-      { key: 'activity', label: row.activityLabel, value: `${row.activityValue} ${row.activityLabel}`, align: 'left', supportItems: channelItems.signal, basis: 'Source activity signal' },
-      { key: 'enquiries', label: 'Enquiries', value: formatNumber(row.enquiries), align: 'right', supportItems: channelItems.enquiries, basis: 'Enquiry rows with this source' },
-      { key: 'calls', label: 'Calls', value: formatNumber(row.calls), align: 'right', supportItems: channelItems.calls, basis: 'Normalised call enquiries' },
-      { key: 'webforms', label: 'Webforms', value: formatNumber(row.webforms), align: 'right', supportItems: channelItems.webforms, basis: 'Normalised webform enquiries' },
-      { key: 'other', label: 'Other', value: formatNumber(row.other), align: 'right', supportItems: channelItems.other, basis: 'Other source enquiries' },
-      { key: 'spend', label: 'Spend', value: formatCurrency(row.spend), align: 'right', supportItems: channelItems.spend, basis: row.key === 'organicSearch' ? attributionSpend.seoBasis : 'Spend signal rows' },
-      { key: 'received', label: 'Received', value: formatCurrency(row.received), align: 'right', supportItems: channelItems.received, basis: 'Matched collected and upfront value' },
-      { key: 'wip', label: 'WIP', value: formatCurrency(row.wip), align: 'right', supportItems: channelItems.wip, basis: 'Chargeable WIP from matched matters' },
-      { key: 'totalValue', label: 'Total', value: formatCurrency(row.totalValue), align: 'right', supportItems: channelItems.totalValue, basis: 'Received plus chargeable WIP' },
+      { key: 'activity', label: row.activityLabel, value: `${row.activityValue} ${row.activityLabel}`, align: 'left', supportItems: channelItems.signal, basis: isEmailRow ? 'Qualified usable email recipients in the current campaign window' : 'Source activity signal' },
+      { key: 'enquiries', label: 'Enquiries', value: formatNumber(row.enquiries), align: 'right', supportItems: channelItems.enquiries, basis: isEmailRow ? 'Qualified recipient enquiries available for SendGrid' : 'Enquiry rows with this source' },
+      { key: 'matters', label: 'Matters', value: formatNumber(row.matters), align: 'right', supportItems: channelItems.matters, basis: isEmailRow ? 'Email matter attribution is not linked yet' : 'Matched matters opened from these enquiries' },
+      { key: 'spend', label: 'Spend', value: formatCurrency(row.spend), align: 'right', supportItems: channelItems.spend, basis: row.key === 'organicSearch' ? attributionSpend.seoBasis : isEmailRow ? 'Email spend is not linked yet' : 'Spend signal rows' },
+      { key: 'received', label: 'Received', value: formatCurrency(row.received), align: 'right', supportItems: channelItems.received, basis: isEmailRow ? 'Email received value is not linked yet' : 'Matched collected and upfront value' },
+      { key: 'wip', label: 'WIP', value: formatCurrency(row.wip), align: 'right', supportItems: channelItems.wip, basis: isEmailRow ? 'Email WIP attribution is not linked yet' : 'Chargeable WIP from matched matters' },
+      { key: 'totalValue', label: 'Total', value: formatCurrency(row.totalValue), align: 'right', supportItems: channelItems.totalValue, basis: isEmailRow ? 'Email total value is reserved until attribution is linked' : 'Received plus chargeable WIP' },
     ];
+  };
+  const getValueSheetCellTone = (cellKey: MarketingValueSheetCellKey) => {
+    if (cellKey === 'spend') return valueSheetSpendAccent;
+    if (cellKey === 'received' || cellKey === 'wip' || cellKey === 'totalValue') return valueSheetReturnAccent;
+    return valueSheetSourceAccent;
   };
   const renderValueSheetTray = (row: MarketingValueSheetRow, cells: MarketingValueSheetCell[]) => {
     if (!activeValueSheetTray || activeValueSheetTray.rowKey !== row.key) return null;
     const activeCell = cells.find((cell) => cell.key === activeValueSheetTray.metricKey);
     if (!activeCell) return null;
+    const activeCellTone = getValueSheetCellTone(activeCell.key);
     const supportItems = activeCell.supportItems ?? [];
     const visibleItems = supportItems.slice(0, VALUE_SHEET_SUPPORT_LIMIT);
+    const sourceBreakdownItems = row.key === 'organicSearch'
+      ? seoSourceBreakdownItems
+      : row.key === 'paidSearch'
+        ? ppcSourceBreakdownItems
+        : row.key === 'emailMarketing'
+          ? emailSourceBreakdownItems
+          : [...seoSourceBreakdownItems, ...ppcSourceBreakdownItems, ...emailSourceBreakdownItems];
     return (
       <div
         data-helix-region={`marketing/value-sheet/tray/${row.key}`}
@@ -2693,19 +3048,19 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
           display: 'grid',
           gap: 9,
           padding: 12,
-          border: `1px solid ${withAlpha(row.accent, isDarkMode ? 0.30 : 0.22)}`,
-          borderTop: `2px solid ${row.accent}`,
+          border: `1px solid ${withAlpha(activeCellTone, isDarkMode ? 0.30 : 0.22)}`,
+          borderTop: `2px solid ${activeCellTone}`,
           background: valueSheetTraySurface,
-          boxShadow: `inset 2px 0 0 ${row.accent}`,
+          boxShadow: `inset 2px 0 0 ${activeCellTone}`,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ display: 'grid', gap: 3, minWidth: 0 }}>
-            <strong style={{ color: row.accent, fontSize: 13, fontWeight: 900 }}>{row.source} - {activeCell.label}</strong>
+            <strong style={{ color: activeCellTone, fontSize: 13, fontWeight: 900 }}>{row.source} - {activeCell.label}</strong>
             <small style={{ color: mutedColour, fontSize: 10, fontWeight: 800 }}>{activeCell.basis || 'Underlying rows'}</small>
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <strong style={{ color: row.accent, fontSize: 13, fontWeight: 900 }}>{activeCell.value}</strong>
+            <strong style={{ color: activeCellTone, fontSize: 13, fontWeight: 900 }}>{activeCell.value}</strong>
             <button
               type="button"
               onClick={() => setActiveValueSheetTray(null)}
@@ -2715,30 +3070,59 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
             </button>
           </span>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(122px, 1fr))', gap: 6 }}>
-          {[
-            { label: 'Visible rows', value: formatNumber(Math.min(visibleItems.length, VALUE_SHEET_SUPPORT_LIMIT)) },
-            { label: 'Backing rows', value: formatNumber(supportItems.length) },
-            { label: 'Figure', value: activeCell.value },
-          ].map((item) => (
-            <span key={`${row.key}-${activeCell.key}-${item.label}`} style={{ display: 'grid', gap: 2, padding: '7px 8px', border: `1px solid ${valueSheetBorder}`, background: withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.022 : 0.44) }}>
-              <small style={{ color: mutedColour, fontSize: 9, fontWeight: 900, textTransform: 'uppercase' }}>{item.label}</small>
-              <strong style={{ color: item.label === 'Figure' ? row.accent : textColour, fontSize: 12, fontWeight: 900 }}>{item.value}</strong>
-            </span>
-          ))}
-        </div>
+        {sourceBreakdownItems.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))', gap: 6 }} aria-label="Source breakdown">
+            {sourceBreakdownItems.map((item) => {
+              const supportKey = `${row.key}-${activeCell.key}-${item.key}`;
+              const supportHovered = hoveredValueSheetSupportItem === supportKey;
+              return (
+              <span
+                key={supportKey}
+                title={`${item.primary}: ${item.value || '-'}\n${item.secondary || activeCell.basis || 'Source breakdown'}`}
+                onMouseEnter={() => setHoveredValueSheetSupportItem(supportKey)}
+                onMouseLeave={() => { if (hoveredValueSheetSupportItem === supportKey) setHoveredValueSheetSupportItem(null); }}
+                style={{
+                  display: 'grid',
+                  gap: 2,
+                  padding: '7px 8px',
+                  border: `1px solid ${supportHovered ? withAlpha(activeCellTone, isDarkMode ? 0.42 : 0.26) : valueSheetBorder}`,
+                  background: supportHovered
+                    ? (isDarkMode ? colours.dark.cardBackground : withAlpha(activeCellTone, 0.06))
+                    : (isDarkMode ? colours.dark.cardHover : withAlpha(colours.sectionBackground, 0.44)),
+                  boxShadow: supportHovered ? `inset 0 -2px 0 ${activeCellTone}` : 'none',
+                  transform: supportHovered ? 'translateY(-1px)' : 'translateY(0)',
+                  transition: 'background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease',
+                }}
+              >
+                <small style={{ color: mutedColour, fontSize: 9, fontWeight: 900, textTransform: 'uppercase' }}>{item.primary}</small>
+                <strong style={{ color: textColour, fontSize: 12, fontWeight: 900 }}>{item.value || '-'}</strong>
+              </span>
+              );
+            })}
+          </div>
+        )}
         <div className="marketing-scroll-chrome" style={{ display: 'grid', maxHeight: 260, overflowY: 'auto', border: `1px solid ${valueSheetBorder}` }}>
-          {visibleItems.map((item, index) => (
+          {visibleItems.map((item, index) => {
+            const supportKey = `${row.key}-${activeCell.key}-${item.key}`;
+            const supportHovered = hoveredValueSheetSupportItem === supportKey;
+            return (
             <div
               key={item.key}
+              title={`${item.primary}\n${item.secondary}\n${item.meta}${item.value ? `\n${item.value}` : ''}`}
+              onMouseEnter={() => setHoveredValueSheetSupportItem(supportKey)}
+              onMouseLeave={() => { if (hoveredValueSheetSupportItem === supportKey) setHoveredValueSheetSupportItem(null); }}
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'minmax(0, 1fr) auto',
                 gap: 10,
                 alignItems: 'center',
                 padding: '8px 10px',
-                borderTop: index === 0 ? 'none' : `1px solid ${valueSheetBorder}`,
-                background: index % 2 === 0 ? 'transparent' : withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.018 : 0.34),
+                borderTop: index === 0 ? 'none' : `1px solid ${supportHovered ? withAlpha(activeCellTone, isDarkMode ? 0.32 : 0.22) : valueSheetBorder}`,
+                background: supportHovered
+                  ? (isDarkMode ? colours.dark.cardHover : withAlpha(activeCellTone, 0.055))
+                  : (index % 2 === 0 ? 'transparent' : (isDarkMode ? colours.dark.cardHover : withAlpha(colours.sectionBackground, 0.34))),
+                boxShadow: supportHovered ? `inset 2px 0 0 ${activeCellTone}` : 'none',
+                transition: 'background 140ms ease, border-color 140ms ease, box-shadow 140ms ease',
               }}
             >
               <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
@@ -2746,9 +3130,10 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                 <small style={{ color: mutedColour, fontSize: 9, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.secondary}</small>
                 <small style={{ color: mutedColour, fontSize: 9, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.meta}</small>
               </span>
-              {item.value && <strong style={{ color: item.tone || row.accent, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }}>{item.value}</strong>}
+              {item.value && <strong style={{ color: item.tone || activeCellTone, fontSize: 11, fontWeight: 900, whiteSpace: 'nowrap' }}>{item.value}</strong>}
             </div>
-          ))}
+            );
+          })}
           {visibleItems.length === 0 && (
             <span style={{ padding: '10px 12px', color: mutedColour, fontSize: 11, fontWeight: 800 }}>No supporting rows are available for this figure yet.</span>
           )}
@@ -2762,6 +3147,962 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
     );
   };
 
+  const renderSeoDrilldown = () => {
+    const chartRows = seoAnalyticsTrendRows.slice(-12);
+    const chartWidth = 720;
+    const chartHeight = 190;
+    const chartTop = 18;
+    const chartBottom = 30;
+    const chartLeft = 34;
+    const chartRight = chartWidth - 54;
+    const chartPlotLeft = chartLeft + 18;
+    const chartPlotRight = chartRight - 18;
+    const chartInnerHeight = chartHeight - chartTop - chartBottom;
+    const maxSessions = Math.max(1, ...chartRows.map((row) => row.sessions));
+    const maxEnquiries = Math.max(1, ...chartRows.map((row) => row.enquiries));
+    const maxMatters = Math.max(1, ...chartRows.map((row) => row.matters));
+    const maxCount = Math.max(maxEnquiries, maxMatters);
+    const maxWeeklyCardSignal = Math.max(1, ...chartRows.map((row) => (row.value > 0 ? row.value : row.sessions)));
+    const xFor = (index: number) => chartRows.length <= 1
+      ? chartWidth / 2
+      : chartPlotLeft + (index / (chartRows.length - 1)) * (chartPlotRight - chartPlotLeft);
+    const yFor = (value: number) => chartTop + chartInnerHeight - (value / maxSessions) * chartInnerHeight;
+    const yForCount = (value: number) => chartTop + chartInnerHeight - (value / maxCount) * chartInnerHeight;
+    const sessionCoordinates = chartRows.map((row, index) => ({ x: xFor(index), y: yFor(row.sessions) }));
+    const sessionLinePath = sessionCoordinates.length > 0
+      ? `M ${sessionCoordinates.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' L ')}`
+      : '';
+    const sessionAreaPath = sessionCoordinates.length > 1
+      ? `${sessionLinePath} L ${sessionCoordinates[sessionCoordinates.length - 1].x.toFixed(1)},${(chartHeight - chartBottom).toFixed(1)} L ${sessionCoordinates[0].x.toFixed(1)},${(chartHeight - chartBottom).toFixed(1)} Z`
+      : '';
+    const chartTicks = [0, 0.5, 1].map((scale, index) => ({
+      key: `tick-${index}`,
+      value: Math.round(maxSessions * scale),
+    }));
+    const countTicks = Array.from(new Set([0, Math.ceil(maxCount / 2), maxCount])).map((value, index) => ({
+      key: `count-tick-${index}`,
+      value,
+    }));
+    const contentMax = Math.max(1, ...seoContentStatusRows.map((row) => row.count));
+    const relatedMax = Math.max(1, ...seoRelatedSnapshotLists.map((list) => list.total));
+    const seoContentHeadlineCards = [
+      { label: 'Published', value: formatNumber(seoContentPublished), detail: 'Published this month', tone: colours.green },
+      { label: 'Active shape', value: formatNumber(seoContentActive), detail: `${formatNumber(seoContentApprovalQueue)} in approval or edit`, tone: colours.highlight },
+      { label: 'Content pipeline', value: formatNumber(seoContentPipeline), detail: 'Backlog and opportunity pool', tone: colours.orange },
+      { label: 'Content items', value: formatNumber(seoContentPrimaryList.total), detail: 'Helix Content list total', tone: selectedChannelAccent },
+    ];
+    const chartPanelBackground = isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground;
+    const chartPanelInset = withAlpha(isDarkMode ? colours.dark.text : colours.helixBlue, isDarkMode ? 0.035 : 0.035);
+    const seoKpiRailSurface = withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.018 : 0.34);
+    const seoDetailTextColour = withAlpha(textColour, isDarkMode ? 0.74 : 0.68);
+    const seoDetailLabelColour = withAlpha(textColour, isDarkMode ? 0.82 : 0.76);
+    const seoKpiTone = (label: string) => {
+      if (label === 'Content pipeline') return colours.orange;
+      if (label === 'Attributed value') return colours.green;
+      return textColour;
+    };
+    const seoWeeklyCardBackground = (row: SeoAnalyticsTrendRow) => {
+      const signal = row.value > 0 ? row.value : row.sessions;
+      const fill = Math.max(0, Math.min(100, (signal / maxWeeklyCardSignal) * 100));
+      const tone = row.value > 0 ? colours.green : selectedChannelAccent;
+      const base = withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.014 : 0.24);
+      return `linear-gradient(90deg, ${withAlpha(tone, isDarkMode ? 0.16 : 0.105)} 0%, ${withAlpha(tone, isDarkMode ? 0.08 : 0.06)} ${fill.toFixed(1)}%, ${base} ${fill.toFixed(1)}%, ${base} 100%)`;
+    };
+
+    return (
+      <section
+        data-helix-region="marketing/seo-drilldown"
+        style={{
+          display: 'grid',
+          gap: 12,
+          minWidth: 0,
+          padding: 12,
+          border: `1px solid ${valueSheetBorder}`,
+          borderTop: `1px solid ${withAlpha(selectedChannelAccent, isDarkMode ? 0.34 : 0.22)}`,
+          background: reportingPanelBackground(isDarkMode, 'elevated'),
+          boxShadow: reportingPanelShadow(isDarkMode),
+        }}
+      >
+        <div data-helix-region="marketing/seo-drilldown/header" style={{ display: 'grid', gap: 9, minWidth: 0, padding: '2px 0 4px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(172px, auto)', gap: 12, alignItems: 'stretch', minWidth: 0 }}>
+            <span style={{ display: 'grid', gap: 4, minWidth: 0 }}>
+              <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: withAlpha(selectedChannelAccent, isDarkMode ? 0.88 : 0.78) }}>
+                SEO performance snapshot
+              </span>
+              <strong style={{ fontSize: 20, lineHeight: 1.08, fontWeight: 900, color: textColour }}>
+                Organic analytics and content effort
+              </strong>
+              <small style={{ maxWidth: 620, fontSize: 10.5, lineHeight: 1.32, fontWeight: 800, color: seoDetailTextColour }}>
+                Weekly traffic, enquiries and value set against the ClickUp content pipeline.
+              </small>
+            </span>
+            <span style={{ display: 'grid', alignContent: 'center', gap: 2, minWidth: 0, padding: '8px 10px', border: `1px solid ${withAlpha(selectedChannelAccent, isDarkMode ? 0.26 : 0.18)}`, borderLeft: `3px solid ${withAlpha(selectedChannelAccent, isDarkMode ? 0.78 : 0.62)}`, background: withAlpha(selectedChannelAccent, isDarkMode ? 0.06 : 0.045) }}>
+              <small style={{ fontSize: 9, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: seoDetailLabelColour }}>Snapshot basis</small>
+              <strong style={{ fontSize: 12, lineHeight: 1.15, fontWeight: 900, color: textColour }}>ClickUp content crawl</strong>
+              <small style={{ fontSize: 10, lineHeight: 1.25, fontWeight: 800, color: seoDetailTextColour }}>Captured {SEO_CONTENT_SNAPSHOT_CAPTURED_AT}</small>
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(178px, 1fr))', gap: 0, minWidth: 0, borderTop: `1px solid ${valueSheetBorder}`, borderLeft: `1px solid ${valueSheetBorder}`, background: withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.018 : 0.30) }}>
+            {[
+              { label: 'Reporting window', value: timelineRangeLabel },
+              { label: 'Content source', value: SEO_CONTENT_SNAPSHOT_SOURCE },
+              { label: 'Snapshot date', value: SEO_CONTENT_SNAPSHOT_CAPTURED_AT },
+            ].map((item) => (
+              <span key={item.label} title={`${item.label}: ${item.value}`} style={{ display: 'grid', gap: 3, minWidth: 0, padding: '7px 9px', borderRight: `1px solid ${valueSheetBorder}`, borderBottom: `1px solid ${valueSheetBorder}` }}>
+                <small style={{ fontSize: 9, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: seoDetailLabelColour }}>{item.label}</small>
+                <strong style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, lineHeight: 1.2, fontWeight: 900, color: withAlpha(textColour, isDarkMode ? 0.90 : 0.84) }}>{item.value}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div data-helix-region="marketing/seo-drilldown/figures" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))', gap: 0, padding: '7px 0', borderTop: `1px solid ${valueSheetBorder}`, borderBottom: `1px solid ${valueSheetBorder}`, background: seoKpiRailSurface }}>
+          {seoDrilldownFigures.map((figure, index) => (
+            <span
+              key={figure.label}
+              className="marketing-drilldown-kpi-card"
+              data-detail={figure.detail}
+              aria-label={`${figure.label}: ${figure.value}. ${figure.detail}`}
+              tabIndex={0}
+              style={{
+                display: 'grid',
+                gap: 4,
+                minWidth: 0,
+                position: 'relative',
+                padding: '5px 10px 6px',
+                borderLeft: index === 0 ? 'none' : `1px solid ${withAlpha(isDarkMode ? colours.dark.text : colours.greyText, isDarkMode ? 0.08 : 0.10)}`,
+                background: 'transparent',
+                cursor: 'help',
+                outline: 'none',
+              }}
+            >
+              <small style={{ fontSize: 9, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: seoDetailLabelColour }}>{figure.label}</small>
+              <strong style={{ fontSize: 16, lineHeight: 1, fontWeight: 900, color: seoKpiTone(figure.label) }}>{figure.value}</strong>
+            </span>
+          ))}
+        </div>
+        <style>{`
+          .marketing-drilldown-kpi-card {
+            transition: background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+          }
+
+          .marketing-drilldown-kpi-card:hover,
+          .marketing-drilldown-kpi-card:focus-visible {
+            background-color: ${withAlpha(selectedChannelAccent, isDarkMode ? 0.055 : 0.04)} !important;
+            box-shadow: inset 0 -2px 0 ${withAlpha(selectedChannelAccent, isDarkMode ? 0.46 : 0.32)};
+            transform: translateY(-1px);
+          }
+
+          .marketing-drilldown-kpi-card::after {
+            content: attr(data-detail);
+            position: absolute;
+            z-index: 20;
+            left: 10px;
+            right: 10px;
+            top: calc(100% + 7px);
+            padding: 7px 8px;
+            border: 1px solid ${withAlpha(selectedChannelAccent, isDarkMode ? 0.28 : 0.18)};
+            background: ${chartPanelBackground};
+            color: ${seoDetailTextColour};
+            box-shadow: ${isDarkMode ? `0 12px 24px ${withAlpha(colours.darkBlue, 0.38)}` : `0 12px 24px ${withAlpha(colours.darkBlue, 0.10)}`};
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 1.32;
+            text-transform: none;
+            letter-spacing: 0;
+            white-space: normal;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 150ms ease, transform 150ms ease;
+          }
+
+          .marketing-drilldown-kpi-card:hover::after,
+          .marketing-drilldown-kpi-card:focus-visible::after {
+            opacity: 1;
+            transform: translateY(0);
+          }
+
+          @media (prefers-reduced-motion: reduce) {
+            .marketing-drilldown-kpi-card,
+            .marketing-drilldown-kpi-card::after {
+              transition: none;
+            }
+          }
+        `}</style>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(320px, 0.95fr)', gap: 12, minWidth: 0 }}>
+          <section
+            data-helix-region="marketing/seo-drilldown/analytics-chart"
+            style={{
+              display: 'grid',
+              gridTemplateRows: 'auto minmax(180px, auto) auto',
+              gap: 10,
+              minWidth: 0,
+              padding: 12,
+              border: `1px solid ${valueSheetBorder}`,
+              background: chartPanelBackground,
+            }}
+          >
+            <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
+              <span style={{ display: 'grid', gap: 2 }}>
+                <strong style={{ fontSize: 14, fontWeight: 900, color: textColour }}>Organic trend</strong>
+                <small style={{ fontSize: 10, fontWeight: 800, color: mutedColour }}>Sessions use the left axis; enquiries and matters use the right count axis</small>
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px 10px', flexWrap: 'wrap', minWidth: 0, fontSize: 10, fontWeight: 800, color: mutedColour }}>
+                <span aria-label="Sessions line" title="Sessions line" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span aria-hidden="true" style={{ width: 18, height: 2, background: selectedChannelAccent, boxShadow: `7px 0 0 0 ${chartPanelBackground}, 7px 0 0 2px ${selectedChannelAccent}` }} /> Sessions</span>
+                <span aria-label="Enquiries bar" title="Enquiries bar" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span aria-hidden="true" style={{ width: 8, height: 12, background: colours.green }} /> Enquiries</span>
+                <span aria-label="Matter ring" title="Matter ring" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span aria-hidden="true" style={{ width: 9, height: 9, border: `2px solid ${colours.orange}`, borderRadius: 999, background: chartPanelBackground }} /> Matter</span>
+              </span>
+            </div>
+            {chartRows.length === 0 ? (
+              <div style={{ display: 'grid', placeItems: 'center', minHeight: 178, border: `1px dashed ${valueSheetBorder}`, color: mutedColour, fontSize: 11, fontWeight: 800 }}>
+                Organic timeline rows are not available for this window yet.
+              </div>
+            ) : (
+              <svg
+                viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                preserveAspectRatio="xMidYMid meet"
+                role="img"
+                aria-label="SEO organic sessions, enquiries and matters by week"
+                style={{ display: 'block', width: '100%', height: 'auto', aspectRatio: `${chartWidth} / ${chartHeight}`, overflow: 'visible', background: chartPanelInset }}
+              >
+                <defs>
+                  <linearGradient id="marketing-seo-drilldown-sessions" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={withAlpha(selectedChannelAccent, isDarkMode ? 0.42 : 0.24)} />
+                    <stop offset="100%" stopColor={withAlpha(selectedChannelAccent, 0.03)} />
+                  </linearGradient>
+                </defs>
+                {chartTicks.map((tick) => {
+                  const y = yFor(tick.value);
+                  return (
+                    <g key={tick.key}>
+                      <line x1={chartLeft} x2={chartRight} y1={y} y2={y} stroke={withAlpha(isDarkMode ? colours.dark.text : colours.helixBlue, isDarkMode ? 0.08 : 0.08)} strokeWidth="1" />
+                      <text x={chartLeft - 6} y={y + 4} textAnchor="end" fontSize="10" fill={mutedColour}>{formatNumber(tick.value)}</text>
+                    </g>
+                  );
+                })}
+                <text x={chartLeft - 6} y={chartTop - 7} textAnchor="end" fontSize="9" fontWeight="800" fill={mutedColour}>Sessions</text>
+                <line x1={chartRight} x2={chartRight} y1={chartTop} y2={chartHeight - chartBottom} stroke={withAlpha(colours.orange, isDarkMode ? 0.26 : 0.20)} strokeWidth="1" />
+                <text x={chartRight + 9} y={chartTop - 7} textAnchor="start" fontSize="9" fontWeight="800" fill={mutedColour}>Count</text>
+                {countTicks.map((tick) => {
+                  const y = yForCount(tick.value);
+                  return (
+                    <g key={tick.key}>
+                      <line x1={chartRight} x2={chartRight + 5} y1={y} y2={y} stroke={withAlpha(colours.orange, isDarkMode ? 0.32 : 0.24)} strokeWidth="1" />
+                      <text x={chartRight + 9} y={y + 4} textAnchor="start" fontSize="10" fill={mutedColour}>{formatNumber(tick.value)}</text>
+                    </g>
+                  );
+                })}
+                {sessionAreaPath && <path d={sessionAreaPath} fill="url(#marketing-seo-drilldown-sessions)" stroke="none" />}
+                {sessionLinePath && <path d={sessionLinePath} fill="none" stroke={selectedChannelAccent} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />}
+                {chartRows.map((row, index) => {
+                  const x = xFor(index);
+                  const barY = yForCount(row.enquiries);
+                  const barHeight = row.enquiries > 0 ? Math.max(5, chartHeight - chartBottom - barY) : 0;
+                  const matterY = yForCount(row.matters);
+                  return (
+                    <g key={row.key}>
+                      <title>{`${row.label}: ${formatNumber(row.sessions)} sessions, ${formatNumber(row.enquiries)} enquiries, ${formatNumber(row.matters)} matters, ${formatCurrency(row.value)} value`}</title>
+                      {barHeight > 0 && <rect x={x - 8} y={chartHeight - chartBottom - barHeight} width={16} height={barHeight} fill={withAlpha(colours.green, isDarkMode ? 0.72 : 0.64)} />}
+                      {row.matters > 0 && <circle cx={x + 10} cy={matterY} r="4.5" fill={chartPanelBackground} stroke={colours.orange} strokeWidth="2" />}
+                      <circle cx={x} cy={yFor(row.sessions)} r="4" fill={chartPanelBackground} stroke={selectedChannelAccent} strokeWidth="2" />
+                      <text x={x} y={chartHeight - 9} textAnchor="middle" fontSize="10" fontWeight="700" fill={mutedColour}>{row.label}</text>
+                    </g>
+                  );
+                })}
+              </svg>
+            )}
+            <div data-helix-region="marketing/seo-drilldown/weekly-detail" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(214px, 1fr))', gap: '8px 10px', paddingTop: 8, borderTop: `1px solid ${valueSheetBorder}` }}>
+              {chartRows.map((row) => (
+                <span key={`seo-trend-${row.key}`} title={`${row.label}: ${formatNumber(row.sessions)} sessions, ${formatNumber(row.enquiries)} enquiries, ${formatNumber(row.matters)} matters, ${formatCurrency(row.value)} value. Fill strength reflects ${row.value > 0 ? 'weekly attributed value' : 'weekly session capacity'}.`} style={{ display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr)', gap: 9, minWidth: 0, padding: '7px 8px', border: `1px solid ${withAlpha(isDarkMode ? colours.dark.text : colours.greyText, isDarkMode ? 0.09 : 0.11)}`, background: seoWeeklyCardBackground(row) }}>
+                  <small style={{ fontSize: 9, fontWeight: 900, color: seoDetailLabelColour, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{row.label}</small>
+                  <span style={{ display: 'grid', gap: 2, minWidth: 0, color: seoDetailTextColour, fontSize: 10, lineHeight: 1.28 }}>
+                    <strong style={{ fontSize: 11, fontWeight: 900, color: textColour, whiteSpace: 'nowrap' }}>{formatNumber(row.sessions)} sessions</strong>
+                    <small style={{ minWidth: 0, color: seoDetailTextColour, fontSize: 10, lineHeight: 1.28, fontWeight: 800 }}>{formatNumber(row.enquiries)} enquiries / {formatNumber(row.matters)} matters / {formatCurrency(row.value)} value</small>
+                  </span>
+                </span>
+              ))}
+            </div>
+          </section>
+
+          <section
+            data-helix-region="marketing/seo-drilldown/content-space"
+            style={{
+              display: 'grid',
+              gap: 10,
+              minWidth: 0,
+              padding: 12,
+              border: `1px solid ${valueSheetBorder}`,
+              background: chartPanelBackground,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ display: 'grid', gap: 2 }}>
+                <strong style={{ fontSize: 14, fontWeight: 900, color: textColour }}>Content space</strong>
+                <small style={{ fontSize: 10, fontWeight: 800, color: mutedColour }}>ClickUp snapshot from {seoContentPrimaryList.label}</small>
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, color: mutedColour, fontSize: 9, fontWeight: 900, textTransform: 'uppercase' }}>
+                Total <strong style={{ color: selectedChannelAccent, fontSize: 13, fontWeight: 900 }}>{formatNumber(seoContentPrimaryList.total)}</strong>
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0, borderTop: `1px solid ${valueSheetBorder}`, borderLeft: `1px solid ${valueSheetBorder}`, background: withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.018 : 0.30) }}>
+              {seoContentHeadlineCards.map((card) => (
+                <span key={card.label} title={`${card.label}: ${card.value}. ${card.detail}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'baseline', gap: 8, minWidth: 0, padding: '8px 9px', borderRight: `1px solid ${valueSheetBorder}`, borderBottom: `1px solid ${valueSheetBorder}`, background: 'transparent' }}>
+                  <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                    <small style={{ fontSize: 9, fontWeight: 900, textTransform: 'uppercase', color: seoDetailLabelColour }}>{card.label}</small>
+                    <small style={{ fontSize: 10, lineHeight: 1.28, fontWeight: 800, color: seoDetailTextColour }}>{card.detail}</small>
+                  </span>
+                  <strong style={{ fontSize: 16, lineHeight: 1, fontWeight: 900, color: card.tone }}>{card.value}</strong>
+                </span>
+              ))}
+            </div>
+            <div data-helix-region="marketing/seo-drilldown/content-statuses" style={{ display: 'grid', gap: 7 }}>
+              {seoContentStatusRows.map((row) => {
+                const width = Math.max(2, (row.count / contentMax) * 100);
+                const tone = row.key === 'pipeline'
+                  ? colours.orange
+                  : row.key === 'published-this-month'
+                    ? colours.green
+                    : selectedChannelAccent;
+                return (
+                  <div key={row.key} style={{ display: 'grid', gap: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: textColour, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
+                      <strong style={{ fontSize: 11, fontWeight: 900, color: tone }}>{formatNumber(row.count)}</strong>
+                    </div>
+                    <div title={row.detail} style={{ height: 8, background: withAlpha(isDarkMode ? colours.dark.text : colours.helixBlue, isDarkMode ? 0.08 : 0.08), overflow: 'hidden' }}>
+                      <span aria-hidden="true" style={{ display: 'block', width: `${width}%`, height: '100%', background: tone }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+
+        <section data-helix-region="marketing/seo-drilldown/related-efforts" style={{ display: 'grid', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 13, fontWeight: 900, color: textColour }}>Related SEO efforts</strong>
+            <small style={{ fontSize: 10, fontWeight: 800, color: mutedColour }}>Tasks, delivery support, reporting and DPR coverage from the same ClickUp space</small>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(168px, 1fr))', gap: 8 }}>
+            {seoRelatedSnapshotLists.map((list) => (
+              <span key={list.key} style={{ display: 'grid', gap: 7, minWidth: 0, padding: '9px 10px', border: `1px solid ${valueSheetBorder}`, background: chartPanelBackground }}>
+                <span style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                  <strong style={{ fontSize: 12, fontWeight: 900, color: textColour }}>{list.label}</strong>
+                  <strong style={{ fontSize: 16, fontWeight: 900, color: selectedChannelAccent }}>{formatNumber(list.total)}</strong>
+                </span>
+                <span style={{ height: 7, background: withAlpha(isDarkMode ? colours.dark.text : colours.helixBlue, isDarkMode ? 0.08 : 0.08), overflow: 'hidden' }}>
+                  <span aria-hidden="true" style={{ display: 'block', height: '100%', width: `${Math.max(3, (list.total / relatedMax) * 100)}%`, background: selectedChannelAccent }} />
+                </span>
+                <small style={{ fontSize: 9, lineHeight: 1.35, color: mutedColour }}>
+                  {list.statuses.map((status) => `${status.label} ${formatNumber(status.count)}`).join(' / ')}
+                </small>
+              </span>
+            ))}
+          </div>
+        </section>
+      </section>
+    );
+  };
+
+  const renderPpcDrilldown = () => {
+    const chartRows = ppcAnalyticsTrendRows.slice(-12);
+    const chartWidth = 720;
+    const chartHeight = 190;
+    const chartTop = 18;
+    const chartBottom = 30;
+    const chartLeft = 34;
+    const chartRight = chartWidth - 54;
+    const chartPlotLeft = chartLeft + 18;
+    const chartPlotRight = chartRight - 18;
+    const chartInnerHeight = chartHeight - chartTop - chartBottom;
+    const maxSpend = Math.max(1, ...chartRows.map((row) => row.spend));
+    const maxEnquiries = Math.max(1, ...chartRows.map((row) => row.enquiries));
+    const maxMatters = Math.max(1, ...chartRows.map((row) => row.matters));
+    const maxCount = Math.max(maxEnquiries, maxMatters);
+    const maxWeeklyCardSignal = Math.max(1, ...chartRows.map((row) => (row.value > 0 ? row.value : row.spend)));
+    const xFor = (index: number) => chartRows.length <= 1
+      ? chartWidth / 2
+      : chartPlotLeft + (index / (chartRows.length - 1)) * (chartPlotRight - chartPlotLeft);
+    const yForSpend = (value: number) => chartTop + chartInnerHeight - (value / maxSpend) * chartInnerHeight;
+    const yForCount = (value: number) => chartTop + chartInnerHeight - (value / maxCount) * chartInnerHeight;
+    const spendCoordinates = chartRows.map((row, index) => ({ x: xFor(index), y: yForSpend(row.spend) }));
+    const spendLinePath = spendCoordinates.length > 0
+      ? `M ${spendCoordinates.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' L ')}`
+      : '';
+    const spendAreaPath = spendCoordinates.length > 1
+      ? `${spendLinePath} L ${spendCoordinates[spendCoordinates.length - 1].x.toFixed(1)},${(chartHeight - chartBottom).toFixed(1)} L ${spendCoordinates[0].x.toFixed(1)},${(chartHeight - chartBottom).toFixed(1)} Z`
+      : '';
+    const chartTicks = [0, 0.5, 1].map((scale, index) => ({
+      key: `ppc-tick-${index}`,
+      value: Math.round(maxSpend * scale),
+    }));
+    const countTicks = Array.from(new Set([0, Math.ceil(maxCount / 2), maxCount])).map((value, index) => ({
+      key: `ppc-count-tick-${index}`,
+      value,
+    }));
+    const chartPanelBackground = isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground;
+    const chartPanelInset = withAlpha(isDarkMode ? colours.dark.text : colours.helixBlue, isDarkMode ? 0.035 : 0.035);
+    const ppcKpiRailSurface = withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.018 : 0.34);
+    const ppcDetailTextColour = withAlpha(textColour, isDarkMode ? 0.74 : 0.68);
+    const ppcDetailLabelColour = withAlpha(textColour, isDarkMode ? 0.82 : 0.76);
+    const ppcKpiTone = (label: string) => {
+      if (label === 'Spend') return colours.highlight;
+      if (label === 'Attributed value') return colours.green;
+      return textColour;
+    };
+    const ppcQualityCards = [
+      { label: 'Enquiries', value: ppcAttributionIsLoading ? 'Updating' : formatNumber(ppcEnquiryCount), detail: `${formatNumber(ppcMethodCounts.calls)} calls, ${formatNumber(ppcMethodCounts.webforms)} webforms`, tone: selectedChannelAccent },
+      { label: 'Matters', value: ppcAttributionIsLoading ? 'Updating' : formatNumber(ppcMatterCount), detail: `${formatNumber(ppcJourney.matchSummary.matchedMatters)} matched matter rows`, tone: colours.green },
+      { label: 'Received', value: ppcAttributionIsLoading ? 'Updating' : formatCurrency(ppcReceived), detail: `${formatNumber(ppcJourney.matchSummary.matchedCollectedRows)} collected rows`, tone: colours.green },
+      { label: 'WIP', value: ppcAttributionIsLoading ? 'Updating' : formatCurrency(ppcWip), detail: 'Chargeable WIP from paid-search matters', tone: colours.highlight },
+    ];
+    const ppcFunnelStageSignal = (stage: JourneyMetric) => {
+      if (stage.key === 'pitches') return ppcJourney.matchSummary.matchedPitches;
+      if (stage.key === 'instructions') return ppcJourney.matchSummary.matchedInstructions;
+      if (stage.key === 'matters') return ppcJourney.matchSummary.matchedMatters;
+      if (stage.key === 'collected') return ppcJourney.matchSummary.matchedCollectedRows;
+      return 0;
+    };
+    const ppcFunnelMaxSignal = Math.max(1, ...ppcJourney.stages.map(ppcFunnelStageSignal));
+    const ppcFunnelStages = ppcJourney.stages.map((stage, index) => {
+      const signal = ppcFunnelStageSignal(stage);
+      const fill = Math.max(8, Math.min(100, (signal / ppcFunnelMaxSignal) * 100));
+      const width = `${Math.max(74, 100 - (index * 8))}%`;
+      const tone = stage.key === 'collected' || stage.key === 'matters' ? colours.green : selectedChannelAccent;
+      return { ...stage, fill, width, tone };
+    });
+    const ppcWeeklyCardBackground = (row: PpcAnalyticsTrendRow) => {
+      const signal = row.value > 0 ? row.value : row.spend;
+      const fill = Math.max(0, Math.min(100, (signal / maxWeeklyCardSignal) * 100));
+      const tone = row.value > 0 ? colours.green : colours.highlight;
+      const base = withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.014 : 0.24);
+      return `linear-gradient(90deg, ${withAlpha(tone, isDarkMode ? 0.16 : 0.105)} 0%, ${withAlpha(tone, isDarkMode ? 0.08 : 0.06)} ${fill.toFixed(1)}%, ${base} ${fill.toFixed(1)}%, ${base} 100%)`;
+    };
+    const ppcSourceBadgeLabel = hasGoogleAdsFeedTotals
+      ? 'Google Ads telemetry'
+      : ppcLedgerRows.length > 0
+        ? 'Ledger fallback'
+        : 'Attribution only';
+    const ppcHealthItems = [
+      {
+        label: 'Feed rows',
+        value: formatNumber(metrics.paid.rows),
+        detail: ppcHasTelemetry ? ppcDataSourceLabel : 'No Google Ads or PPC ledger rows in this window',
+        tone: ppcHasTelemetry ? selectedChannelAccent : colours.cta,
+      },
+      {
+        label: 'Attribution chain',
+        value: ppcAttributionIsLoading ? 'Updating' : formatNumber(ppcMatterCount),
+        detail: `${formatNumber(ppcJourney.matchSummary.anchorCount)} anchors; ${formatNumber(ppcJourney.matchSummary.matchedMatters)} matched matters`,
+        tone: ppcJourney.matchSummary.matchedMatters > 0 ? colours.green : colours.highlight,
+      },
+      {
+        label: 'Enquiry quality',
+        value: `${formatNumber(ppcEnquiryRate, 2)}%`,
+        detail: 'recorded paid enquiries divided by paid clicks',
+        tone: ppcEnquiryCount > 0 ? selectedChannelAccent : colours.highlight,
+      },
+      {
+        label: 'Return',
+        value: ppcAttributionIsLoading ? 'Updating' : ppcReturnMultiple,
+        detail: ppcAnalyticsValue > 0 ? `${formatCurrency(ppcAnalyticsValue)} received and WIP` : 'No attributed value in this window yet',
+        tone: ppcAnalyticsValue > 0 ? colours.green : colours.highlight,
+      },
+    ];
+    const ppcAttentionItems = [
+      !ppcHasTelemetry
+        ? 'Google Ads telemetry is not available for this window, so the page is relying on paid-search attribution where it exists.'
+        : null,
+      ppcChannelEnquiries.length === 0
+        ? 'No enquiries are currently classified as Paid search in this reporting window.'
+        : null,
+      !ppcAttributionIsLoading && ppcAnalyticsValue === 0
+        ? 'Spend is present, but no received or WIP value is attributed to paid search yet.'
+        : null,
+      ppcJourney.matchSummary.sourceEnquiries > 0 && ppcJourney.matchSummary.anchorCount === 0
+        ? 'Paid-search enquiries exist, but the downstream pitch and matter chain has no usable anchors yet.'
+        : null,
+      ppcAttributionIsLoading
+        ? 'Search attribution is still settling, so downstream value may update after the feed completes.'
+        : null,
+    ].filter((item): item is string => Boolean(item));
+    const recentPpcEnquiries = [...ppcChannelEnquiries]
+      .sort((left, right) => right.sortTs - left.sortTs)
+      .slice(0, 5);
+    const recentPpcMatters = [...ppcJourney.downstream.matters]
+      .sort((left, right) => right.sortTs - left.sortTs)
+      .slice(0, 5);
+    const streamDateLabel = (row: MarketingWorkspaceRow) => formatSupportDate(row.sortTs) || compactLabel(row.timestamp, 'No date');
+
+    return (
+      <section
+        data-helix-region="marketing/ppc-drilldown"
+        style={{
+          display: 'grid',
+          gap: 12,
+          minWidth: 0,
+          padding: 12,
+          border: `1px solid ${valueSheetBorder}`,
+          borderTop: `1px solid ${withAlpha(selectedChannelAccent, isDarkMode ? 0.34 : 0.22)}`,
+          background: reportingPanelBackground(isDarkMode, 'elevated'),
+          boxShadow: reportingPanelShadow(isDarkMode),
+        }}
+      >
+        <div data-helix-region="marketing/ppc-drilldown/header" style={{ display: 'grid', gap: 9, minWidth: 0, padding: '2px 0 4px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(190px, auto)', gap: 12, alignItems: 'stretch', minWidth: 0 }}>
+            <span style={{ display: 'grid', gap: 4, minWidth: 0 }}>
+              <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: withAlpha(selectedChannelAccent, isDarkMode ? 0.88 : 0.78) }}>
+                PPC performance snapshot
+              </span>
+              <strong style={{ fontSize: 20, lineHeight: 1.08, fontWeight: 900, color: textColour }}>
+                Paid search spend, traffic and return
+              </strong>
+              <small style={{ maxWidth: 660, fontSize: 10.5, lineHeight: 1.32, fontWeight: 800, color: ppcDetailTextColour }}>
+                Google Ads spend and conversion data set against enquiry attribution and downstream matter value.
+              </small>
+            </span>
+            <span style={{ display: 'grid', alignContent: 'center', gap: 2, minWidth: 0, padding: '8px 10px', border: `1px solid ${withAlpha(selectedChannelAccent, isDarkMode ? 0.26 : 0.18)}`, borderLeft: `3px solid ${withAlpha(selectedChannelAccent, isDarkMode ? 0.78 : 0.62)}`, background: withAlpha(selectedChannelAccent, isDarkMode ? 0.06 : 0.045) }}>
+              <small style={{ fontSize: 9, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: ppcDetailLabelColour }}>Snapshot basis</small>
+              <strong style={{ fontSize: 12, lineHeight: 1.15, fontWeight: 900, color: textColour }}>{ppcSourceBadgeLabel}</strong>
+              <small style={{ fontSize: 10, lineHeight: 1.25, fontWeight: 800, color: ppcDetailTextColour }}>{ppcAttributionIsLoading ? 'Attribution updating' : 'Attribution settled'}</small>
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(178px, 1fr))', gap: 0, minWidth: 0, borderTop: `1px solid ${valueSheetBorder}`, borderLeft: `1px solid ${valueSheetBorder}`, background: withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.018 : 0.30) }}>
+            {[
+              { label: 'Reporting window', value: timelineRangeLabel },
+              { label: 'Data source', value: ppcDataSourceLabel },
+              { label: 'Rows synced', value: formatNumber(metrics.paid.rows) },
+            ].map((item) => (
+              <span key={item.label} title={`${item.label}: ${item.value}`} style={{ display: 'grid', gap: 3, minWidth: 0, padding: '7px 9px', borderRight: `1px solid ${valueSheetBorder}`, borderBottom: `1px solid ${valueSheetBorder}` }}>
+                <small style={{ fontSize: 9, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: ppcDetailLabelColour }}>{item.label}</small>
+                <strong style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, lineHeight: 1.2, fontWeight: 900, color: withAlpha(textColour, isDarkMode ? 0.90 : 0.84) }}>{item.value}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div data-helix-region="marketing/ppc-drilldown/figures" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, 1fr))', gap: 0, padding: '7px 0', borderTop: `1px solid ${valueSheetBorder}`, borderBottom: `1px solid ${valueSheetBorder}`, background: ppcKpiRailSurface }}>
+          {ppcDrilldownFigures.map((figure, index) => (
+            <span
+              key={figure.label}
+              className="marketing-drilldown-kpi-card"
+              data-detail={figure.detail}
+              aria-label={`${figure.label}: ${figure.value}. ${figure.detail}`}
+              tabIndex={0}
+              style={{
+                display: 'grid',
+                gap: 4,
+                minWidth: 0,
+                position: 'relative',
+                padding: '5px 10px 6px',
+                borderLeft: index === 0 ? 'none' : `1px solid ${withAlpha(isDarkMode ? colours.dark.text : colours.greyText, isDarkMode ? 0.08 : 0.10)}`,
+                background: 'transparent',
+                cursor: 'help',
+                outline: 'none',
+              }}
+            >
+              <small style={{ fontSize: 9, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: ppcDetailLabelColour }}>{figure.label}</small>
+              <strong style={{ fontSize: 16, lineHeight: 1, fontWeight: 900, color: ppcKpiTone(figure.label) }}>{figure.value}</strong>
+            </span>
+          ))}
+        </div>
+        <style>{`
+          .marketing-drilldown-kpi-card {
+            transition: background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+          }
+
+          .marketing-drilldown-kpi-card:hover,
+          .marketing-drilldown-kpi-card:focus-visible {
+            background-color: ${withAlpha(selectedChannelAccent, isDarkMode ? 0.055 : 0.04)} !important;
+            box-shadow: inset 0 -2px 0 ${withAlpha(selectedChannelAccent, isDarkMode ? 0.46 : 0.32)};
+            transform: translateY(-1px);
+          }
+
+          .marketing-drilldown-kpi-card::after {
+            content: attr(data-detail);
+            position: absolute;
+            z-index: 20;
+            left: 10px;
+            right: 10px;
+            top: calc(100% + 7px);
+            padding: 7px 8px;
+            border: 1px solid ${withAlpha(selectedChannelAccent, isDarkMode ? 0.28 : 0.18)};
+            background: ${chartPanelBackground};
+            color: ${ppcDetailTextColour};
+            box-shadow: ${isDarkMode ? `0 12px 24px ${withAlpha(colours.darkBlue, 0.38)}` : `0 12px 24px ${withAlpha(colours.darkBlue, 0.10)}`};
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 1.32;
+            text-transform: none;
+            letter-spacing: 0;
+            white-space: normal;
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 150ms ease, transform 150ms ease;
+          }
+
+          .marketing-drilldown-kpi-card:hover::after,
+          .marketing-drilldown-kpi-card:focus-visible::after {
+            opacity: 1;
+            transform: translateY(0);
+          }
+
+          @media (prefers-reduced-motion: reduce) {
+            .marketing-drilldown-kpi-card,
+            .marketing-drilldown-kpi-card::after {
+              transition: none;
+            }
+          }
+        `}</style>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(320px, 0.95fr)', gap: 12, minWidth: 0 }}>
+          <section
+            data-helix-region="marketing/ppc-drilldown/weekly-trend"
+            style={{
+              display: 'grid',
+              gridTemplateRows: 'auto minmax(180px, auto) auto',
+              gap: 10,
+              minWidth: 0,
+              padding: 12,
+              border: `1px solid ${valueSheetBorder}`,
+              background: chartPanelBackground,
+            }}
+          >
+            <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
+              <span style={{ display: 'grid', gap: 2 }}>
+                <strong style={{ fontSize: 14, fontWeight: 900, color: textColour }}>Weekly paid search trend</strong>
+                <small style={{ fontSize: 10, fontWeight: 800, color: ppcDetailTextColour }}>Spend uses the left axis; enquiries and matters use the right count axis</small>
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px 10px', flexWrap: 'wrap', minWidth: 0, fontSize: 10, fontWeight: 800, color: ppcDetailTextColour }}>
+                <span aria-label="Spend line" title="Spend line" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span aria-hidden="true" style={{ width: 18, height: 2, background: colours.highlight, boxShadow: `7px 0 0 0 ${chartPanelBackground}, 7px 0 0 2px ${colours.highlight}` }} /> Spend</span>
+                <span aria-label="Enquiries bar" title="Enquiries bar" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span aria-hidden="true" style={{ width: 8, height: 12, background: selectedChannelAccent }} /> Enquiries</span>
+                <span aria-label="Matter ring" title="Matter ring" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span aria-hidden="true" style={{ width: 9, height: 9, border: `2px solid ${colours.orange}`, borderRadius: 999, background: chartPanelBackground }} /> Matter</span>
+              </span>
+            </div>
+            {chartRows.length === 0 ? (
+              <div style={{ display: 'grid', placeItems: 'center', minHeight: 178, border: `1px dashed ${valueSheetBorder}`, color: ppcDetailTextColour, fontSize: 11, fontWeight: 800, textAlign: 'center', padding: 12 }}>
+                No Google Ads or PPC attribution rows are available for this reporting window yet.
+              </div>
+            ) : (
+              <svg
+                viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                preserveAspectRatio="xMidYMid meet"
+                role="img"
+                aria-label="PPC spend, enquiries and matters by week"
+                style={{ display: 'block', width: '100%', height: 'auto', aspectRatio: `${chartWidth} / ${chartHeight}`, overflow: 'visible', background: chartPanelInset }}
+              >
+                <defs>
+                  <linearGradient id="marketing-ppc-drilldown-spend" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={withAlpha(colours.highlight, isDarkMode ? 0.42 : 0.24)} />
+                    <stop offset="100%" stopColor={withAlpha(colours.highlight, 0.03)} />
+                  </linearGradient>
+                </defs>
+                {chartTicks.map((tick) => {
+                  const y = yForSpend(tick.value);
+                  return (
+                    <g key={tick.key}>
+                      <line x1={chartLeft} x2={chartRight} y1={y} y2={y} stroke={withAlpha(isDarkMode ? colours.dark.text : colours.helixBlue, isDarkMode ? 0.08 : 0.08)} strokeWidth="1" />
+                      <text x={chartLeft - 6} y={y + 4} textAnchor="end" fontSize="10" fill={ppcDetailTextColour}>{formatCurrency(tick.value)}</text>
+                    </g>
+                  );
+                })}
+                <text x={chartLeft - 6} y={chartTop - 7} textAnchor="end" fontSize="9" fontWeight="800" fill={ppcDetailTextColour}>Spend</text>
+                <line x1={chartRight} x2={chartRight} y1={chartTop} y2={chartHeight - chartBottom} stroke={withAlpha(colours.orange, isDarkMode ? 0.26 : 0.20)} strokeWidth="1" />
+                <text x={chartRight + 9} y={chartTop - 7} textAnchor="start" fontSize="9" fontWeight="800" fill={ppcDetailTextColour}>Count</text>
+                {countTicks.map((tick) => {
+                  const y = yForCount(tick.value);
+                  return (
+                    <g key={tick.key}>
+                      <line x1={chartRight} x2={chartRight + 5} y1={y} y2={y} stroke={withAlpha(colours.orange, isDarkMode ? 0.32 : 0.24)} strokeWidth="1" />
+                      <text x={chartRight + 9} y={y + 4} textAnchor="start" fontSize="10" fill={ppcDetailTextColour}>{formatNumber(tick.value)}</text>
+                    </g>
+                  );
+                })}
+                {spendAreaPath && <path d={spendAreaPath} fill="url(#marketing-ppc-drilldown-spend)" stroke="none" />}
+                {spendLinePath && <path d={spendLinePath} fill="none" stroke={colours.highlight} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />}
+                {chartRows.map((row, index) => {
+                  const x = xFor(index);
+                  const barY = yForCount(row.enquiries);
+                  const barHeight = row.enquiries > 0 ? Math.max(5, chartHeight - chartBottom - barY) : 0;
+                  const matterY = yForCount(row.matters);
+                  return (
+                    <g key={row.key}>
+                      <title>{`${row.label}: ${formatCurrency(row.spend)} spend, ${formatNumber(row.clicks)} clicks, ${formatNumber(row.enquiries)} enquiries, ${formatNumber(row.matters)} matters, ${formatCurrency(row.value)} value`}</title>
+                      {barHeight > 0 && <rect x={x - 8} y={chartHeight - chartBottom - barHeight} width={16} height={barHeight} fill={withAlpha(selectedChannelAccent, isDarkMode ? 0.72 : 0.64)} />}
+                      {row.matters > 0 && <circle cx={x + 10} cy={matterY} r="4.5" fill={chartPanelBackground} stroke={colours.orange} strokeWidth="2" />}
+                      <circle cx={x} cy={yForSpend(row.spend)} r="4" fill={chartPanelBackground} stroke={colours.highlight} strokeWidth="2" />
+                      <text x={x} y={chartHeight - 9} textAnchor="middle" fontSize="10" fontWeight="700" fill={ppcDetailTextColour}>{row.label}</text>
+                    </g>
+                  );
+                })}
+              </svg>
+            )}
+            <div data-helix-region="marketing/ppc-drilldown/weekly-detail" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(214px, 1fr))', gap: '8px 10px', paddingTop: 8, borderTop: `1px solid ${valueSheetBorder}` }}>
+              {chartRows.map((row) => (
+                <span key={`ppc-trend-${row.key}`} title={`${row.label}: ${formatCurrency(row.spend)} spend, ${formatNumber(row.clicks)} clicks, ${formatNumber(row.enquiries)} enquiries, ${formatNumber(row.matters)} matters, ${formatCurrency(row.value)} value. Fill strength reflects ${row.value > 0 ? 'weekly attributed value' : 'weekly spend capacity'}.`} style={{ display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr)', gap: 9, minWidth: 0, padding: '7px 8px', border: `1px solid ${withAlpha(isDarkMode ? colours.dark.text : colours.greyText, isDarkMode ? 0.09 : 0.11)}`, background: ppcWeeklyCardBackground(row) }}>
+                  <small style={{ fontSize: 9, fontWeight: 900, color: ppcDetailLabelColour, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{row.label}</small>
+                  <span style={{ display: 'grid', gap: 2, minWidth: 0, color: ppcDetailTextColour, fontSize: 10, lineHeight: 1.28 }}>
+                    <strong style={{ fontSize: 11, fontWeight: 900, color: textColour, whiteSpace: 'nowrap' }}>{formatCurrency(row.spend)} spend</strong>
+                    <small style={{ minWidth: 0, color: ppcDetailTextColour, fontSize: 10, lineHeight: 1.28, fontWeight: 800 }}>{formatNumber(row.clicks)} clicks / {formatNumber(row.enquiries)} enquiries / {formatNumber(row.matters)} matters / {formatCurrency(row.value)} value</small>
+                  </span>
+                </span>
+              ))}
+            </div>
+          </section>
+
+          <section
+            data-helix-region="marketing/ppc-drilldown/downstream-quality"
+            style={{
+              display: 'grid',
+              gap: 10,
+              minWidth: 0,
+              padding: 12,
+              border: `1px solid ${valueSheetBorder}`,
+              background: chartPanelBackground,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ display: 'grid', gap: 2 }}>
+                <strong style={{ fontSize: 14, fontWeight: 900, color: textColour }}>Downstream quality</strong>
+                <small style={{ fontSize: 10, fontWeight: 800, color: ppcDetailTextColour }}>Paid-search enquiries matched into matters and value</small>
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, color: ppcDetailTextColour, fontSize: 9, fontWeight: 900, textTransform: 'uppercase' }}>
+                Return <strong style={{ color: colours.green, fontSize: 13, fontWeight: 900 }}>{ppcAttributionIsLoading ? 'Updating' : ppcReturnMultiple}</strong>
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0, borderTop: `1px solid ${valueSheetBorder}`, borderLeft: `1px solid ${valueSheetBorder}`, background: withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.018 : 0.30) }}>
+              {ppcQualityCards.map((card) => (
+                <span key={card.label} title={`${card.label}: ${card.value}. ${card.detail}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'baseline', gap: 8, minWidth: 0, padding: '8px 9px', borderRight: `1px solid ${valueSheetBorder}`, borderBottom: `1px solid ${valueSheetBorder}`, background: 'transparent' }}>
+                  <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                    <small style={{ fontSize: 9, fontWeight: 900, textTransform: 'uppercase', color: ppcDetailLabelColour }}>{card.label}</small>
+                    <small style={{ fontSize: 10, lineHeight: 1.28, fontWeight: 800, color: ppcDetailTextColour }}>{card.detail}</small>
+                  </span>
+                  <strong style={{ fontSize: 16, lineHeight: 1, fontWeight: 900, color: card.tone, whiteSpace: 'nowrap' }}>{card.value}</strong>
+                </span>
+              ))}
+            </div>
+            <div data-helix-region="marketing/ppc-drilldown/journey-stages" style={{ display: 'grid', gap: 8, padding: '10px 9px', border: `1px solid ${valueSheetBorder}`, background: withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.014 : 0.22) }}>
+              <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                <small style={{ fontSize: 9, fontWeight: 900, textTransform: 'uppercase', color: ppcDetailLabelColour }}>Conversion path</small>
+                <small style={{ fontSize: 9, fontWeight: 900, color: ppcDetailTextColour }}>{formatNumber(ppcJourney.matchSummary.filteredEnquiries)} selected enquiries</small>
+              </span>
+              {ppcFunnelStages.map((stage, index) => (
+                <div key={stage.key} style={{ display: 'grid', justifyItems: 'center', minWidth: 0 }}>
+                  <span
+                    title={`${stage.label}: ${stage.value}. ${stage.detail}; ${stage.basis}`}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(0, 1fr) auto',
+                      gap: 8,
+                      alignItems: 'center',
+                      width: stage.width,
+                      minWidth: 'min(100%, 218px)',
+                      minHeight: 48,
+                      padding: '8px 10px',
+                      border: `1px solid ${withAlpha(stage.tone, isDarkMode ? 0.32 : 0.20)}`,
+                      borderLeft: `3px solid ${stage.tone}`,
+                      background: `linear-gradient(90deg, ${withAlpha(stage.tone, isDarkMode ? 0.14 : 0.09)} 0%, ${withAlpha(stage.tone, isDarkMode ? 0.07 : 0.045)} ${stage.fill.toFixed(1)}%, ${chartPanelBackground} ${stage.fill.toFixed(1)}%, ${chartPanelBackground} 100%)`,
+                    }}
+                  >
+                    <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                      <span style={{ display: 'flex', alignItems: 'baseline', gap: 7, minWidth: 0 }}>
+                        <small style={{ color: stage.tone, fontSize: 9, fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{String(index + 1).padStart(2, '0')}</small>
+                        <strong style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontWeight: 900, color: textColour }}>{stage.label}</strong>
+                      </span>
+                      <small style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9.5, lineHeight: 1.28, fontWeight: 800, color: ppcDetailTextColour }}>{stage.detail}; {stage.basis}</small>
+                    </span>
+                    <strong style={{ fontSize: 12, fontWeight: 900, color: stage.tone, whiteSpace: 'nowrap' }}>{stage.value}</strong>
+                  </span>
+                </div>
+              ))}
+              {ppcJourney.filteredEnquiries.length === 0 && (
+                <span style={{ padding: '8px 0 0', fontSize: 10, lineHeight: 1.35, fontWeight: 800, color: ppcDetailTextColour }}>
+                  No paid-search enquiries are available for this reporting window yet.
+                </span>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <section data-helix-region="marketing/ppc-drilldown/health" style={{ display: 'grid', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <strong style={{ fontSize: 13, fontWeight: 900, color: textColour }}>Feed health and attention</strong>
+            <small style={{ fontSize: 10, fontWeight: 800, color: ppcDetailTextColour }}>What needs checking before treating PPC performance as final</small>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(168px, 1fr))', gap: 8 }}>
+            {ppcHealthItems.map((item) => (
+              <span key={item.label} style={{ display: 'grid', gap: 5, minWidth: 0, padding: '9px 10px', border: `1px solid ${valueSheetBorder}`, background: chartPanelBackground }}>
+                <small style={{ fontSize: 9, fontWeight: 900, textTransform: 'uppercase', color: ppcDetailLabelColour }}>{item.label}</small>
+                <strong style={{ fontSize: 15, lineHeight: 1, fontWeight: 900, color: item.tone }}>{item.value}</strong>
+                <small style={{ fontSize: 10, lineHeight: 1.3, fontWeight: 800, color: ppcDetailTextColour }}>{item.detail}</small>
+              </span>
+            ))}
+          </div>
+          {ppcAttentionItems.length > 0 && (
+            <div style={{ display: 'grid', gap: 5, padding: '9px 10px', border: `1px solid ${withAlpha(colours.highlight, isDarkMode ? 0.34 : 0.22)}`, background: withAlpha(colours.highlight, isDarkMode ? 0.08 : 0.055) }}>
+              <small style={{ fontSize: 9, fontWeight: 900, textTransform: 'uppercase', color: ppcDetailLabelColour }}>Attention</small>
+              {ppcAttentionItems.map((item) => (
+                <span key={item} style={{ fontSize: 10, lineHeight: 1.35, fontWeight: 800, color: ppcDetailTextColour }}>{item}</span>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section data-helix-region="marketing/ppc-drilldown/recent-streams" style={{ display: 'grid', gap: 8, minWidth: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <span style={{ display: 'grid', gap: 2 }}>
+              <strong style={{ fontSize: 13, fontWeight: 900, color: textColour }}>Recent paid-search streams</strong>
+              <small style={{ fontSize: 10, lineHeight: 1.3, fontWeight: 800, color: ppcDetailTextColour }}>Latest enquiry and matter rows from the value-sheet proof chain</small>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: ppcDetailTextColour, fontSize: 9, fontWeight: 900, textTransform: 'uppercase' }}>
+              <span aria-hidden="true" className="marketing-ppc-live-dot" style={{ width: 7, height: 7, background: selectedChannelAccent }} />
+              Live rows
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10, minWidth: 0, alignItems: 'start' }}>
+            <section data-helix-region="marketing/ppc-drilldown/recent-enquiries" style={{ display: 'grid', gap: 0, minWidth: 0, border: `1px solid ${valueSheetBorder}`, background: chartPanelBackground }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 10, minWidth: 0, padding: '9px 10px', borderBottom: `1px solid ${valueSheetBorder}`, background: withAlpha(selectedChannelAccent, isDarkMode ? 0.055 : 0.04) }}>
+                <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                  <strong style={{ fontSize: 12, fontWeight: 900, color: textColour }}>Recent enquiries</strong>
+                  <small style={{ fontSize: 10, lineHeight: 1.25, fontWeight: 800, color: ppcDetailTextColour }}>{formatNumber(recentPpcEnquiries.length)} shown from {formatNumber(ppcChannelEnquiries.length)} recorded</small>
+                </span>
+                <button type="button" onClick={() => returnToMarketingProof({ rowKey: 'paidSearch', metricKey: 'enquiries' })} style={{ minHeight: 26, border: `1px solid ${withAlpha(selectedChannelAccent, isDarkMode ? 0.34 : 0.24)}`, background: 'transparent', color: selectedChannelAccent, fontFamily: 'Raleway, sans-serif', fontSize: 9, fontWeight: 900, textTransform: 'uppercase', padding: '0 8px', cursor: 'pointer' }}>
+                  Open data
+                </button>
+              </div>
+              <div style={{ display: 'grid', gap: 0, minWidth: 0, overflow: 'hidden' }}>
+                {recentPpcEnquiries.map((row, index) => (
+                  <button
+                    key={`ppc-recent-enquiry-${row.id}-${index}`}
+                    type="button"
+                    className="marketing-ppc-stream-row"
+                    onClick={() => returnToMarketingProof({ rowKey: 'paidSearch', metricKey: 'enquiries' })}
+                    title={`Open paid-search enquiry proof data: ${row.primary}`}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(0, 1fr) auto',
+                      gap: 10,
+                      alignItems: 'center',
+                      minWidth: 0,
+                      padding: '8px 10px',
+                      border: 'none',
+                      borderTop: index === 0 ? 'none' : `1px solid ${valueSheetBorder}`,
+                      background: index % 2 === 0 ? 'transparent' : withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.012 : 0.22),
+                      color: textColour,
+                      fontFamily: 'Raleway, sans-serif',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      animationDelay: `${index * 45}ms`,
+                    }}
+                  >
+                    <span style={{ display: 'grid', gap: 3, minWidth: 0 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                        <span aria-hidden="true" style={{ width: 5, height: 5, flex: '0 0 auto', background: areaAccentColour(readAreaOfWork(row), isDarkMode) }} />
+                        <strong style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontWeight: 900, color: textColour }}>{row.primary}</strong>
+                      </span>
+                      <small style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, lineHeight: 1.25, fontWeight: 800, color: ppcDetailTextColour }}>{readAreaOfWork(row)} / {readEnquiryMethod(row)} / {row.status}</small>
+                    </span>
+                    <span style={{ display: 'grid', justifyItems: 'end', gap: 2, color: ppcDetailTextColour }}>
+                      <strong style={{ fontSize: 10, fontWeight: 900, color: selectedChannelAccent, whiteSpace: 'nowrap' }}>{streamDateLabel(row)}</strong>
+                      <small style={{ fontSize: 9, fontWeight: 900, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{readOwnerInitials(row)}</small>
+                    </span>
+                  </button>
+                ))}
+                {recentPpcEnquiries.length === 0 && (
+                  <span style={{ padding: '10px', fontSize: 10, lineHeight: 1.35, fontWeight: 800, color: ppcDetailTextColour }}>No recent paid-search enquiry rows are available yet.</span>
+                )}
+              </div>
+            </section>
+
+            <section data-helix-region="marketing/ppc-drilldown/recent-matters" style={{ display: 'grid', gap: 0, minWidth: 0, border: `1px solid ${valueSheetBorder}`, background: chartPanelBackground }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', alignItems: 'center', gap: 10, minWidth: 0, padding: '9px 10px', borderBottom: `1px solid ${valueSheetBorder}`, background: withAlpha(colours.green, isDarkMode ? 0.055 : 0.04) }}>
+                <span style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                  <strong style={{ fontSize: 12, fontWeight: 900, color: textColour }}>Recent matters</strong>
+                  <small style={{ fontSize: 10, lineHeight: 1.25, fontWeight: 800, color: ppcDetailTextColour }}>{formatNumber(recentPpcMatters.length)} shown from {formatNumber(ppcJourney.downstream.matters.length)} matched</small>
+                </span>
+                <button type="button" onClick={() => returnToMarketingProof({ rowKey: 'paidSearch', metricKey: 'matters' })} style={{ minHeight: 26, border: `1px solid ${withAlpha(colours.green, isDarkMode ? 0.34 : 0.24)}`, background: 'transparent', color: colours.green, fontFamily: 'Raleway, sans-serif', fontSize: 9, fontWeight: 900, textTransform: 'uppercase', padding: '0 8px', cursor: 'pointer' }}>
+                  Open data
+                </button>
+              </div>
+              <div style={{ display: 'grid', gap: 0, minWidth: 0, overflow: 'hidden' }}>
+                {recentPpcMatters.map((row, index) => (
+                  <button
+                    key={`ppc-recent-matter-${row.id}-${index}`}
+                    type="button"
+                    className="marketing-ppc-stream-row"
+                    onClick={() => returnToMarketingProof({ rowKey: 'paidSearch', metricKey: 'matters' })}
+                    title={`Open paid-search matter proof data: ${readMatterReference(row)}`}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(0, 1fr) auto',
+                      gap: 10,
+                      alignItems: 'center',
+                      minWidth: 0,
+                      padding: '8px 10px',
+                      border: 'none',
+                      borderTop: index === 0 ? 'none' : `1px solid ${valueSheetBorder}`,
+                      background: index % 2 === 0 ? 'transparent' : withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.012 : 0.22),
+                      color: textColour,
+                      fontFamily: 'Raleway, sans-serif',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      animationDelay: `${index * 45}ms`,
+                    }}
+                  >
+                    <span style={{ display: 'grid', gap: 3, minWidth: 0 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                        <span aria-hidden="true" style={{ width: 5, height: 5, flex: '0 0 auto', background: colours.green }} />
+                        <strong style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontWeight: 900, color: textColour }}>{readMatterReference(row)}</strong>
+                      </span>
+                      <small style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, lineHeight: 1.25, fontWeight: 800, color: ppcDetailTextColour }}>{row.secondary || row.detail || 'Matched paid-search matter'}</small>
+                    </span>
+                    <span style={{ display: 'grid', justifyItems: 'end', gap: 2, color: ppcDetailTextColour }}>
+                      <strong style={{ fontSize: 10, fontWeight: 900, color: colours.green, whiteSpace: 'nowrap' }}>{compactLabel(row.value, '-')}</strong>
+                      <small style={{ fontSize: 9, fontWeight: 900, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{readMatterResponsibleInitials(row)}</small>
+                    </span>
+                  </button>
+                ))}
+                {recentPpcMatters.length === 0 && (
+                  <span style={{ padding: '10px', fontSize: 10, lineHeight: 1.35, fontWeight: 800, color: ppcDetailTextColour }}>No matched paid-search matters are available yet.</span>
+                )}
+              </div>
+            </section>
+          </div>
+          <style>{`
+            .marketing-ppc-live-dot {
+              animation: marketing-ppc-live-pulse 1450ms ease-in-out infinite;
+            }
+
+            .marketing-ppc-stream-row {
+              animation: marketing-ppc-stream-enter 220ms ease-out both;
+              transition: background-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+            }
+
+            .marketing-ppc-stream-row:hover,
+            .marketing-ppc-stream-row:focus-visible {
+              transform: translateY(-1px);
+              box-shadow: inset 2px 0 0 currentColor;
+            }
+
+            @keyframes marketing-ppc-live-pulse {
+              0%, 100% { opacity: 0.48; transform: scale(0.86); }
+              50% { opacity: 1; transform: scale(1); }
+            }
+
+            @keyframes marketing-ppc-stream-enter {
+              from { opacity: 0; transform: translateY(4px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+          `}</style>
+        </section>
+      </section>
+    );
+  };
+
   if (isBlueprintMode) {
     const blueprintSurface = isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground;
     const blueprintBorder = reportingPanelBorder(isDarkMode);
@@ -2769,9 +4110,6 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
 
     return (
       <section data-helix-region="marketing/performance-workspace" className="marketing-performance-workspace" style={{ display: 'grid', gap: 12 }}>
-        {renderMarketingHeroBanner(true)}
-        {renderMarketingReportDownloadTool(true)}
-
         <section
           data-helix-region="marketing/value-sheet"
           style={{
@@ -2798,17 +4136,29 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
               backgroundColor: withAlpha(isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground, 0.76),
             }}
           >
-            <span style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-              <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: valueSheetAccent }}>
-                Search marketing value sheet
-              </span>
-              <span style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
-                <strong style={{ display: 'block', fontSize: 17, lineHeight: 1.08, fontWeight: 900, color: valueSheetAccent }}>
-                  Source breakdown
-                </strong>
-                <span className="marketing-skeleton-line" style={{ width: 150, maxWidth: '42vw', height: 12 }} />
-              </span>
+            <span style={{ display: 'grid', minWidth: 0, flex: '1 1 auto' }}>
+              <strong style={{ display: 'block', fontSize: 17, lineHeight: 1.08, fontWeight: 900, color: valueSheetAccent }}>
+                Marketing Channels
+              </strong>
             </span>
+            <DefaultButton
+              text="PDF"
+              iconProps={{ iconName: 'Download' }}
+              disabled
+              styles={{
+                root: {
+                  borderRadius: 0,
+                  height: 30,
+                  minWidth: 74,
+                  padding: '0 9px',
+                  fontWeight: 900,
+                  fontSize: 10,
+                  border: `1px solid ${blueprintBorder}`,
+                  background: 'transparent',
+                  color: mutedColour,
+                },
+              }}
+            />
           </div>
 
           <div style={{ padding: '12px 14px 14px' }}>
@@ -2817,18 +4167,20 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                 display: 'grid',
                 gridTemplateColumns: valueSheetTableColumns,
                 gap: 3,
-                minWidth: 900,
+                minWidth: 760,
                 padding: 4,
                 border: `1px solid ${withAlpha(valueSheetAccent, isDarkMode ? 0.20 : 0.14)}`,
                 backgroundColor: valueSheetDeckSurface,
                 overflowX: 'auto',
               }}
             >
-              {VALUE_SHEET_COLUMNS.map(({ label, align }) => (
-                <span key={label} style={{ ...valueSheetHeaderCellStyle, textAlign: align }}>
-                  {label}
-                </span>
-              ))}
+              <div style={valueSheetHeaderBarStyle}>
+                {VALUE_SHEET_COLUMNS.map(({ key, label, align }) => (
+                  <span key={key} style={{ ...valueSheetHeaderCellStyle, textAlign: align }}>
+                    {label}
+                  </span>
+                ))}
+              </div>
               {Array.from({ length: 3 }).map((_, rowIndex) => (
                 Array.from({ length: 10 }).map((__, cellIndex) => (
                   <span
@@ -2836,7 +4188,9 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                     style={{
                       padding: '8px 8px',
                       border: `1px solid ${withAlpha(isDarkMode ? colours.dark.text : colours.greyText, isDarkMode ? 0.08 : 0.10)}`,
-                      backgroundColor: rowIndex === 2 ? withAlpha(valueSheetAccent, isDarkMode ? 0.10 : 0.06) : withAlpha(isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground, isDarkMode ? 0.38 : 0.72),
+                      backgroundColor: rowIndex === 2
+                        ? (isDarkMode ? colours.dark.cardHover : withAlpha(valueSheetAccent, 0.06))
+                        : (isDarkMode ? colours.dark.cardBackground : withAlpha(colours.light.cardBackground, 0.72)),
                     }}
                   >
                     <span className="marketing-skeleton-line" style={{ width: cellIndex <= 1 ? `${74 - rowIndex * 8}%` : `${52 + ((cellIndex + rowIndex) % 3) * 9}%`, height: 11, marginLeft: cellIndex <= 1 ? 0 : 'auto' }} />
@@ -2860,19 +4214,20 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
 
         {renderMarketingChannelEntries(true)}
 
-        <section
-          data-helix-region="marketing/draft-surfaces"
-          style={{
-            display: 'grid',
-            gap: 12,
-            padding: 10,
-            border: `1px dotted ${withAlpha(isDarkMode ? colours.highlight : colours.helixBlue, isDarkMode ? 0.34 : 0.24)}`,
-            background: withAlpha(isDarkMode ? colours.dark.cardBackground : colours.sectionBackground, isDarkMode ? 0.20 : 0.42),
-          }}
-        >
-          <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
-            Dev draft surfaces
-          </span>
+        {showDevDraftSurfaces && (
+          <section
+            data-helix-region="marketing/draft-surfaces"
+            style={{
+              display: 'grid',
+              gap: 12,
+              padding: 10,
+              border: `1px dotted ${withAlpha(isDarkMode ? colours.highlight : colours.helixBlue, isDarkMode ? 0.34 : 0.24)}`,
+              background: withAlpha(isDarkMode ? colours.dark.cardBackground : colours.sectionBackground, isDarkMode ? 0.20 : 0.42),
+            }}
+          >
+            <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase', color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+              Dev draft surfaces
+            </span>
 
           <section data-helix-region="marketing/evidence-quality" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
             {evidenceCards.map((card) => (
@@ -2940,6 +4295,62 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
               </div>
             ))}
           </div>
+          </section>
+        )}
+      </section>
+    );
+  }
+
+  if (effectiveWorkspacePage === 'email') {
+    return (
+      <section
+        data-helix-region="marketing/performance-workspace"
+        className="marketing-performance-workspace"
+        style={{
+          display: 'grid',
+          gap: 12,
+        }}
+      >
+        <MarketingEmailWorkbench
+          isDarkMode={isDarkMode}
+          operatorName={operatorName}
+          operatorInitials={operatorInitials}
+          operatorEmail={operatorEmail}
+          demoModeEnabled={demoModeEnabled}
+        />
+      </section>
+    );
+  }
+
+  if (effectiveWorkspacePage === 'seo') {
+    return (
+      <section
+        data-helix-region="marketing/performance-workspace"
+        className="marketing-performance-workspace"
+        style={{
+          display: 'grid',
+          gap: 12,
+        }}
+      >
+        <section data-helix-region="marketing/seo-page" style={{ display: 'grid', gap: 12, minWidth: 0 }}>
+          {renderSeoDrilldown()}
+        </section>
+      </section>
+    );
+  }
+
+  if (effectiveWorkspacePage === 'ppc') {
+    return (
+      <section
+        data-helix-region="marketing/performance-workspace"
+        className="marketing-performance-workspace"
+        style={{
+          display: 'grid',
+          gap: 12,
+        }}
+      >
+        <section data-helix-region="marketing/ppc-page" style={{ display: 'grid', gap: 12, minWidth: 0 }}>
+          {renderPpcDrilldown()}
         </section>
       </section>
     );
@@ -2954,9 +4365,6 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
         gap: 12,
       }}
     >
-      {renderMarketingHeroBanner(false)}
-      {renderMarketingReportDownloadTool(false)}
-
       <section
         data-helix-region="marketing/value-sheet"
         style={{
@@ -2983,19 +4391,42 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
             backgroundColor: withAlpha(isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground, 0.76),
           }}
         >
-          <span style={{ display: 'grid', gap: 4, minWidth: 0 }}>
-            <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', color: valueSheetAccent }}>
-              Search marketing value sheet
-            </span>
-            <span style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
-              <strong style={{ display: 'block', fontSize: 17, lineHeight: 1.08, fontWeight: 900, color: valueSheetAccent }}>
-                Source breakdown
-              </strong>
-              <span style={{ display: 'block', fontSize: 13, lineHeight: 1.1, fontWeight: 800, color: mutedColour }}>
-                Spend, enquiries, received return, and WIP by search source
-              </span>
-            </span>
+          <span style={{ display: 'grid', minWidth: 0, flex: '1 1 auto' }}>
+            <strong style={{ display: 'block', fontSize: 17, lineHeight: 1.08, fontWeight: 900, color: valueSheetAccent }}>
+              Marketing Channels
+            </strong>
           </span>
+          <DefaultButton
+            text={marketingReportDownloadState.status === 'downloading' ? 'Preparing' : 'PDF'}
+            iconProps={{ iconName: 'Download' }}
+            onClick={downloadMarketingReport}
+            disabled={Boolean(marketingReportRangeError) || marketingReportDownloadState.status === 'downloading'}
+            title="Download search value backing sheet"
+            ariaLabel="Download search value backing sheet"
+            styles={{
+              root: {
+                borderRadius: 0,
+                height: 30,
+                minWidth: 74,
+                padding: '0 9px',
+                fontWeight: 900,
+                fontSize: 10,
+                border: `1px solid ${withAlpha(valueSheetAccent, isDarkMode ? 0.48 : 0.34)}`,
+                background: 'transparent',
+                color: valueSheetAccent,
+              },
+              rootHovered: {
+                border: `1px solid ${valueSheetAccent}`,
+                background: withAlpha(valueSheetAccent, isDarkMode ? 0.14 : 0.08),
+                color: valueSheetAccent,
+              },
+              rootDisabled: {
+                border: `1px solid ${valueSheetBorder}`,
+                background: 'transparent',
+                color: mutedColour,
+              },
+            }}
+          />
         </div>
 
         <div style={{ padding: '12px 14px 14px' }}>
@@ -3004,49 +4435,82 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
               display: 'grid',
               gridTemplateColumns: valueSheetTableColumns,
               gap: 3,
-              minWidth: 900,
+              minWidth: 760,
               padding: 4,
               border: `1px solid ${withAlpha(valueSheetAccent, isDarkMode ? 0.20 : 0.14)}`,
               backgroundColor: valueSheetDeckSurface,
               overflowX: 'auto',
             }}
           >
-            {VALUE_SHEET_COLUMNS.map(({ label, align }) => (
-              <span key={label} style={{ ...valueSheetHeaderCellStyle, textAlign: align }}>
-                {label}
-              </span>
-            ))}
+            <div style={valueSheetHeaderBarStyle}>
+              {VALUE_SHEET_COLUMNS.map(({ key, label, align }) => (
+                <span key={key} style={{ ...valueSheetHeaderCellStyle, textAlign: align }}>
+                  {label}
+                </span>
+              ))}
+            </div>
             {valueSheetDisplayRows.map((row) => {
               const totalRow = row.key === 'totalSearch';
               const cellBackground = totalRow
-                ? withAlpha(valueSheetAccent, isDarkMode ? 0.12 : 0.07)
-                : withAlpha(isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground, isDarkMode ? 0.42 : 0.74);
+                ? (isDarkMode ? colours.dark.cardHover : withAlpha(valueSheetAccent, 0.07))
+                : (isDarkMode ? colours.dark.cardBackground : withAlpha(colours.light.cardBackground, 0.74));
               const cells = getValueSheetCells(row);
               return (
                 <React.Fragment key={row.key}>
                   {cells.map((cell, index) => {
                     const activeCell = activeValueSheetTray?.rowKey === row.key && activeValueSheetTray.metricKey === cell.key;
+                    const hoveredCell = hoveredValueSheetCell?.rowKey === row.key && hoveredValueSheetCell.metricKey === cell.key;
+                    const cellTone = getValueSheetCellTone(cell.key);
+                    const metricToneApplies = cell.key === 'spend' || cell.key === 'received' || cell.key === 'wip' || cell.key === 'totalValue';
+                    const showRevealIndicator = index === 0;
+                    const sourceInset = index === 0 ? `inset 2px 0 0 ${activeCell ? cellTone : valueSheetSourceAccent}` : '';
+                    const hoverShadow = hoveredCell || activeCell ? `0 8px 18px ${withAlpha(colours.websiteBlue, isDarkMode ? 0.34 : 0.10)}` : '';
+                    const cellBoxShadow = [sourceInset, hoverShadow].filter(Boolean).join(', ') || undefined;
+                    const hoveredBackground = totalRow
+                      ? (isDarkMode ? colours.dark.cardHover : withAlpha(valueSheetAccent, 0.10))
+                      : (isDarkMode ? colours.dark.cardHover : withAlpha(cellTone, 0.055));
                     return (
                       <button
                         key={`${row.key}-${cell.key}`}
                         type="button"
                         aria-expanded={activeCell}
+                        aria-label={`${row.source} ${cell.label}: ${cell.value}. ${cell.basis || 'Open supporting detail.'}`}
+                        title={`${row.source} - ${cell.label}: ${cell.value}\n${cell.basis || 'Supporting detail'}\nClick to open the detail tray.`}
                         onClick={() => setActiveValueSheetTray(activeCell ? null : { rowKey: row.key, metricKey: cell.key })}
+                        onMouseEnter={() => setHoveredValueSheetCell({ rowKey: row.key, metricKey: cell.key })}
+                        onMouseLeave={() => { if (hoveredValueSheetCell?.rowKey === row.key && hoveredValueSheetCell.metricKey === cell.key) setHoveredValueSheetCell(null); }}
+                        onFocus={() => setHoveredValueSheetCell({ rowKey: row.key, metricKey: cell.key })}
+                        onBlur={() => { if (hoveredValueSheetCell?.rowKey === row.key && hoveredValueSheetCell.metricKey === cell.key) setHoveredValueSheetCell(null); }}
                         style={{
                           padding: '9px 9px',
-                          border: `1px solid ${activeCell ? row.accent : totalRow ? withAlpha(valueSheetAccent, isDarkMode ? 0.22 : 0.18) : withAlpha(isDarkMode ? colours.dark.text : colours.greyText, isDarkMode ? 0.08 : 0.10)}`,
-                          backgroundColor: activeCell ? withAlpha(row.accent, isDarkMode ? 0.15 : 0.08) : cellBackground,
-                          color: totalRow ? textColour : index === 0 ? row.accent : mutedColour,
+                          border: `1px solid ${activeCell ? cellTone : hoveredCell ? withAlpha(cellTone, isDarkMode ? 0.52 : 0.30) : totalRow ? withAlpha(valueSheetAccent, isDarkMode ? 0.22 : 0.18) : withAlpha(isDarkMode ? colours.dark.text : colours.greyText, isDarkMode ? 0.08 : 0.10)}`,
+                          backgroundColor: activeCell ? withAlpha(cellTone, isDarkMode ? 0.15 : 0.08) : hoveredCell ? hoveredBackground : cellBackground,
+                          color: metricToneApplies ? cellTone : totalRow ? textColour : index === 0 ? valueSheetSourceAccent : mutedColour,
                           fontFamily: 'Raleway, sans-serif',
                           fontSize: 11,
-                          fontWeight: totalRow || index === 0 || index === 9 ? 900 : 700,
+                          fontWeight: totalRow || index === 0 || index === 7 ? 900 : 700,
                           textAlign: cell.align,
                           whiteSpace: 'nowrap',
-                          boxShadow: index === 0 ? `inset 2px 0 0 ${totalRow ? valueSheetAccent : row.accent}` : undefined,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: cell.align === 'right' ? 'flex-end' : 'flex-start',
+                          gap: 6,
+                          position: 'relative',
+                          boxShadow: cellBoxShadow,
+                          transform: hoveredCell || activeCell ? 'translateY(-1px)' : 'translateY(0)',
+                          transition: 'background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, color 140ms ease, transform 140ms ease',
                           cursor: 'pointer',
                         }}
                       >
-                        {cell.value}
+                        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{cell.value}</span>
+                        {showRevealIndicator && (
+                          <span aria-hidden="true" style={{ color: activeCell ? cellTone : hoveredCell ? cellTone : mutedColour, fontSize: 10, fontWeight: 900, opacity: activeCell ? 1 : hoveredCell ? 0.86 : 0.62, transition: 'color 140ms ease, opacity 140ms ease' }}>
+                            {activeCell ? '-' : '+'}
+                          </span>
+                        )}
+                        {!showRevealIndicator && (
+                          <FontIcon aria-hidden="true" iconName="Info" style={{ width: 10, textAlign: 'center', color: cellTone, fontSize: 9, opacity: activeCell ? 0.92 : hoveredCell ? 0.78 : 0, transition: 'opacity 140ms ease' }} />
+                        )}
                       </button>
                     );
                   })}
@@ -3071,8 +4535,14 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
 
       {renderMarketingChannelEntries(false)}
 
+      {!effectiveWorkspacePage ? null : (
+
       <section data-helix-region="marketing/channel-surface" style={{ display: 'grid', gap: 12, minWidth: 0 }}>
-        {effectiveWorkspacePage === 'email' ? renderEmailCampaignWorkbench(false) : (
+        <>
+
+        {effectiveChannelPage === 'seo' && renderSeoDrilldown()}
+
+        {showDevDraftSurfaces && (
         <section
           data-helix-region="marketing/draft-surfaces"
           style={{
@@ -3159,10 +4629,10 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
         </div>
 
         <div
-          id={`marketing-channel-panel-${selectedMarketingChannel}`}
+          id={`marketing-channel-panel-${effectiveChannelPage}`}
           role="tabpanel"
           aria-label="Marketing channel journey lanes"
-          data-helix-region={`marketing/channel-workbench/${selectedMarketingChannel}`}
+          data-helix-region={`marketing/channel-workbench/${effectiveChannelPage}`}
           style={{
             display: 'grid',
             gap: 8,
@@ -3172,7 +4642,7 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
         >
           <div role="tablist" aria-label="Marketing channel journey lanes" style={{ display: 'grid', gap: 8 }}>
             {channelJourneyBanners.map((banner) => {
-              const selected = banner.key === selectedMarketingChannel;
+              const selected = banner.key === effectiveChannelPage;
               const selectableChannel = banner.key === 'seo' || banner.key === 'ppc' ? banner.key : null;
               const canSelect = Boolean(selectableChannel);
               const activeIntakeKey = selectableChannel ? selectedIntakeByChannel[selectableChannel] ?? 'all' : 'all';
@@ -3191,12 +4661,12 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                   aria-disabled={!banner.enabled}
                   tabIndex={canSelect ? 0 : -1}
                   onClick={() => {
-                    if (selectableChannel) setSelectedMarketingChannel(selectableChannel);
+                    if (selectableChannel) setMarketingWorkspacePage(selectableChannel);
                   }}
                   onKeyDown={(event) => {
                     if (!canSelect || (event.key !== 'Enter' && event.key !== ' ')) return;
                     event.preventDefault();
-                    if (selectableChannel) setSelectedMarketingChannel(selectableChannel);
+                    if (selectableChannel) setMarketingWorkspacePage(selectableChannel);
                   }}
                   style={{
                     display: 'grid',
@@ -3280,7 +4750,7 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
                               onClick={(event) => {
                                 event.stopPropagation();
                                 if (!selectableChannel) return;
-                                setSelectedMarketingChannel(selectableChannel);
+                                setMarketingWorkspacePage(selectableChannel);
                                 setSelectedIntakeByChannel((previous) => ({
                                   ...previous,
                                   [selectableChannel]: previous[selectableChannel] === chip.key ? 'all' : chip.key,
@@ -3594,7 +5064,10 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
 
       </section>
         )}
+        </>
       </section>
+
+      )}
 
     </section>
   );

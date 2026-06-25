@@ -62,8 +62,30 @@ interface ProjectsResponse {
   error?: string;
 }
 
+type BoardCacheEntry = {
+  data: BoardResponse;
+  cachedAt: number;
+};
+
+type ProjectsCacheEntry = {
+  projects: AsanaProjectListEntry[];
+  error: string | null;
+  cachedAt: number;
+};
+
 interface PendingState {
   taskGids: Set<string>;
+}
+
+const boardCache = new Map<string, BoardCacheEntry>();
+const projectsCache = new Map<string, ProjectsCacheEntry>();
+
+function buildBoardCacheKey(initials: string | null, viewMode: 'dev' | 'roadmap', projectId: string): string {
+  return `${viewMode}:${initials || 'anon'}:${projectId}`;
+}
+
+function buildProjectsCacheKey(initials: string | null, viewMode: 'dev' | 'roadmap', boardTeamName?: string): string {
+  return `${viewMode}:${initials || 'anon'}:${boardTeamName || 'all'}`;
 }
 
 interface NotifyCandidate { email: string; name: string }
@@ -121,6 +143,7 @@ export interface SystemTaskBoardEditorProps {
   /** Optional team filter for the board switcher. Matches AsanaProjectMirror logic. */
   boardTeamName?: string;
   onClose: () => void;
+  showBackButton?: boolean;
 }
 
 function buildQuery(initials: string | null, viewMode: 'dev' | 'roadmap', projectId?: string): string {
@@ -200,13 +223,16 @@ const SystemTaskBoardEditor: React.FC<SystemTaskBoardEditorProps> = ({
   teamName,
   boardTeamName,
   onClose,
+  showBackButton = true,
 }) => {
+  const initialBoardCache = boardCache.get(buildBoardCacheKey(initials, viewMode, projectId));
   const [currentProjectId, setCurrentProjectId] = useState(projectId);
-  const [currentProjectName, setCurrentProjectName] = useState(projectName);
-  const [currentTeamName, setCurrentTeamName] = useState<string | null>(teamName ?? null);
+  const [currentProjectName, setCurrentProjectName] = useState(initialBoardCache?.data.projectName || projectName);
+  const [currentTeamName, setCurrentTeamName] = useState<string | null>(initialBoardCache?.data.teamName ?? teamName ?? null);
 
-  const [data, setData] = useState<BoardResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<BoardResponse | null>(initialBoardCache?.data ?? null);
+  const [loading, setLoading] = useState(!initialBoardCache);
+  const [hydrating, setHydrating] = useState(Boolean(initialBoardCache));
   const [error, setError] = useState<string | null>(null);
 
   const [projects, setProjects] = useState<AsanaProjectListEntry[]>([]);
@@ -309,10 +335,17 @@ const SystemTaskBoardEditor: React.FC<SystemTaskBoardEditorProps> = ({
     return `${readQuery}${readQuery ? '&' : '?'}refresh=1`;
   }, [readQuery, refetchToken]);
   const projectsQuery = useMemo(() => buildQuery(initials, viewMode), [initials, viewMode]);
+  const boardCacheKey = useMemo(() => buildBoardCacheKey(initials, viewMode, currentProjectId), [initials, viewMode, currentProjectId]);
+  const projectsCacheKey = useMemo(() => buildProjectsCacheKey(initials, viewMode, boardTeamName), [initials, viewMode, boardTeamName]);
 
   // Load project list once for the switcher.
   useEffect(() => {
     let disposed = false;
+    const cached = projectsCache.get(projectsCacheKey);
+    if (cached) {
+      setProjects(cached.projects);
+      setProjectsError(cached.error);
+    }
     (async () => {
       try {
         const res = await fetch(`/api/dev-console/asana/projects${projectsQuery}`, { headers });
@@ -325,21 +358,33 @@ const SystemTaskBoardEditor: React.FC<SystemTaskBoardEditorProps> = ({
         }
         const list = (json.projects || []).filter((p) => !p.archived);
         const filtered = boardTeamName ? list.filter((p) => matchesBoardTeam(p, boardTeamName)) : list;
-        setProjects(filtered.length > 0 ? filtered : list);
+        const nextProjects = filtered.length > 0 ? filtered : list;
+        setProjects(nextProjects);
+        projectsCache.set(projectsCacheKey, { projects: nextProjects, error: null, cachedAt: Date.now() });
         setProjectsError(null);
       } catch (err) {
-        if (!disposed) setProjectsError(err instanceof Error ? err.message : 'Failed to load board list');
+        const message = err instanceof Error ? err.message : 'Failed to load board list';
+        if (!disposed) setProjectsError(message);
       }
     })();
     return () => { disposed = true; };
-  }, [projectsQuery, headers, boardTeamName]);
+  }, [projectsQuery, headers, boardTeamName, projectsCacheKey]);
 
   // Load the currently selected board.
   useEffect(() => {
     let disposed = false;
     (async () => {
+      const cached = boardCache.get(boardCacheKey);
+      const hasUsableData = Boolean(cached?.data || data);
+      if (cached?.data) {
+        setData(cached.data);
+        setError(null);
+        if (cached.data.projectName) setCurrentProjectName(cached.data.projectName);
+        if (typeof cached.data.teamName !== 'undefined') setCurrentTeamName(cached.data.teamName ?? null);
+      }
       try {
-        setLoading(true);
+        setLoading(!hasUsableData);
+        setHydrating(hasUsableData);
         // Hub-side SQL mirror (Phase 1). Identical response shape to the
         // legacy /api/dev-console/asana/tech-automations route this replaced.
         const res = await fetch(`/api/system-tasks/board/${encodeURIComponent(currentProjectId)}${boardFetchQuery}`, { headers });
@@ -347,9 +392,10 @@ const SystemTaskBoardEditor: React.FC<SystemTaskBoardEditorProps> = ({
         if (disposed) return;
         if (!res.ok || !json.success) {
           setError(json.error || `Board fetch HTTP ${res.status}`);
-          setData(json);
+          if (!hasUsableData) setData(json);
         } else {
           setData(json);
+          boardCache.set(boardCacheKey, { data: json, cachedAt: Date.now() });
           setError(null);
           if (json.projectName) setCurrentProjectName(json.projectName);
           if (typeof json.teamName !== 'undefined') setCurrentTeamName(json.teamName ?? null);
@@ -358,10 +404,11 @@ const SystemTaskBoardEditor: React.FC<SystemTaskBoardEditorProps> = ({
         if (!disposed) setError(err instanceof Error ? err.message : 'Board fetch failed');
       } finally {
         if (!disposed) setLoading(false);
+        if (!disposed) setHydrating(false);
       }
     })();
     return () => { disposed = true; };
-  }, [boardFetchQuery, headers, currentProjectId]);
+  }, [boardFetchQuery, headers, currentProjectId, boardCacheKey]);
 
   // Escape closes the bench.
   useEffect(() => {
@@ -594,15 +641,17 @@ const SystemTaskBoardEditor: React.FC<SystemTaskBoardEditorProps> = ({
       data-helix-region="system/tasks/board-editor"
     >
       <header className="stbe-bench-bar">
-        <button
-          type="button"
-          className="stbe-bench-back"
-          onClick={onClose}
-          aria-label="Back to System Tasks"
-          title="Back to System Tasks"
-        >
-          <span aria-hidden="true">&lt;</span>
-        </button>
+        {showBackButton && (
+          <button
+            type="button"
+            className="stbe-bench-back"
+            onClick={onClose}
+            aria-label="Back to System Tasks"
+            title="Back to System Tasks"
+          >
+            <span aria-hidden="true">&lt;</span>
+          </button>
+        )}
 
         <div className="stbe-bench-board-group">
           <select
@@ -659,7 +708,7 @@ const SystemTaskBoardEditor: React.FC<SystemTaskBoardEditorProps> = ({
             title="Refetch board from Asana"
             aria-label="Refresh"
           >
-            {loading ? '...' : 'Refresh'}
+            {loading || hydrating ? '...' : 'Refresh'}
           </button>
         </div>
       </header>
@@ -686,6 +735,7 @@ const SystemTaskBoardEditor: React.FC<SystemTaskBoardEditorProps> = ({
       )}
 
       {loading && <p className="stbe-bench-status">Loading {currentProjectName}...</p>}
+      {!loading && hydrating && <p className="stbe-bench-status">Updating...</p>}
 
       {!loading && error && (
         <p className="stbe-bench-status stbe-bench-status--error">{error}</p>

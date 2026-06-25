@@ -1474,7 +1474,7 @@
   align-items: center;
   cursor: pointer;
   font-family: var(--font-primary);
-  transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s ease, gap 0.2s ease;
+  transition: background 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s ease, filter 0.18s ease, transform 0.16s ease, padding 0.2s ease, gap 0.2s ease;
   /* gridTemplateColumns and borderBottom set inline */
 }
 
@@ -1509,12 +1509,24 @@
 :root,
 [data-theme="light"] {
   --prospect-enquiry-row-bg: rgba(13, 47, 96, 0.024);
-  --prospect-enquiry-row-hover-bg: rgba(var(--highlight-rgb), 0.08);
+  --prospect-enquiry-row-hover-bg:
+    linear-gradient(90deg, rgba(var(--accent-rgb), 0.13) 0%, rgba(var(--accent-rgb), 0.055) 34%, rgba(var(--accent-rgb), 0.018) 100%),
+    var(--surface-card-raised);
+  --prospect-enquiry-row-hover-shadow:
+    inset 3px 0 0 rgba(var(--accent-rgb), 0.58),
+    inset 0 1px 0 rgba(var(--accent-rgb), 0.10),
+    inset 0 -1px 0 rgba(var(--accent-rgb), 0.08);
 }
 
 [data-theme="dark"] {
   --prospect-enquiry-row-bg: color-mix(in srgb, var(--surface-nav) 62%, var(--surface-section) 38%);
-  --prospect-enquiry-row-hover-bg: color-mix(in srgb, var(--surface-nav) 42%, var(--surface-section) 58%);
+  --prospect-enquiry-row-hover-bg:
+    linear-gradient(90deg, rgba(var(--accent-rgb), 0.16) 0%, rgba(var(--accent-rgb), 0.065) 38%, rgba(var(--accent-rgb), 0.022) 100%),
+    var(--surface-card-raised);
+  --prospect-enquiry-row-hover-shadow:
+    inset 3px 0 0 rgba(var(--accent-rgb), 0.62),
+    inset 0 1px 0 rgba(var(--accent-rgb), 0.12),
+    inset 0 -1px 0 rgba(var(--accent-rgb), 0.08);
 }
 
 .prospect-row[data-row-parity="even"],
@@ -1539,10 +1551,11 @@
 
 /* Hover ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â accent-tinted bg + lift (composition pattern) */
 .prospect-row:hover {
-  background: rgba(var(--highlight-rgb), 0.08);
+  background: var(--prospect-enquiry-row-hover-bg);
+  box-shadow: var(--prospect-enquiry-row-hover-shadow);
 }
 [data-theme="dark"] .prospect-row:hover {
-  background: var(--surface-card);
+  background: var(--prospect-enquiry-row-hover-bg);
 }
 [data-theme="dark"] .enquiry-row:hover {
   background: var(--prospect-enquiry-row-hover-bg);
@@ -2272,12 +2285,12 @@
    UserBubble > Compositions interactive row behaviour */
 .enquiry-row--css-hover:hover,
 .pipeline-row-hover {
-  background: rgba(var(--highlight-rgb), 0.06) !important;
-  transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+  background: var(--prospect-enquiry-row-hover-bg) !important;
+  transition: background 0.18s ease, transform 0.16s ease, box-shadow 0.18s ease, filter 0.18s ease;
 }
 [data-theme="dark"] .enquiry-row--css-hover:hover,
 [data-theme="dark"] .pipeline-row-hover {
-  background: var(--surface-card) !important;
+  background: var(--prospect-enquiry-row-hover-bg) !important;
 }
 [data-theme="dark"] .enquiry-row--css-hover:hover {
   background: var(--prospect-enquiry-row-hover-bg) !important;
@@ -2285,12 +2298,13 @@
 
 .enquiry-row--css-hover:hover,
 .pipeline-row-hover.pipeline-row-hover-ready {
-  transform: translateY(-0.5px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transform: none;
+  box-shadow: var(--prospect-enquiry-row-hover-shadow);
+  filter: none;
 }
 [data-theme="dark"] .enquiry-row--css-hover:hover,
 [data-theme="dark"] .pipeline-row-hover.pipeline-row-hover-ready {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--prospect-enquiry-row-hover-shadow);
 }
 
 /* ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Pipeline carousel (migrated from inline JS style injection) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ */

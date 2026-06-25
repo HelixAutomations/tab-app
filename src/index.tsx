@@ -10,7 +10,7 @@ import { Matter, UserData, Enquiry, TeamData, NormalizedMatter } from "./app/fun
 import { normalizeMatterData } from "./utils/matterNormalization";
 import { getCachedData, setCachedData, cleanupOldCache } from "./utils/storageHelpers";
 import { debugLog } from "./utils/debug";
-import { isDevOwner } from "./app/admin";
+import { canSeeFirmWideHomeData, isDevOwner } from "./app/admin";
 import { appendDefaultEnquiryProcessingParams, enquiryReferencesId } from "./app/functionality/enquiryProcessingModel";
 import { trackBootStage, trackBootSummary, trackClientError, trackClientEvent } from "./utils/telemetry";
 import actionLog from "./utils/actionLog";
@@ -2013,13 +2013,14 @@ const AppWithContext: React.FC = () => {
         });
       } else {
           const cachedEffectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamUserData);
+        const gateFetchAllHomeEnquiries = canSeeFirmWideHomeData(initialUserData[0] as UserData);
         const cachedEnquiries = getCachedEnquiriesSnapshot(
           cachedEffectiveUser.email,
           getDateRange().dateFrom,
           getDateRange().dateTo,
           initialUserData[0].AOW || '',
           cachedEffectiveUser.initials,
-          isDevOwner(initialUserData[0] as UserData),
+          gateFetchAllHomeEnquiries,
         );
 
         if (cachedEnquiries?.length) {
@@ -2044,6 +2045,7 @@ const AppWithContext: React.FC = () => {
       const gateBoot = performance.now();
       const userInitials = effectiveUser.initials;
       const enquiriesEmail = effectiveUser.email;
+      const gateFetchAllHomeEnquiries = canSeeFirmWideHomeData(initialUserData[0] as UserData);
       const deferLiveEnquiriesRefresh = restoredGateSnapshot || restoredGateCache;
       try {
         console.info('[Boot:Gate] Starting core data fetch');
@@ -2055,7 +2057,7 @@ const AppWithContext: React.FC = () => {
         });
         setEnquiriesLiveRefreshInFlight(true);
 
-          const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, false, false)
+          const enquiriesRes = await fetchEnquiries(enquiriesEmail, dateFrom, dateTo, initialUserData[0].AOW || "", userInitials, gateFetchAllHomeEnquiries, false)
           .catch(err => {
             console.warn('⚠️ Enquiries API failed, using fallback:', err);
             return import('./tabs/home/liveLocalEnquiries').then(m => m.getLiveLocalEnquiries(initialUserData[0].Email) as Enquiry[]);
@@ -2110,7 +2112,7 @@ const AppWithContext: React.FC = () => {
             email: enquiriesEmail,
             initials: userInitials,
             userAow: initialUserData[0].AOW || '',
-            fetchAll: false,
+            fetchAll: gateFetchAllHomeEnquiries,
             dateFrom,
             dateTo,
             restoredSnapshot: restoredGateSnapshot,
@@ -2224,6 +2226,7 @@ const AppWithContext: React.FC = () => {
             // Use actual user's email and initials - no overrides
             const userInitials = primaryUser.Initials || "";
             const enquiriesEmail = primaryUser.Email || "";
+            const fetchAllHomeEnquiries = canSeeFirmWideHomeData(primaryUser);
             const deferLiveEnquiriesRefresh = restoredShellSnapshot;
 
             // ── Round 3: parallel matters fetch for dev-owners ──
@@ -2275,7 +2278,7 @@ const AppWithContext: React.FC = () => {
             trackBootStage('teams', 'enquiries', 'started', {
               entry: 'teams',
               restoredSnapshot: restoredShellSnapshot,
-              fetchAll: false,
+              fetchAll: fetchAllHomeEnquiries,
             });
             fetchEnquiries(
               enquiriesEmail,
@@ -2283,7 +2286,7 @@ const AppWithContext: React.FC = () => {
               dateTo,
               "", // Empty AOW - frontend will apply AOW logic for Claimable state only
               userInitials,
-              false,
+              fetchAllHomeEnquiries,
               false,
             ).then(res => {
               const enquiriesMs = Math.round(performance.now() - t0Enq);
@@ -2297,7 +2300,7 @@ const AppWithContext: React.FC = () => {
               trackBootStage('teams', 'enquiries', 'completed', {
                 entry: 'teams',
                 restoredSnapshot: restoredShellSnapshot,
-                fetchAll: false,
+                fetchAll: fetchAllHomeEnquiries,
                 enquiriesCount: res.length,
                 deliveryMode: deferLiveEnquiriesRefresh ? 'cached-first' : 'direct',
               }, {
@@ -2320,7 +2323,7 @@ const AppWithContext: React.FC = () => {
               trackBootStage('teams', 'enquiries', 'failed', {
                 entry: 'teams',
                 restoredSnapshot: restoredShellSnapshot,
-                fetchAll: false,
+                fetchAll: fetchAllHomeEnquiries,
               }, {
                 duration: enquiriesMs,
                 error: err instanceof Error ? err.message : String(err),
@@ -2334,7 +2337,7 @@ const AppWithContext: React.FC = () => {
                   email: enquiriesEmail,
                   initials: userInitials,
                   userAow: '',
-                  fetchAll: false,
+                  fetchAll: fetchAllHomeEnquiries,
                   dateFrom,
                   dateTo,
                   restoredSnapshot: restoredShellSnapshot,
@@ -2552,14 +2555,14 @@ const AppWithContext: React.FC = () => {
                 const cachedEnquiriesEmail = cachedEffectiveUser.email || "";
 
                 if (shouldFetchLocalEnquiries && !localSnapshot) {
-                  const devOwnerBoot = shouldFetchLocalTeamData && isDevOwner(initialUserData[0] as UserData);
+                  const fetchAllHomeEnquiriesBoot = shouldFetchLocalTeamData && canSeeFirmWideHomeData(initialUserData[0] as UserData);
                   const cachedEnquiries = getCachedEnquiriesSnapshot(
                     cachedEnquiriesEmail,
                     dateFrom,
                     dateTo,
                     "",
                     cachedUserInitials,
-                    devOwnerBoot,
+                    fetchAllHomeEnquiriesBoot,
                   );
 
                   if (cachedEnquiries?.length) {
@@ -2645,7 +2648,7 @@ const AppWithContext: React.FC = () => {
                   const effectiveUser = resolveEffectiveDatasetUser(initialUserData[0] as UserData, teamForIdentity);
                   const userInitials = effectiveUser.initials || "";
                   const enquiriesEmail = effectiveUser.email || "";
-                  const fetchAll = shouldFetchLocalTeamData && isDevOwner(initialUserData[0] as UserData);
+                  const fetchAll = shouldFetchLocalTeamData && canSeeFirmWideHomeData(initialUserData[0] as UserData);
                   console.info(`[Boot] Enquiries fetch: email=${enquiriesEmail} initials=${userInitials} fetchAll=${fetchAll}`);
                   const t0 = performance.now();
                   trackBootStage('local', 'enquiries', 'started', {

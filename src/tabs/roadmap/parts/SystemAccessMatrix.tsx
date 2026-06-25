@@ -3,10 +3,13 @@ import { CAPABILITIES } from '../../../app/capabilities';
 import {
   ACTIVITY_TAB_USERS,
   ADMIN_USERS,
+  CALLS_ALL_USERS,
   DEMO_MODE_CONTROL_USERS,
   EXTRA_TOP_NAV_USERS,
   FIRM_WIDE_HOME_USERS,
+  FORM_STREAM_USERS,
   PRIVATE_HUB_CONTROL_USERS,
+  REPORTS_USERS,
   SESSION_MODE_CONTROL_USERS,
   TASKS_TAB_USERS,
 } from '../../../app/admin';
@@ -32,7 +35,7 @@ interface CapabilityDef {
   description: string;
 }
 
-type AccessTone = 'allow' | 'partial' | 'local' | 'deny';
+type AccessTone = 'allow' | 'local' | 'deny';
 
 interface SubjectRow {
   key: string;
@@ -48,17 +51,18 @@ interface SurfaceRule {
   description: string;
   audienceLabel: string;
   allowed?: readonly string[];
-  mode?: 'listed' | 'admin-opt-in' | 'local-only';
+  mode?: 'listed' | 'local-only';
 }
 
 const SUBJECT_ROWS: SubjectRow[] = [
   { key: 'lz', label: 'LZ', caption: 'Dev owner', initials: 'LZ' },
-  { key: 'ac', label: 'AC', caption: 'Dev group', initials: 'AC' },
-  { key: 'ea', label: 'EA', caption: 'Prod viewer', initials: 'EA' },
-  { key: 'kw', label: 'KW', caption: 'Admin', initials: 'KW' },
+  { key: 'ea', label: 'EA', caption: 'Operations admin', initials: 'EA' },
+  { key: 'kw', label: 'KW', caption: 'Operations admin', initials: 'KW' },
+  { key: 'ld', label: 'LD', caption: 'Reception admin', initials: 'LD' },
+  { key: 'wh', label: 'WH', caption: 'Reception admin', initials: 'WH' },
+  { key: 'ac', label: 'AC', caption: 'Admin', initials: 'AC' },
   { key: 'jw', label: 'JW', caption: 'Admin', initials: 'JW' },
   { key: 'la', label: 'LA', caption: 'Admin', initials: 'LA' },
-  { key: 'wh', label: 'WH', caption: 'Admin', initials: 'WH' },
   { key: 'user', label: 'User', caption: 'Everyone else', general: true },
 ];
 
@@ -87,9 +91,9 @@ const SURFACE_RULES: SurfaceRule[] = [
   {
     key: 'reports',
     label: 'Reports',
-    description: 'Top navigation Reports suite in the current shell.',
-    audienceLabel: EXTRA_TOP_NAV_USERS.join(', '),
-    allowed: EXTRA_TOP_NAV_USERS,
+    description: 'Reports tab.',
+    audienceLabel: REPORTS_USERS.join(', '),
+    allowed: REPORTS_USERS,
   },
   {
     key: 'marketing',
@@ -100,16 +104,43 @@ const SURFACE_RULES: SurfaceRule[] = [
   },
   {
     key: 'firmHome',
-    label: 'Firm Home',
-    description: 'Built-in firm-wide Home data, plus admin browser opt-in.',
-    audienceLabel: `${FIRM_WIDE_HOME_USERS.join(', ')} + admin opt-in`,
+    label: 'Firm billing',
+    description: 'Firm-wide Home billing, matters, and enquiry aggregates for dev, operations, and reception users who do not bill time.',
+    audienceLabel: FIRM_WIDE_HOME_USERS.join(', '),
     allowed: FIRM_WIDE_HOME_USERS,
-    mode: 'admin-opt-in',
   },
   {
-    key: 'controls',
-    label: 'Controls',
-    description: 'Private hub controls, debug overlay, CCL diff, and cache tools.',
+    key: 'homeSupportStreams',
+    label: 'To Do/L&D',
+    description: 'Home support stream scope for Everyone in To Do, L&D, and document-transfer support cards. Separate from firm billing.',
+    audienceLabel: ADMIN_USERS.join(', '),
+    allowed: ADMIN_USERS,
+  },
+  {
+    key: 'allCalls',
+    label: 'All calls',
+    description: 'Call centre all-person scope. Kept separate from firm-wide Home billing.',
+    audienceLabel: CALLS_ALL_USERS.join(', '),
+    allowed: CALLS_ALL_USERS,
+  },
+  {
+    key: 'formsStream',
+    label: 'Forms stream',
+    description: 'Form entries side pane and submission stream support view.',
+    audienceLabel: FORM_STREAM_USERS.join(', '),
+    allowed: FORM_STREAM_USERS,
+  },
+  {
+    key: 'leaveAdmin',
+    label: 'Leave admin',
+    description: 'Annual leave employee picker, edit, delete, and admin create flow.',
+    audienceLabel: ADMIN_USERS.join(', '),
+    allowed: ADMIN_USERS,
+  },
+  {
+    key: 'devTools',
+    label: 'Dev tools',
+    description: 'Debug overlay, CCL diff, cache tools, and private hub tools.',
     audienceLabel: PRIVATE_HUB_CONTROL_USERS.join(', '),
     allowed: PRIVATE_HUB_CONTROL_USERS,
   },
@@ -165,14 +196,6 @@ function accessForSurface(surface: SurfaceRule, subject: SubjectRow): { tone: Ac
     };
   }
 
-  if (surface.mode === 'admin-opt-in' && ADMIN_USERS.includes(subject.initials as typeof ADMIN_USERS[number])) {
-    return {
-      tone: 'partial',
-      label: 'Opt',
-      title: `${surface.label}: admin can opt in per browser`,
-    };
-  }
-
   return {
     tone: 'deny',
     label: 'Off',
@@ -186,7 +209,6 @@ const SystemAccessMatrix: React.FC<{ region?: string }> = ({ region = 'system/ac
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [showLiveGrants, setShowLiveGrants] = React.useState<boolean>(false);
-  const [showImplementationDetails, setShowImplementationDetails] = React.useState<boolean>(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -247,19 +269,11 @@ const SystemAccessMatrix: React.FC<{ region?: string }> = ({ region = 'system/ac
     <section className="system-access-matrix" data-helix-region={region}>
       <div className="system-access-matrix-head">
         <div className="system-access-matrix-brand">
-          <span className="system-access-brand-mark" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-            <span />
-            <span />
-            <span />
-          </span>
           <div>
             <div className="system-access-eyebrow">Access model</div>
             <h2 className="system-access-title">Who sees what</h2>
             <p className="system-access-copy">
-              Top-nav surfaces, feature gates, and data-scope exceptions in one live reference.
+              Tabs, support views, and Home firm-wide scope.
             </p>
           </div>
         </div>
@@ -304,9 +318,6 @@ const SystemAccessMatrix: React.FC<{ region?: string }> = ({ region = 'system/ac
             {showLiveGrants ? 'Hide raw grants' : `Show raw grants (${grants.length})`}
           </button>
         )}
-        <button type="button" className="system-access-link-button" onClick={() => setShowImplementationDetails((current) => !current)}>
-          {showImplementationDetails ? 'Hide implementation detail' : 'Show implementation detail'}
-        </button>
       </div>
 
       {showLiveGrants && grants.length > 0 && (
@@ -338,19 +349,7 @@ const SystemAccessMatrix: React.FC<{ region?: string }> = ({ region = 'system/ac
         </div>
       )}
 
-      {showImplementationDetails && (
-        <div className="system-access-implementation">
-          <p>
-            <strong>Capability vocabulary:</strong> {registryCapabilities.map((capability) => capability.key).join(', ')}
-          </p>
-          <ul>
-            <li>Live grants come from /api/access/grants; capability vocabulary comes from src/app/capabilities.ts.</li>
-            <li>Top-nav visibility is deliberately narrower while System and Data Hub settle as production-facing internal tools.</li>
-            <li>Data scope is separate from feature access. Use isDevOwner() for data scope and isAdminUser() for feature gates.</li>
-            <li>Grant and revoke mutations live in the LZ-only Access panel; direct SQL edits are recovery-only.</li>
-          </ul>
-        </div>
-      )}
+
     </section>
   );
 };

@@ -55,9 +55,9 @@ const STATIC_FALLBACK_ROWS: MatrixRow[] = [
   },
   {
     tier: 'Admin',
-    members: 'AC, KW, JW, LA, EA',
+    members: 'AC, KW, JW, LA, LD, EA, WH',
     scope: 'Personal data scope',
-    features: 'Instructions admin, Reports tab (LA excluded), user-switching, hub admin controls, Operator Actions read-only lookups + own run history + attach.',
+    features: 'Admin support surfaces, annual leave admin, user-switching, and support-only form/compliance views. Reports excludes LA and LD; Forms stream is LZ, AC, KW, EA, LD, WH; all calls is LZ, AC, JW, LA.',
   },
   {
     tier: 'User',
@@ -71,6 +71,7 @@ const ROLE_MATRIX_NOTES: string[] = [
   'Members come from /api/access/grants (live). Defaults seeded from src/app/admin.ts on Access.1 migration.',
   'Mutations land in the LZ-only Access panel; avoid direct SQL edits unless recovering a broken grant.',
   'isDevOwner = caller is LZ. canAccessReports / canSeeFirmWideHomeData seeds also live in the table now.',
+  'Firm-wide Home billing is LZ, KW, LD, EA, WH only. Home To Do/L&D support streams use the admin group. Forms stream is LZ, AC, KW, EA, LD, WH. All calls is LZ, AC, JW, LA and separate from firm-wide Home billing.',
   'Operator Actions: 11 read-only lookups now admin-tier. matter-oneoff-replay (write) stays dev-only.',
 ];
 
@@ -115,7 +116,7 @@ function deriveLiveRows(grants: RawGrant[]): MatrixRow[] {
       tier: 'Admin',
       members: admin.length ? admin.join(', ') : '—',
       scope: 'Personal data scope',
-      features: 'Instructions admin, Reports tab (LA excluded), user-switching, hub admin controls, Operator Actions read-only lookups + own run history + attach.',
+      features: 'Admin support surfaces, annual leave admin, user-switching, and support-only form/compliance views. Reports excludes LA and LD; Forms stream is LZ, AC, KW, EA, LD, WH; all calls is LZ, AC, JW, LA.',
     },
     {
       tier: 'User',

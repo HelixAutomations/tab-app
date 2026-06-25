@@ -12,7 +12,7 @@ interface SystemProjectsViewProps {
   onOpenInfrastructure?: () => void;
 }
 
-type ProjectsSurface = 'overview' | 'local-llm' | 'marketing-timeline' | 'hub-tasks' | 'stashes' | 'changelog';
+type ProjectsSurface = 'overview' | 'local-llm' | 'marketing-email' | 'marketing-timeline' | 'hub-tasks' | 'stashes' | 'changelog';
 
 type StashCard = {
   id: string | null;
@@ -102,6 +102,28 @@ const MARKETING_TIMELINE_PROJECT = {
     'The channel workbench and timeline share one visible governor.',
     'Evidence quality and intake KPI strips sit below the timeline as validation, not as the primary story.',
     'Three-month versus three-month comparison is introduced only after the FYTD baseline is stable.',
+  ],
+};
+
+const MARKETING_EMAIL_PROJECT = {
+  id: 'marketing-email-audience-spine',
+  title: 'Marketing Email',
+  eyebrow: 'Audience spine and send governance',
+  status: 'scoped' as const,
+  briefPath: 'server/routes/marketing-email.js',
+  summary: 'Governed email campaigns built from streams, memberships, campaign locks, and a planned recipient snapshot before any mass-send path goes live.',
+  phases: [
+    { key: 'A', label: 'Current spine', detail: 'Streams, memberships, campaigns, proof ledger, and preview-only source checks are in place.' },
+    { key: 'B', label: 'AC migration', detail: 'Bring authoritative ActiveCampaign memberships, ranks, and tags into the membership table.' },
+    { key: 'C', label: 'Source trigger', detail: 'Table-level enquiry updates raise reconciliation work so direct SQL edits still affect membership eligibility.' },
+    { key: 'D', label: 'Campaign recipients', detail: 'Lock stores one row per campaign recipient, selected or blocked, before send is enabled.' },
+    { key: 'E', label: 'Send guard', detail: 'SendGrid sends only from locked recipient snapshots with frequency, exclusion, and audit checks.' },
+  ],
+  decisions: [
+    'Refresh checks source impact by default. It does not mutate the spine unless materialisation is explicit.',
+    'Enquiries supply source signals. ActiveCampaign will own memberships, tags, and rank once migrated.',
+    'Membership edits amend the operating table that campaign selection reads from.',
+    'Campaign lock needs a recipient snapshot table before mass send is allowed.',
   ],
 };
 
@@ -272,6 +294,96 @@ const ArchitectureDiagram: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
         <line x1={245} y1={340} x2={775} y2={340} stroke={cta} strokeWidth={1.5} strokeDasharray="3 3" />
         <text x={510} y={354} fontFamily="Raleway, sans-serif" fontSize={9} fontWeight={900} fill={cta} textAnchor="middle">
           No public egress  ·  no Azure OpenAI fallback  ·  no prompt or completion logging
+        </text>
+      </g>
+    </svg>
+  );
+};
+
+const MarketingEmailDiagram: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) => {
+  const fill = isDarkMode ? '#1f242c' : '#ffffff';
+  const text = isDarkMode ? '#e7eaf0' : '#1f2937';
+  const muted = isDarkMode ? '#9aa3b2' : '#6b7280';
+  const spineFill = isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.05)';
+  const spineStroke = isDarkMode ? '#3a4d6b' : '#b6c8e0';
+  const source = colours.blue;
+  const spine = colours.accent;
+  const campaign = colours.green;
+  const guard = colours.orange;
+  const stop = colours.cta;
+
+  const Node: React.FC<{ x: number; y: number; w: number; h: number; title: string; sub: string; accent: string; pill?: string }> = ({ x, y, w, h, title, sub, accent, pill }) => (
+    <g>
+      <rect x={x} y={y} width={w} height={h} fill={fill} stroke={accent} strokeWidth={1.4} />
+      <rect x={x} y={y} width={w} height={4} fill={accent} />
+      <text x={x + 12} y={y + 24} fontFamily="Raleway, sans-serif" fontSize={12} fontWeight={900} fill={text}>{title}</text>
+      <text x={x + 12} y={y + 42} fontFamily="Raleway, sans-serif" fontSize={10} fill={muted}>{sub}</text>
+      {pill ? (
+        <g>
+          <rect x={x + w - 70} y={y + h - 22} width={58} height={15} fill={`${accent}20`} stroke={accent} />
+          <text x={x + w - 41} y={y + h - 11} fontFamily="Raleway, sans-serif" fontSize={8} fontWeight={900} fill={accent} textAnchor="middle">{pill}</text>
+        </g>
+      ) : null}
+    </g>
+  );
+
+  const TableStack: React.FC<{ x: number; y: number; title: string; rows: string[]; accent: string }> = ({ x, y, title, rows, accent }) => (
+    <g>
+      <rect x={x} y={y} width={190} height={126} fill={fill} stroke={accent} strokeWidth={1.5} />
+      <rect x={x} y={y} width={190} height={24} fill={`${accent}18`} stroke={accent} />
+      <text x={x + 12} y={y + 16} fontFamily="Raleway, sans-serif" fontSize={10} fontWeight={900} fill={accent}>{title}</text>
+      {rows.map((row, index) => (
+        <g key={row}>
+          <line x1={x} y1={y + 24 + (index * 25)} x2={x + 190} y2={y + 24 + (index * 25)} stroke={spineStroke} strokeWidth={index === 0 ? 0 : 1} />
+          <text x={x + 12} y={y + 43 + (index * 25)} fontFamily="Raleway, sans-serif" fontSize={10} fontWeight={800} fill={text}>{row}</text>
+        </g>
+      ))}
+    </g>
+  );
+
+  const Arrow: React.FC<{ x1: number; y1: number; x2: number; y2: number; label?: string; colour?: string; dashed?: boolean }> = ({ x1, y1, x2, y2, label, colour = muted, dashed }) => {
+    const midX = (x1 + x2) / 2;
+    const midY = (y1 + y2) / 2;
+    return (
+      <g>
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={colour} strokeWidth={1.6} strokeDasharray={dashed ? '5 4' : undefined} markerEnd="url(#email-arrowhead)" />
+        {label ? <text x={midX} y={midY - 8} fontFamily="Raleway, sans-serif" fontSize={9} fontWeight={900} fill={colour} textAnchor="middle">{label}</text> : null}
+      </g>
+    );
+  };
+
+  return (
+    <svg viewBox="0 0 860 390" width="100%" style={{ display: 'block', marginTop: 8, maxHeight: 430 }} role="img" aria-label="Marketing email architecture diagram">
+      <defs>
+        <marker id="email-arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,4 L0,8 z" fill={muted} />
+        </marker>
+      </defs>
+
+      <text x={18} y={32} fontFamily="Raleway, sans-serif" fontSize={9} fontWeight={900} fill={muted} letterSpacing="0.7">SOURCE SIGNALS</text>
+      <Node x={20} y={52} w={150} h={62} title="Enquiries" sub="area, email, client" accent={source} pill="CHECK" />
+      <Node x={20} y={142} w={150} h={62} title="ActiveCampaign" sub="lists, tags, rank" accent={guard} pill="NEXT" />
+      <Node x={20} y={232} w={150} h={62} title="SQL trigger" sub="direct table edits" accent={source} pill="NEXT" />
+
+      <rect x={230} y={42} width={270} height={280} fill={spineFill} stroke={spineStroke} strokeWidth={1.5} strokeDasharray="6 4" />
+      <text x={244} y={60} fontFamily="Raleway, sans-serif" fontSize={10} fontWeight={900} fill={spine}>helix-project-data audience spine</text>
+      <TableStack x={270} y={86} title="Marketing tables" accent={spine} rows={['streams', 'memberships', 'campaigns', 'campaign recipients']} />
+
+      <Node x={560} y={66} w={150} h={62} title="Proof tray" sub="edit and quality" accent={spine} />
+      <Node x={560} y={164} w={150} h={62} title="Lock campaign" sub="snapshot recipients" accent={campaign} pill="NEXT" />
+      <Node x={560} y={262} w={150} h={62} title="SendGrid" sub="guarded send" accent={stop} pill="OFF" />
+
+      <Arrow x1={170} y1={83} x2={270} y2={128} label="preview by default" colour={source} />
+      <Arrow x1={170} y1={173} x2={270} y2={158} label="authoritative" colour={guard} dashed />
+      <Arrow x1={170} y1={263} x2={270} y2={200} label="reconcile" colour={source} dashed />
+      <Arrow x1={460} y1={128} x2={560} y2={97} label="operate" colour={spine} />
+      <Arrow x1={460} y1={176} x2={560} y2={195} label="select" colour={campaign} />
+      <Arrow x1={635} y1={226} x2={635} y2={262} label="after lock" colour={stop} dashed />
+
+      <g>
+        <line x1={230} y1={358} x2={710} y2={358} stroke={stop} strokeWidth={1.5} strokeDasharray="3 3" />
+        <text x={470} y={374} fontFamily="Raleway, sans-serif" fontSize={9} fontWeight={900} fill={stop} textAnchor="middle">
+          No mass send until AC ranks/tags, table-level reconcile, and recipient snapshot are live
         </text>
       </g>
     </svg>
@@ -523,7 +635,7 @@ const SystemProjectsView: React.FC<SystemProjectsViewProps> = ({ isDarkMode, vie
   }, []);
 
   const visibleStashCards = useMemo(
-    () => stashCards.filter((card) => !card.shipped && card.id !== LOCAL_LLM_PROJECT.id && card.id !== MARKETING_TIMELINE_PROJECT.id && card.id !== HUB_TASKS_PROJECT.id),
+    () => stashCards.filter((card) => !card.shipped && card.id !== LOCAL_LLM_PROJECT.id && card.id !== MARKETING_EMAIL_PROJECT.id && card.id !== MARKETING_TIMELINE_PROJECT.id && card.id !== HUB_TASKS_PROJECT.id),
     [stashCards],
   );
 
@@ -578,6 +690,19 @@ const SystemProjectsView: React.FC<SystemProjectsViewProps> = ({ isDarkMode, vie
                 mutedColour={mutedColour}
                 textColour={textColour}
                 onClick={isDevOwner ? () => setSurface('local-llm') : undefined}
+              />
+              <ProjectOptionCard
+                label="Marketing Email"
+                eyebrow="Project"
+                note="Audience spine, campaign lock, recipient proof, and guarded send path. Four-table model before mass send."
+                meta={isDevOwner ? 'full view' : 'card only'}
+                accent={colours.accent}
+                isDarkMode={isDarkMode}
+                borderColour={borderColour}
+                cardBg={cardBg}
+                mutedColour={mutedColour}
+                textColour={textColour}
+                onClick={isDevOwner ? () => setSurface('marketing-email') : undefined}
               />
               <ProjectOptionCard
                 label="Marketing Timeline"
@@ -779,6 +904,71 @@ const SystemProjectsView: React.FC<SystemProjectsViewProps> = ({ isDarkMode, vie
             ) : null}
           </div>
         ) : null}
+      </SystemModuleSection>
+      ) : null}
+
+      {surface === 'marketing-email' && isDevOwner ? (
+      <SystemModuleSection
+        label={MARKETING_EMAIL_PROJECT.title}
+        description={MARKETING_EMAIL_PROJECT.eyebrow}
+        accent={colours.accent}
+        dataRegion="system/projects/marketing-email"
+        isDarkMode={isDarkMode}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <StatusPill tone={MARKETING_EMAIL_PROJECT.status} isDarkMode={isDarkMode} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: mutedColour }}>
+              Anchor: <code style={{ fontSize: 11, fontWeight: 700, color: textColour }}>{MARKETING_EMAIL_PROJECT.briefPath}</code>
+            </span>
+          </div>
+        </div>
+
+        <section
+          data-helix-region="system/projects/marketing-email/diagram"
+          style={{
+            border: `1px solid ${borderColour}`,
+            borderLeft: `3px solid ${colours.accent}`,
+            background: cardBg,
+            padding: 14,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+            <div style={{ minWidth: 240, flex: '1 1 420px' }}>
+              <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', color: colours.accent }}>
+                Architecture
+              </div>
+              <div style={{ marginTop: 3, fontSize: 11, lineHeight: 1.45, color: mutedColour }}>
+                {MARKETING_EMAIL_PROJECT.summary}
+              </div>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', color: colours.cta }}>
+              Mass send off
+            </span>
+          </div>
+          <MarketingEmailDiagram isDarkMode={isDarkMode} />
+        </section>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <RevealPanel id="marketing-email-phases" title="Next pass" note="The architecture work left before send becomes real." isOpen isDarkMode={isDarkMode} accent={colours.accent} borderColour={borderColour} cardBg={cardBg} mutedColour={mutedColour} textColour={textColour} onToggle={() => {}}>
+            <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', color: textColour, fontSize: 12, lineHeight: 1.5 }}>
+              {MARKETING_EMAIL_PROJECT.phases.map((phase) => (
+                <li key={phase.key} style={{ marginBottom: 8 }}>
+                  <div style={{ fontWeight: 900, color: textColour }}>{phase.label}</div>
+                  <div style={{ marginTop: 2, color: mutedColour }}>{phase.detail}</div>
+                </li>
+              ))}
+            </ul>
+          </RevealPanel>
+          <RevealPanel id="marketing-email-decisions" title="Current decisions" note="Keep the send path governed while the spine matures." isOpen isDarkMode={isDarkMode} accent={colours.orange} borderColour={borderColour} cardBg={cardBg} mutedColour={mutedColour} textColour={textColour} onToggle={() => {}}>
+            <ul style={{ margin: 0, paddingLeft: 18, color: textColour, fontSize: 12, lineHeight: 1.55 }}>
+              {MARKETING_EMAIL_PROJECT.decisions.map((item) => (
+                <li key={item} style={{ marginBottom: 5 }}>{item}</li>
+              ))}
+            </ul>
+          </RevealPanel>
+        </div>
       </SystemModuleSection>
       ) : null}
 

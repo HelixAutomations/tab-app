@@ -28,6 +28,12 @@ const LOCKED_ACTIONS_COLUMN_WIDTH_PX = 56;
 const UNLOCKED_ACTIONS_COLUMN_WIDTH_PX = 188;
 const LOCKED_ACTIONS_COLUMN_WIDTH = `clamp(32px, 4vw, ${LOCKED_ACTIONS_COLUMN_WIDTH_PX}px)`;
 const UNLOCKED_ACTIONS_COLUMN_WIDTH = `clamp(80px, 14vw, ${UNLOCKED_ACTIONS_COLUMN_WIDTH_PX}px)`;
+const SHOW_LOCAL_EMAIL_CONTROL_PREVIEW = typeof window !== 'undefined' && (
+  window.location.hostname === 'localhost'
+  || window.location.hostname === '127.0.0.1'
+  || window.location.hostname === '[::1]'
+  || window.location.hostname === '::1'
+);
 
 /** Grid template used by every row; must match the live Enquiries table. */
 const getTableGridTemplateColumns = (areActionsEnabled: boolean) => (
@@ -374,17 +380,19 @@ const ProspectTableRow: React.FC<ProspectTableRowProps> = ({
                 {item.Email}
               </span>
             )}
-            <span
-              className={`enquiry-row__email-control-strip enquiry-row__email-control-strip--${emailControlState}`}
-              data-helix-region="enquiries/row/email-controls"
-              aria-label="Email controls preview"
-              title="Email controls preview"
-            >
-              <span className="enquiry-row__email-control-label">Email controls</span>
-              <span className="enquiry-row__email-control-chip">{emailControlLabel}</span>
-              <span className="enquiry-row__email-control-chip">List: {emailControlListLabel}</span>
-              <span className="enquiry-row__email-control-chip enquiry-row__email-control-chip--muted">Tags pending</span>
-            </span>
+            {SHOW_LOCAL_EMAIL_CONTROL_PREVIEW && (
+              <span
+                className={`enquiry-row__email-control-strip enquiry-row__email-control-strip--${emailControlState}`}
+                data-helix-region="enquiries/row/email-controls"
+                aria-label="Email controls preview"
+                title="Email controls preview"
+              >
+                <span className="enquiry-row__email-control-label">Email controls</span>
+                <span className="enquiry-row__email-control-chip">{emailControlLabel}</span>
+                <span className="enquiry-row__email-control-chip">List: {emailControlListLabel}</span>
+                <span className="enquiry-row__email-control-chip enquiry-row__email-control-chip--muted">Tags pending</span>
+              </span>
+            )}
           </div>
         </div>
 

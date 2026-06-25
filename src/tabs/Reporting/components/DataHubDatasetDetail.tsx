@@ -150,109 +150,87 @@ type EmailListDemoSendResult = {
   sendGridMessageId?: string | null;
 };
 
-const EMAIL_OUTREACH_MODEL_TABLES = [
-  {
-    name: 'EmailOutreachPeople',
-    role: 'One current-state row per ProspectId bridge. No duplicate contact rows.',
-    key: 'prospectId',
-    fields: [
-      ['prospectId', 'nvarchar(100) not null', 'Authoritative bridge: Deals.ProspectId = enquiries.acid = legacy enquiries.ID'],
-      ['normalisedEmail', 'nvarchar(320) not null', 'Lowercase lookup email, not the identity key'],
-      ['currentEmail', 'nvarchar(320) not null', 'Current send address shown in the ledger'],
-      ['sourceSpace', "varchar(20) not null", 'legacy, new-space, or merged'],
-      ['sourceEnquiryId', 'nvarchar(100) null', 'Display provenance only, never the durable person key'],
-      ['areaOfWork', 'nvarchar(120) null', 'Feeds the Area of work and audience state'],
-      ['primaryAudience', 'nvarchar(80) null', 'Commercial, Property, Construction, Employment, or Other'],
-      ['audiencesJson', 'nvarchar(max) null', 'Current list memberships for the ledger'],
-      ['tagsJson', 'nvarchar(max) null', 'Internal tags, independent of SendGrid'],
-      ['status', 'varchar(30) not null', 'eligible, paused, unsubscribed, bounced, complained, suppressed'],
-      ['statusReason', 'nvarchar(240) null', 'Manual reason or webhook reason'],
-      ['unsubscribedAt', 'datetime2 null', 'SendGrid group/global unsubscribe mirror'],
-      ['suppressedAt', 'datetime2 null', 'Bounce, complaint, or manual suppression'],
-      ['lastSeenAt', 'datetime2 not null', 'Latest source enquiry sighting'],
-      ['lastSendAt', 'datetime2 null', 'Fast ledger display without scanning history'],
-      ['lastCampaignId', 'nvarchar(80) null', 'Last campaign shown in the ledger'],
-      ['createdAt', 'datetime2 not null', 'Insert timestamp'],
-      ['updatedAt', 'datetime2 not null', 'State update timestamp'],
-    ],
-    indexes: [
-      'PK_EmailOutreachPeople (prospectId)',
-      'IX_EmailOutreachPeople_Eligibility (status, primaryAudience, lastSeenAt DESC) INCLUDE (currentEmail, areaOfWork, tagsJson)',
-      'IX_EmailOutreachPeople_Email (normalisedEmail) INCLUDE (prospectId, status)',
-      'IX_EmailOutreachPeople_LastSend (lastCampaignId, lastSendAt DESC) WHERE lastCampaignId IS NOT NULL',
-    ],
-  },
-  {
-    name: 'EmailOutreachCampaigns',
-    role: 'One campaign definition row. Recipient people are not stored as a JSON list here.',
-    key: 'campaignId',
-    fields: [
-      ['campaignId', 'nvarchar(80) not null', 'Stable internal campaign id'],
-      ['campaignKey', 'nvarchar(120) not null', 'Human-safe unique key'],
-      ['name', 'nvarchar(180) not null', 'Campaign display name'],
-      ['primaryAudience', 'nvarchar(80) not null', 'Default audience bucket'],
-      ['subject', 'nvarchar(240) not null', 'Subject used at send time'],
-      ['preheader', 'nvarchar(240) null', 'Preview line used at send time'],
-      ['sendGridAsmGroupId', 'int null', 'SendGrid unsubscribe group for this audience'],
-      ['status', 'varchar(30) not null', 'draft, scheduled, sending, sent, cancelled'],
-      ['createdBy', 'nvarchar(160) not null', 'Operator'],
-      ['createdAt', 'datetime2 not null', 'Creation timestamp'],
-      ['scheduledAt', 'datetime2 null', 'Planned send time'],
-      ['sentAt', 'datetime2 null', 'Completed send time'],
-      ['metadataJson', 'nvarchar(max) null', 'Template, signature, and filter snapshot'],
-    ],
-    indexes: [
-      'PK_EmailOutreachCampaigns (campaignId)',
-      'UX_EmailOutreachCampaigns_Key (campaignKey)',
-      'IX_EmailOutreachCampaigns_StatusSchedule (status, scheduledAt)',
-      'IX_EmailOutreachCampaigns_Audience (primaryAudience, status) INCLUDE (name, sentAt)',
-    ],
-  },
-  {
-    name: 'EmailOutreachSends',
-    role: 'One row per campaign and ProspectId. This is the durable send history.',
-    key: 'campaignId + prospectId',
-    fields: [
-      ['sendId', 'bigint identity not null', 'Narrow clustered row id'],
-      ['campaignId', 'nvarchar(80) not null', 'Links to EmailOutreachCampaigns'],
-      ['prospectId', 'nvarchar(100) not null', 'Links to EmailOutreachPeople'],
-      ['recipientEmailSnapshot', 'nvarchar(320) not null', 'Email used for this send'],
-      ['sendGridMessageId', 'nvarchar(160) null', 'Provider message id'],
-      ['sendStatus', 'varchar(30) not null', 'queued, sent, delivered, opened, clicked, bounced, unsubscribed, failed'],
-      ['queuedAt', 'datetime2 not null', 'Queue timestamp'],
-      ['sentAt', 'datetime2 null', 'Accepted by SendGrid'],
-      ['lastEventAt', 'datetime2 null', 'Latest webhook event timestamp'],
-      ['deliveredAt', 'datetime2 null', 'Latest delivered timestamp'],
-      ['openedAt', 'datetime2 null', 'Latest open timestamp'],
-      ['clickedAt', 'datetime2 null', 'Latest click timestamp'],
-      ['bouncedAt', 'datetime2 null', 'Bounce timestamp'],
-      ['unsubscribedAt', 'datetime2 null', 'Unsubscribe timestamp'],
-      ['failureReason', 'nvarchar(360) null', 'Provider or validation failure'],
-      ['createdAt', 'datetime2 not null', 'Insert timestamp'],
-      ['updatedAt', 'datetime2 not null', 'Latest update timestamp'],
-    ],
-    indexes: [
-      'PK_EmailOutreachSends (sendId)',
-      'UX_EmailOutreachSends_CampaignPerson (campaignId, prospectId)',
-      'IX_EmailOutreachSends_PersonHistory (prospectId, sentAt DESC) INCLUDE (campaignId, sendStatus, lastEventAt)',
-      'IX_EmailOutreachSends_CampaignRecipients (campaignId, sendStatus) INCLUDE (prospectId, recipientEmailSnapshot)',
-      'IX_EmailOutreachSends_SendGridMessage (sendGridMessageId) WHERE sendGridMessageId IS NOT NULL',
-    ],
-  },
+type TaskingHubMovementRow = {
+  requestId: string;
+  source: string;
+  sourceExternalId: string;
+  workflowType: string;
+  assignorInitials: string;
+  assigneeFirstName: string;
+  assigneeTeam: string;
+  assigneeLevel: string;
+  priority: string;
+  dueDate: string;
+  timeEstimateMinutes: number;
+  approvalRequired: boolean;
+  requestStatus: string;
+  createdBy: string;
+  requestCreatedAt: string;
+  requestUpdatedAt: string;
+  transitionId: number | null;
+  leg: string;
+  outcome: string;
+  message: string;
+  durationMs: number;
+  movementAt: string;
+  movementBy: string;
+  asanaRefs: number;
+  clioRefs: number;
+  teamsRefs: number;
+};
+
+type TaskingHubRequestGroup = TaskingHubMovementRow & {
+  movements: TaskingHubMovementRow[];
+};
+
+const TASKING_HUB_LEGS = ['team_lookup', 'asana', 'clio', 'teams', 'email', 'finalise'];
+
+type TaskingLegacyTaskRow = {
+  taskId: string;
+  asanaTaskId: string;
+  clioTaskId: string;
+  taskName: string;
+  workflowType: string;
+  assignorName: string;
+  assigneeFirstName: string;
+  assigneeTeam: string;
+  assigneeLevel: string;
+  approverFirstName: string;
+  priority: string;
+  status: string;
+  dueDate: string;
+  timeEstimateMinutes: number;
+  approvalRequired: boolean;
+  dateCreated: string;
+  documentRefs: number;
+  hasAsanaTask: boolean;
+  hasClioTask: boolean;
+};
+
+const EMAIL_SENDGRID_INVOCATION_STEPS = [
+  { step: '1', label: 'Pick segment', detail: 'Operations choose a live segment such as Commercial, Construction, Property, Employment, or Other.' },
+  { step: '2', label: 'Proof recipients', detail: 'Data Hub shows the count and rows to review before anyone asks SendGrid to send.' },
+  { step: '3', label: 'Invoke SendGrid', detail: 'Marketing supplies subject/body and Data Hub invokes SendGrid for the reviewed segment.' },
+  { step: '4', label: 'Keep tags alongside', detail: 'Tag clean-up scripts can run in parallel and update the same proofing view before send.' },
 ] as const;
 
-const EMAIL_OUTREACH_LEDGER_FIELD_SOURCES = [
-  { field: 'Contact', source: 'People.currentEmail + prospectId', note: 'One row per bridge id, not per enquiry row' },
-  { field: 'Area of work', source: 'People.areaOfWork', note: 'Refreshed from source sightings' },
-  { field: 'List subscription', source: 'People.audiencesJson + primaryAudience', note: 'Current audience state' },
-  { field: 'Tags', source: 'People.tagsJson', note: 'Internal tags, no dynamic enrichment required' },
-  { field: 'Status', source: 'People.status + Sends.sendStatus', note: 'Suppression and latest send proof' },
-  { field: 'Bridge', source: 'People.prospectId', note: 'Former AC id kept as Helix bridge id' },
+const EMAIL_SENDGRID_SPACE_BOUNDARIES = [
+  { space: 'Data Hub Email dataset', owns: 'Segment counts, recipient proofing, tags readiness, and guarded SendGrid invocation.' },
+  { space: 'Marketing Email page', owns: 'Campaign copy, list-management decisions, send review, and operator workflow.' },
+  { space: 'SendGrid', owns: 'The provider UI, delivery API, templates if used, suppressions, and delivery reporting.' },
 ] as const;
 
-const EMAIL_OUTREACH_MODEL_HISTORY = [
-  { campaign: 'property-update-june', subject: 'Property market update', sentAt: '12 Jun', status: 'delivered' },
-  { campaign: 'employment-follow-up', subject: 'Employment guide follow-up', sentAt: '29 May', status: 'opened' },
+const EMAIL_TAG_WORK_TRACK = [
+  { label: 'Audit tags', detail: 'Script current tag values and detect one-digit or ambiguous tags.' },
+  { label: 'Normalise tags', detail: 'Write a guarded dry-run/apply script that maps old tags to useful marketing tags.' },
+  { label: 'Refresh proofing', detail: 'Re-open the segment view and confirm the tags now make sense before sending.' },
+] as const;
+
+const EMAIL_SENDGRID_PROOF_FIELDS = [
+  { field: 'Email', source: 'Loaded segment row', note: 'Reviewed in the visible recipient table before send.' },
+  { field: 'Area of work', source: 'enquiries area field', note: 'Drives the Commercial, Construction, Property, Employment, and Other segment filters.' },
+  { field: 'Tags', source: 'tag scripts plus enquiry rows', note: 'Clean-up can happen in parallel and then refresh the same table.' },
+  { field: 'Bridge', source: 'AC id when present', note: 'Used as provider metadata, not shown as a new CRM identity spine.' },
 ] as const;
 
 const EMAIL_LIST_AREA_FILTERS: Array<{ key: EmailListAreaFilterKey; label: string; glyph: string }> = [
@@ -657,6 +635,91 @@ const formatUpdatedAt = (updatedAt: number | null | undefined) => {
   });
 };
 
+const getTaskingText = (record: Record<string, unknown>, key: string): string => String(record[key] ?? '').trim();
+
+const normaliseTaskingRow = (value: unknown): TaskingHubMovementRow | null => {
+  const record = asRecord(value);
+  if (!record) return null;
+  const requestId = getTaskingText(record, 'requestId');
+  if (!requestId) return null;
+  return {
+    requestId,
+    source: getTaskingText(record, 'source') || 'hub',
+    sourceExternalId: getTaskingText(record, 'sourceExternalId'),
+    workflowType: getTaskingText(record, 'workflowType') || 'task',
+    assignorInitials: getTaskingText(record, 'assignorInitials'),
+    assigneeFirstName: getTaskingText(record, 'assigneeFirstName'),
+    assigneeTeam: getTaskingText(record, 'assigneeTeam'),
+    assigneeLevel: getTaskingText(record, 'assigneeLevel'),
+    priority: getTaskingText(record, 'priority'),
+    dueDate: getTaskingText(record, 'dueDate'),
+    timeEstimateMinutes: toNumber(record.timeEstimateMinutes),
+    approvalRequired: Boolean(record.approvalRequired),
+    requestStatus: getTaskingText(record, 'requestStatus') || 'unknown',
+    createdBy: getTaskingText(record, 'createdBy'),
+    requestCreatedAt: getTaskingText(record, 'requestCreatedAt'),
+    requestUpdatedAt: getTaskingText(record, 'requestUpdatedAt'),
+    transitionId: record.transitionId == null ? null : toNumber(record.transitionId),
+    leg: getTaskingText(record, 'leg'),
+    outcome: getTaskingText(record, 'outcome'),
+    message: getTaskingText(record, 'message'),
+    durationMs: toNumber(record.durationMs),
+    movementAt: getTaskingText(record, 'movementAt'),
+    movementBy: getTaskingText(record, 'movementBy'),
+    asanaRefs: toNumber(record.asanaRefs),
+    clioRefs: toNumber(record.clioRefs),
+    teamsRefs: toNumber(record.teamsRefs),
+  };
+};
+
+const normaliseTaskingLegacyRow = (value: unknown): TaskingLegacyTaskRow | null => {
+  const record = asRecord(value);
+  if (!record) return null;
+  const taskId = getTaskingText(record, 'taskId');
+  if (!taskId) return null;
+  return {
+    taskId,
+    asanaTaskId: getTaskingText(record, 'asanaTaskId'),
+    clioTaskId: getTaskingText(record, 'clioTaskId'),
+    taskName: getTaskingText(record, 'taskName') || 'Untitled task',
+    workflowType: getTaskingText(record, 'workflowType') || 'Task',
+    assignorName: getTaskingText(record, 'assignorName'),
+    assigneeFirstName: getTaskingText(record, 'assigneeFirstName'),
+    assigneeTeam: getTaskingText(record, 'assigneeTeam'),
+    assigneeLevel: getTaskingText(record, 'assigneeLevel'),
+    approverFirstName: getTaskingText(record, 'approverFirstName'),
+    priority: getTaskingText(record, 'priority'),
+    status: getTaskingText(record, 'status') || 'unknown',
+    dueDate: getTaskingText(record, 'dueDate'),
+    timeEstimateMinutes: toNumber(record.timeEstimateMinutes),
+    approvalRequired: Boolean(record.approvalRequired),
+    dateCreated: getTaskingText(record, 'dateCreated'),
+    documentRefs: toNumber(record.documentRefs),
+    hasAsanaTask: Boolean(record.hasAsanaTask),
+    hasClioTask: Boolean(record.hasClioTask),
+  };
+};
+
+const formatTaskingTimestamp = (value: string): string => {
+  const parsed = Date.parse(value);
+  if (!value || Number.isNaN(parsed)) return 'No timestamp';
+  return new Date(parsed).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+};
+
+const formatTaskingDuration = (durationMs: number): string => {
+  if (!durationMs) return 'instant';
+  if (durationMs < 1000) return `${durationMs}ms`;
+  return `${Math.round(durationMs / 1000)}s`;
+};
+
+const taskingOutcomeColour = (outcome: string, isDarkMode: boolean): string => {
+  const key = outcome.toLowerCase();
+  if (key.includes('fail') || key.includes('error')) return colours.cta;
+  if (key.includes('skip')) return colours.orange;
+  if (key.includes('complete') || key.includes('success')) return isDarkMode ? colours.accent : colours.highlight;
+  return isDarkMode ? '#d1d5db' : colours.subtleGrey;
+};
+
 const formatDateInputValue = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -893,6 +956,7 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
   const [emailListDemoBody, setEmailListDemoBody] = React.useState('');
   const [emailListDemoSending, setEmailListDemoSending] = React.useState(false);
   const [emailListDemoResult, setEmailListDemoResult] = React.useState<EmailListDemoSendResult | null>(null);
+  const [emailListBulkSendConfirmed, setEmailListBulkSendConfirmed] = React.useState(false);
   const emailListDemoTimerRef = React.useRef<number | null>(null);
   const [activeEmailListAreaFilters, setActiveEmailListAreaFilters] = React.useState<EmailListConcreteAreaFilterKey[]>([]);
   const [draftEmailListDateRange, setDraftEmailListDateRange] = React.useState<EmailListDateRange>(() => getEmailListDefaultWindow());
@@ -926,6 +990,51 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
   const dataHubHomeSelectedSurface = withAlpha(dataHubBrandAccent, isDarkMode ? 0.16 : 0.09);
   const isMattersDataset = definition.key === 'allMatters';
   const isEmailListsDataset = definition.key === 'emailLists';
+  const isTaskingHubDataset = definition.key === 'taskingHub';
+  const isTaskingLegacyDataset = definition.key === 'taskingLegacy';
+  const taskingDatasetData = liveDataset?.data;
+  const taskingRows = React.useMemo(() => {
+    const rawRows = Array.isArray(taskingDatasetData) ? taskingDatasetData : [];
+    return rawRows.map(normaliseTaskingRow).filter((row): row is TaskingHubMovementRow => Boolean(row));
+  }, [taskingDatasetData]);
+  const taskingRequests = React.useMemo(() => {
+    const groups = new Map<string, TaskingHubRequestGroup>();
+    taskingRows.forEach((row) => {
+      const current = groups.get(row.requestId);
+      if (!current) {
+        groups.set(row.requestId, { ...row, movements: row.transitionId == null ? [] : [row] });
+        return;
+      }
+      if (row.transitionId != null) current.movements.push(row);
+      if (Date.parse(row.requestUpdatedAt) > Date.parse(current.requestUpdatedAt)) {
+        Object.assign(current, row, { movements: current.movements });
+      }
+    });
+    return Array.from(groups.values())
+      .map((request) => ({ ...request, movements: [...request.movements].sort((left, right) => Date.parse(left.movementAt) - Date.parse(right.movementAt)) }))
+      .sort((left, right) => Date.parse(right.requestCreatedAt) - Date.parse(left.requestCreatedAt));
+  }, [taskingRows]);
+  const taskingSummary = React.useMemo(() => {
+    const requests = taskingRequests.length;
+    const failed = taskingRequests.filter((request) => request.requestStatus.toLowerCase().includes('fail') || request.movements.some((movement) => movement.outcome.toLowerCase().includes('fail'))).length;
+    const active = taskingRequests.filter((request) => ['queued', 'processing', 'partial'].some((statusKey) => request.requestStatus.toLowerCase().includes(statusKey))).length;
+    const completed = taskingRequests.filter((request) => request.requestStatus.toLowerCase().includes('complete')).length;
+    const refs = taskingRequests.reduce((total, request) => total + request.asanaRefs + request.clioRefs + request.teamsRefs, 0);
+    return { requests, movements: taskingRows.filter((row) => row.transitionId != null).length, active, completed, failed, refs };
+  }, [taskingRequests, taskingRows]);
+  const taskingLegacyRows = React.useMemo(() => {
+    const rawRows = Array.isArray(taskingDatasetData) ? taskingDatasetData : [];
+    return rawRows.map(normaliseTaskingLegacyRow).filter((row): row is TaskingLegacyTaskRow => Boolean(row));
+  }, [taskingDatasetData]);
+  const taskingLegacySummary = React.useMemo(() => {
+    const total = taskingLegacyRows.length;
+    const completed = taskingLegacyRows.filter((row) => row.status.toLowerCase().includes('complete')).length;
+    const approval = taskingLegacyRows.filter((row) => row.approvalRequired).length;
+    const withAsana = taskingLegacyRows.filter((row) => row.hasAsanaTask).length;
+    const withClio = taskingLegacyRows.filter((row) => row.hasClioTask).length;
+    const documents = taskingLegacyRows.reduce((sum, row) => sum + row.documentRefs, 0);
+    return { total, completed, approval, withAsana, withClio, documents };
+  }, [taskingLegacyRows]);
   const todayDateValue = React.useMemo(() => formatDateInputValue(new Date()), []);
   const emailListWindowMinDate = React.useMemo(() => formatDateInputValue(addDays(parseDateValueAtNoon(todayDateValue), -(EMAIL_LIST_RANGE_SPAN_DAYS - 1))), [todayDateValue]);
   const emailListDraftStartOffset = getEmailListWindowOffset(emailListWindowMinDate, draftEmailListDateRange.startDate);
@@ -1103,26 +1212,6 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
     });
   }, [emailListRowsForActiveAreas, emailListSortColumn, emailListSortDirection]);
   const emailListDemoTarget = emailListDemoRow;
-  const emailOutreachProofRow = emailListRows[0] ?? emailListDemoTarget ?? null;
-  const emailOutreachProofProspectId = String(emailOutreachProofRow?.activeCampaignId || '').trim() || 'ProspectId pending';
-  const emailOutreachProofEmail = emailOutreachProofRow?.email || 'current row email';
-  const emailOutreachProofArea = emailOutreachProofRow?.areaOfWork || 'Audience pending';
-  const emailOutreachProofSource = emailOutreachProofRow?.enquiryId ? `source enquiry ${emailOutreachProofRow.enquiryId}` : 'source pending';
-  const emailOutreachProofHistory = React.useMemo(() => {
-    const campaignKey = (emailListCampaignName.trim() || 'campaign-draft')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'campaign-draft';
-    return [
-      {
-        campaign: campaignKey,
-        subject: emailListDemoSubject.trim() || 'Current campaign draft',
-        sentAt: 'Draft',
-        status: 'draft',
-      },
-      ...EMAIL_OUTREACH_MODEL_HISTORY,
-    ];
-  }, [emailListCampaignName, emailListDemoSubject]);
   const emailListsAreaSummary = React.useMemo(() => {
     const streamAreaBreakdown = emailListStream?.areaBreakdown;
     const counts = new Map<EmailListConcreteAreaFilterKey, number>([
@@ -1208,9 +1297,29 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
 
   const sendEmailListDemoTest = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!demoModeEnabled) return;
-    if (!emailListDemoTarget?.email) {
+    if (!demoModeEnabled) {
+      setEmailListDemoResult({ status: 'error', message: 'Mass send now runs through the Marketing Email audience spine', checkedAt: Date.now() });
+      return;
+    }
+    const bulkRecipients = emailListRows
+      .filter((row) => String(row.email || '').trim())
+      .map((row) => ({
+        enquiryId: row.enquiryId,
+        email: row.email,
+        areaOfWork: row.areaOfWork,
+        activeCampaignId: row.activeCampaignId || '',
+      }));
+
+    if (demoModeEnabled && !emailListDemoTarget?.email) {
       setEmailListDemoResult({ status: 'error', message: 'Current user email unavailable', checkedAt: Date.now() });
+      return;
+    }
+    if (!demoModeEnabled && bulkRecipients.length === 0) {
+      setEmailListDemoResult({ status: 'error', message: 'No reviewed recipients loaded for this segment', checkedAt: Date.now() });
+      return;
+    }
+    if (!demoModeEnabled && !emailListBulkSendConfirmed) {
+      setEmailListDemoResult({ status: 'error', message: `Confirm ${bulkRecipients.length.toLocaleString('en-GB')} reviewed recipients before sending`, checkedAt: Date.now() });
       return;
     }
     if (!emailListDemoSubject.trim() || !emailListDemoBody.trim()) {
@@ -1222,14 +1331,17 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
     setEmailListDemoResult(null);
     try {
       const operatorActor = String(operatorInitials || operatorName || 'operator').trim();
-      const response = await fetch(getApiUrl('/api/enquiries-unified/email-lists/test-send'), {
+      const segmentLabel = activeEmailListAreaFilters.length > 0 ? activeEmailListAreaFilters.join(', ') : 'all loaded recipients';
+      const response = await fetch(getApiUrl(demoModeEnabled
+        ? '/api/enquiries-unified/email-lists/test-send'
+        : '/api/enquiries-unified/email-lists/sendgrid-bulk-send'), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify(demoModeEnabled ? {
           demoMode: true,
-          enquiryId: emailListDemoTarget.enquiryId,
-          recipientEmail: emailListDemoTarget.email,
+          enquiryId: emailListDemoTarget?.enquiryId,
+          recipientEmail: emailListDemoTarget?.email,
           sender: emailListDemoSender,
           campaignName: emailListCampaignName.trim(),
           subject: emailListDemoSubject.trim(),
@@ -1238,17 +1350,34 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
           signatureInitials: operatorInitials || '',
           signatureMode: 'data-hub-v2',
           operatorName: operatorName || operatorInitials || '',
-          operatorEmail: operatorEmail || emailListDemoTarget.email,
+          operatorEmail: operatorEmail || emailListDemoTarget?.email,
+          operatorConsent: 'email-lists-limited-stream',
+          operatorActor,
+        } : {
+          recipients: bulkRecipients,
+          expectedRecipientCount: bulkRecipients.length,
+          confirmMassSend: emailListBulkSendConfirmed,
+          segmentLabel,
+          sender: emailListDemoSender,
+          campaignName: emailListCampaignName.trim(),
+          subject: emailListDemoSubject.trim(),
+          preheader: emailListDemoPreview.trim(),
+          body: emailListDemoBody.trim(),
+          signatureInitials: operatorInitials || '',
+          signatureMode: 'data-hub-v2',
+          operatorName: operatorName || operatorInitials || '',
+          operatorEmail: operatorEmail || '',
           operatorConsent: 'email-lists-limited-stream',
           operatorActor,
         }),
       });
-      const payload = await response.json() as { error?: string; requestId?: string; sendGridMessageId?: string };
+      const payload = await response.json() as { error?: string; requestId?: string; sendGridMessageId?: string; recipientCount?: number };
       if (!response.ok) throw new Error(payload.error || `SendGrid test failed (${response.status})`);
       setEmailListDemoSending(false);
+      setEmailListBulkSendConfirmed(false);
       setEmailListDemoResult({
         status: 'ready',
-        message: 'Test email sent with v2 signature',
+        message: demoModeEnabled ? 'Test email sent with v2 signature' : `Bulk send accepted for ${(payload.recipientCount ?? bulkRecipients.length).toLocaleString('en-GB')} recipients`,
         checkedAt: Date.now(),
         requestId: payload.requestId || null,
         sendGridMessageId: payload.sendGridMessageId || null,
@@ -1257,7 +1386,11 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
       setEmailListDemoSending(false);
       setEmailListDemoResult({ status: 'error', message: error instanceof Error ? error.message : 'SendGrid test failed', checkedAt: Date.now() });
     }
-  }, [demoModeEnabled, emailListCampaignName, emailListDemoBody, emailListDemoPreview, emailListDemoSender, emailListDemoSubject, emailListDemoTarget, operatorEmail, operatorInitials, operatorName]);
+  }, [activeEmailListAreaFilters, demoModeEnabled, emailListBulkSendConfirmed, emailListCampaignName, emailListDemoBody, emailListDemoPreview, emailListDemoSender, emailListDemoSubject, emailListDemoTarget, emailListRows, operatorEmail, operatorInitials, operatorName]);
+
+  React.useEffect(() => {
+    setEmailListBulkSendConfirmed(false);
+  }, [activeEmailListAreaFilters, committedEmailListDateRange.endDate, committedEmailListDateRange.startDate, emailListDemoBody, emailListDemoSubject, emailListRows.length]);
 
   const setMattersRange = React.useCallback((startDate: string, endDate: string, preset: MattersRangePresetKey) => {
     setMattersStartDate(startDate);
@@ -1582,7 +1715,7 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
       data-helix-region={`reports/data-hub/dataset/${definition.key}`}
       style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
     >
-      {!isMattersDataset && !isEmailListsDataset && (
+      {!isMattersDataset && !isEmailListsDataset && !isTaskingHubDataset && !isTaskingLegacyDataset && (
         <div style={{
           display: 'flex',
           flexDirection: 'column',
@@ -1624,6 +1757,241 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             <FieldCard isDarkMode={isDarkMode} label="Source" value={provider.sourceLabel} />
             <FieldCard isDarkMode={isDarkMode} label="Refresh" value={provider.refreshMode.replace(/-/g, ' ')} />
             <FieldCard isDarkMode={isDarkMode} label="Last checked" value={formatUpdatedAt(displayUpdatedAt)} />
+          </div>
+        </div>
+      )}
+
+      {isTaskingHubDataset && (
+        <div
+          data-helix-region="reports/data-hub/tasking-hub"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            padding: '16px 16px 15px',
+            borderStyle: 'solid',
+            borderWidth: '1px 1px 1px 3px',
+            borderColor: `${edge} ${edge} ${edge} ${tone}`,
+            background: surface,
+            boxShadow: reportingPanelShadow(isDarkMode),
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxWidth: 760 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: tone, textTransform: 'uppercase', letterSpacing: 0 }}>
+                Hub-generated tasking
+              </span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: text }}>
+                Tasking processing dataset
+              </span>
+              <span style={{ fontSize: 12, lineHeight: 1.55, color: body }}>
+                Intake requests, processing movements, and external reference counts from Team Hub only. Legacy function-app movement is excluded from this view.
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: tone, textTransform: 'uppercase', letterSpacing: 0 }}>
+                {statusLabel(displayStatus)}
+              </span>
+              <span style={{ fontSize: 28, fontWeight: 700, color: text }}>
+                {taskingSummary.requests.toLocaleString('en-GB')}
+              </span>
+              <span style={{ fontSize: 10, color: muted }}>
+                requests
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+            <FieldCard isDarkMode={isDarkMode} label="Movements" value={taskingSummary.movements.toLocaleString('en-GB')} />
+            <FieldCard isDarkMode={isDarkMode} label="Active" value={taskingSummary.active.toLocaleString('en-GB')} />
+            <FieldCard isDarkMode={isDarkMode} label="Completed" value={taskingSummary.completed.toLocaleString('en-GB')} />
+            <FieldCard isDarkMode={isDarkMode} label="Failed" value={taskingSummary.failed.toLocaleString('en-GB')} />
+            <FieldCard isDarkMode={isDarkMode} label="External refs" value={taskingSummary.refs.toLocaleString('en-GB')} />
+            <FieldCard isDarkMode={isDarkMode} label="Last checked" value={formatUpdatedAt(displayUpdatedAt)} />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {taskingRequests.slice(0, 24).map((request) => {
+              const movementByLeg = new Map(request.movements.map((movement) => [movement.leg, movement]));
+              const refsLabel = [
+                request.asanaRefs > 0 ? `${request.asanaRefs} Asana` : null,
+                request.clioRefs > 0 ? `${request.clioRefs} Clio` : null,
+                request.teamsRefs > 0 ? `${request.teamsRefs} Teams` : null,
+              ].filter(Boolean).join(' | ') || 'No external refs';
+              return (
+                <div
+                  key={request.requestId}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(210px, 0.9fr) minmax(260px, 1.5fr)',
+                    gap: 12,
+                    padding: '11px 12px',
+                    border: `1px solid ${edge}`,
+                    background: elevatedSurface,
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: text }}>
+                      {request.workflowType.replace(/-/g, ' ')}
+                    </span>
+                    <span style={{ fontSize: 10, color: muted }}>
+                      {request.requestId}
+                    </span>
+                    <span style={{ fontSize: 11, color: body }}>
+                      {request.assignorInitials || 'Hub'} to {request.assigneeFirstName || request.assigneeTeam || 'unassigned'}
+                    </span>
+                    <span style={{ fontSize: 10, color: muted }}>
+                      {request.requestStatus} | {formatTaskingTimestamp(request.requestCreatedAt)} | {refsLabel}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {TASKING_HUB_LEGS.map((leg) => {
+                        const movement = movementByLeg.get(leg);
+                        const outcome = movement?.outcome || 'pending';
+                        const colour = taskingOutcomeColour(outcome, isDarkMode);
+                        return (
+                          <span
+                            key={`${request.requestId}-${leg}`}
+                            title={movement?.message || outcome}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              padding: '4px 7px',
+                              border: `1px solid ${withAlpha(colour, isDarkMode ? 0.42 : 0.28)}`,
+                              background: withAlpha(colour, isDarkMode ? 0.13 : 0.08),
+                              color: colour,
+                              fontSize: 10,
+                              fontWeight: 700,
+                            }}
+                          >
+                            {leg.replace(/_/g, ' ')}: {outcome}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {request.movements[request.movements.length - 1] && (
+                      <span style={{ fontSize: 10, color: muted }}>
+                        Latest movement: {request.movements[request.movements.length - 1].leg.replace(/_/g, ' ')} at {formatTaskingTimestamp(request.movements[request.movements.length - 1].movementAt)} ({formatTaskingDuration(request.movements[request.movements.length - 1].durationMs)})
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {taskingRequests.length === 0 && (
+              <div style={{ padding: '13px 14px', border: `1px solid ${edge}`, background: elevatedSurface, color: muted, fontSize: 12 }}>
+                No Hub-generated tasking movements have been streamed yet.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isTaskingLegacyDataset && (
+        <div
+          data-helix-region="reports/data-hub/tasking-legacy"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            padding: '16px 16px 15px',
+            borderStyle: 'solid',
+            borderWidth: '1px 1px 1px 3px',
+            borderColor: `${edge} ${edge} ${edge} ${tone}`,
+            background: surface,
+            boxShadow: reportingPanelShadow(isDarkMode),
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxWidth: 760 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: tone, textTransform: 'uppercase', letterSpacing: 0 }}>
+                Tasking function app
+              </span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: text }}>
+                Tasks DB
+              </span>
+              <span style={{ fontSize: 12, lineHeight: 1.55, color: body }}>
+                Recent task records written by the tasking-v3 function app into helix-project-data.dbo.tasks.
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: tone, textTransform: 'uppercase', letterSpacing: 0 }}>
+                {statusLabel(displayStatus)}
+              </span>
+              <span style={{ fontSize: 28, fontWeight: 700, color: text }}>
+                {taskingLegacySummary.total.toLocaleString('en-GB')}
+              </span>
+              <span style={{ fontSize: 10, color: muted }}>
+                rows
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+            <FieldCard isDarkMode={isDarkMode} label="Completed" value={taskingLegacySummary.completed.toLocaleString('en-GB')} />
+            <FieldCard isDarkMode={isDarkMode} label="Approval" value={taskingLegacySummary.approval.toLocaleString('en-GB')} />
+            <FieldCard isDarkMode={isDarkMode} label="Asana refs" value={taskingLegacySummary.withAsana.toLocaleString('en-GB')} />
+            <FieldCard isDarkMode={isDarkMode} label="Clio refs" value={taskingLegacySummary.withClio.toLocaleString('en-GB')} />
+            <FieldCard isDarkMode={isDarkMode} label="Documents" value={taskingLegacySummary.documents.toLocaleString('en-GB')} />
+            <FieldCard isDarkMode={isDarkMode} label="Last checked" value={formatUpdatedAt(displayUpdatedAt)} />
+          </div>
+
+          <div style={{ overflowX: 'auto', border: `1px solid ${edge}`, background: elevatedSurface }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
+              <thead>
+                <tr>
+                  {['Task', 'Workflow', 'Status', 'Assignee', 'Due', 'Refs'].map((heading) => (
+                    <th key={heading} style={{ padding: '9px 10px', textAlign: 'left', borderBottom: `1px solid ${edge}`, color: muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0 }}>
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {taskingLegacyRows.slice(0, 80).map((row) => {
+                  const refs = [
+                    row.hasAsanaTask ? 'Asana' : null,
+                    row.hasClioTask ? 'Clio' : null,
+                    row.documentRefs > 0 ? `${row.documentRefs} doc` : null,
+                  ].filter(Boolean).join(' | ') || 'None';
+                  const statusTone = taskingOutcomeColour(row.status, isDarkMode);
+                  return (
+                    <tr key={row.taskId}>
+                      <td style={{ padding: '10px', borderBottom: `1px solid ${edge}`, color: text, fontSize: 11, verticalAlign: 'top' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <strong style={{ fontSize: 12 }}>{row.taskName}</strong>
+                          <span style={{ color: muted, fontSize: 10 }}>{row.taskId}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px', borderBottom: `1px solid ${edge}`, color: body, fontSize: 11, verticalAlign: 'top' }}>
+                        {row.workflowType}
+                      </td>
+                      <td style={{ padding: '10px', borderBottom: `1px solid ${edge}`, verticalAlign: 'top' }}>
+                        <span style={{ display: 'inline-flex', padding: '4px 7px', border: `1px solid ${withAlpha(statusTone, isDarkMode ? 0.42 : 0.28)}`, background: withAlpha(statusTone, isDarkMode ? 0.13 : 0.08), color: statusTone, fontSize: 10, fontWeight: 700 }}>
+                          {row.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px', borderBottom: `1px solid ${edge}`, color: body, fontSize: 11, verticalAlign: 'top' }}>
+                        {row.assigneeFirstName || row.assigneeTeam || row.assigneeLevel || 'Unassigned'}
+                      </td>
+                      <td style={{ padding: '10px', borderBottom: `1px solid ${edge}`, color: body, fontSize: 11, verticalAlign: 'top' }}>
+                        {row.dueDate || 'No date'}
+                      </td>
+                      <td style={{ padding: '10px', borderBottom: `1px solid ${edge}`, color: muted, fontSize: 10, verticalAlign: 'top' }}>
+                        {refs}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {taskingLegacyRows.length === 0 && (
+              <div style={{ padding: '13px 14px', color: muted, fontSize: 12 }}>
+                No tasking function-app rows have been streamed yet, or the project-data connection string is not configured.
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1752,6 +2120,82 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             )}
           </div>
           <section
+            data-helix-region="reports/data-hub/email-lists/sendgrid-invocation"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 0.92fr) minmax(0, 1.08fr)',
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                border: `1px solid ${edge}`,
+                background: dataHubHomeCardSurface,
+                padding: '12px 13px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                <div style={{ display: 'grid', gap: 3 }}>
+                  <span className="email-lists-eyebrow">SendGrid invocation</span>
+                  <strong style={{ fontSize: 15, color: text }}>Pick a segment, proof recipients, send via SendGrid</strong>
+                  <small style={{ fontSize: 11, color: body, lineHeight: 1.5 }}>
+                    Data Hub is the operational proofing surface. SendGrid remains the provider and Marketing remains the campaign workspace.
+                  </small>
+                </div>
+                <span style={{ border: `1px solid ${edge}`, background: dataHubHomeControlSurface, color: tone, padding: '4px 7px', fontSize: 10, fontWeight: 800 }}>
+                  {emailListRows.length.toLocaleString('en-GB')} rows
+                </span>
+              </div>
+              <div style={{ display: 'grid', gap: 7 }}>
+                {EMAIL_SENDGRID_SPACE_BOUNDARIES.map((item) => (
+                  <div key={item.space} style={{ border: `1px solid ${edge}`, background: dataHubHomeControlSurface, padding: '8px 9px', display: 'grid', gap: 3 }}>
+                    <strong style={{ fontSize: 11, color: text }}>{item.space}</strong>
+                    <span style={{ fontSize: 10, color: body, lineHeight: 1.45 }}>{item.owns}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div
+              style={{
+                border: `1px solid ${edge}`,
+                background: dataHubHomeCardSurface,
+                padding: '12px 13px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div style={{ display: 'grid', gap: 3 }}>
+                <span className="email-lists-eyebrow">Process</span>
+                <strong style={{ fontSize: 15, color: text }}>Small path to mass email without reinventing SendGrid</strong>
+                <small style={{ fontSize: 11, color: body, lineHeight: 1.5 }}>
+                  Use the current segment stream for proofing, then invoke SendGrid only after the row set has been reviewed.
+                </small>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 7 }}>
+                {EMAIL_SENDGRID_INVOCATION_STEPS.map((item) => (
+                  <div key={item.step} style={{ border: `1px solid ${edge}`, background: dataHubHomeControlSurface, padding: '8px 9px', display: 'grid', gap: 4 }}>
+                    <span style={{ color: tone, fontSize: 10, fontWeight: 900 }}>Step {item.step}</span>
+                    <strong style={{ fontSize: 11, color: text }}>{item.label}</strong>
+                    <span style={{ fontSize: 10, color: body, lineHeight: 1.45 }}>{item.detail}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gap: 5 }}>
+                <span className="email-lists-eyebrow">Tags alongside</span>
+                {EMAIL_TAG_WORK_TRACK.map((item) => (
+                  <span key={item.label} style={{ display: 'grid', gap: 2, border: `1px solid ${edge}`, background: dataHubHomeControlSurface, padding: '7px 8px' }}>
+                    <strong style={{ fontSize: 10, color: text }}>{item.label}</strong>
+                    <small style={{ fontSize: 10, color: body, lineHeight: 1.45 }}>{item.detail}</small>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </section>
+          <section
             className={`email-lists-model-proof${emailListModelOpen ? ' email-lists-model-proof--open' : ''}`}
             data-helix-region="reports/data-hub/email-lists/outreach-model"
           >
@@ -1762,79 +2206,49 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
               onClick={() => setEmailListModelOpen((current) => !current)}
             >
               <span className="email-lists-model-proof__toggle-copy">
-                <span className="email-lists-eyebrow">Outreach model</span>
-                <strong>ProspectId links contacts to campaigns and send history</strong>
+                <span className="email-lists-eyebrow">Implementation notes</span>
+                <strong>Use SendGrid for mass send, Data Hub for proofing</strong>
               </span>
               <span className="email-lists-model-proof__toggle-meta">
-                <span>{EMAIL_OUTREACH_MODEL_TABLES.length} tables</span>
-                <span>{emailListModelOpen ? 'Collapse' : 'Open proof'}</span>
+                <span>no new CRM</span>
+                <span>{emailListModelOpen ? 'Collapse' : 'Open notes'}</span>
               </span>
             </button>
             {emailListModelOpen && (
               <div className="email-lists-model-proof__body">
-                <div className="email-lists-model-proof__flow" aria-label="Email Outreach contact to campaign history proof">
+                <div className="email-lists-model-proof__flow" aria-label="Email Outreach SendGrid invocation proof">
                   <div className="email-lists-model-proof__node">
-                    <span className="email-lists-eyebrow">People</span>
-                    <strong>{emailOutreachProofProspectId}</strong>
-                    <small>{emailOutreachProofEmail}</small>
-                    <small>{emailOutreachProofArea} audience</small>
-                    <small>{emailOutreachProofSource}</small>
+                    <span className="email-lists-eyebrow">Segment</span>
+                    <strong>{activeEmailListAreaFilters.length > 0 ? activeEmailListAreaFilters.join(', ') : 'All selected'}</strong>
+                    <small>{emailListRows.length.toLocaleString('en-GB')} proof rows loaded</small>
+                    <small>{formatEmailListWindowLabel(committedEmailListDateRange)}</small>
                   </div>
                   <div className="email-lists-model-proof__connector">
-                    <span>prospectId</span>
-                  </div>
-                  <div className="email-lists-model-proof__node email-lists-model-proof__node--history">
-                    <span className="email-lists-eyebrow">Sends</span>
-                    <strong>campaignId + prospectId</strong>
-                    {emailOutreachProofHistory.map((item) => (
-                      <span key={`${item.campaign}-${item.status}`} className="email-lists-model-proof__history-row">
-                        <span>{item.campaign}</span>
-                        <small>{item.status} / {item.sentAt}</small>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="email-lists-model-proof__connector">
-                    <span>campaignId</span>
+                    <span>review</span>
                   </div>
                   <div className="email-lists-model-proof__node">
-                    <span className="email-lists-eyebrow">Campaigns</span>
-                    <strong>{emailOutreachProofHistory[0]?.campaign || 'campaign-draft'}</strong>
-                    <small>{emailOutreachProofHistory[0]?.subject || 'Subject pending'}</small>
-                    <small>SendGrid unsubscribe group stored here</small>
+                    <span className="email-lists-eyebrow">Proof</span>
+                    <strong>Recipient table</strong>
+                    <small>Emails, AOW, tags and bridge status stay visible before send.</small>
+                    <small>Tag scripts can refresh this same table.</small>
+                  </div>
+                  <div className="email-lists-model-proof__connector">
+                    <span>invoke</span>
+                  </div>
+                  <div className="email-lists-model-proof__node">
+                    <span className="email-lists-eyebrow">SendGrid</span>
+                    <strong>Provider send</strong>
+                    <small>Subject/body/sender go to SendGrid.</small>
+                    <small>SendGrid keeps its UI and delivery reporting.</small>
                   </div>
                 </div>
-                <div className="email-lists-model-proof__ledger-map" aria-label="Ledger fields sourced from Email Outreach model">
-                  {EMAIL_OUTREACH_LEDGER_FIELD_SOURCES.map((item) => (
+                <div className="email-lists-model-proof__ledger-map" aria-label="Fields reviewed before SendGrid invocation">
+                  {EMAIL_SENDGRID_PROOF_FIELDS.map((item) => (
                     <span key={item.field}>
                       <strong>{item.field}</strong>
                       <small>{item.source}</small>
                       <em>{item.note}</em>
                     </span>
-                  ))}
-                </div>
-                <div className="email-lists-model-proof__tables" aria-label="Email Outreach proposed tables and indexes">
-                  {EMAIL_OUTREACH_MODEL_TABLES.map((table) => (
-                    <article key={table.name} className="email-lists-model-proof__table">
-                      <header>
-                        <span className="email-lists-eyebrow">{table.key}</span>
-                        <strong>{table.name}</strong>
-                        <small>{table.role}</small>
-                      </header>
-                      <div className="email-lists-model-proof__fields">
-                        {table.fields.map(([name, type, note]) => (
-                          <span key={name} title={note}>
-                            <strong>{name}</strong>
-                            <small>{type}</small>
-                            <em>{note}</em>
-                          </span>
-                        ))}
-                      </div>
-                      <div className="email-lists-model-proof__indexes">
-                        {table.indexes.map((indexName) => (
-                          <span key={indexName}>{indexName}</span>
-                        ))}
-                      </div>
-                    </article>
                   ))}
                 </div>
               </div>
@@ -1845,11 +2259,11 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
               <div className="email-lists-composer__header">
                 <div className="email-lists-composer__title">
                   <span className="email-lists-demo-send__label">Composer</span>
-                  <strong>Demo test send</strong>
+                  <strong>{demoModeEnabled ? 'Demo test send' : 'SendGrid segment send'}</strong>
                 </div>
                 <span className="email-lists-demo-send__target" title={emailListDemoTarget?.email || ''}>
-                  <span>{EMAIL_LIST_DEMO_ENQUIRY_ID}</span>
-                  <small>{emailListDemoTarget?.email ? 'Recipient: you' : 'Recipient unavailable'}</small>
+                  <span>{demoModeEnabled ? EMAIL_LIST_DEMO_ENQUIRY_ID : `${emailListRows.length.toLocaleString('en-GB')} recipients`}</span>
+                  <small>{demoModeEnabled ? (emailListDemoTarget?.email ? 'Recipient: you' : 'Recipient unavailable') : 'Recipient set: reviewed table rows'}</small>
                 </span>
               </div>
               <div className="email-lists-composer__grid">
@@ -1916,13 +2330,26 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
                 </label>
               </div>
               <div className="email-lists-composer__footer">
-                {emailListDemoResult ? (
-                  <span className={`email-lists-demo-send__result email-lists-demo-send__result--${emailListDemoResult.status}`}>
-                    {emailListDemoResult.message}
-                  </span>
-                ) : <span />}
-                <button type="submit" disabled={emailListDemoSending || !emailListDemoTarget?.email}>
-                  {emailListDemoSending ? 'Sending' : 'Send test'}
+                <div style={{ display: 'grid', gap: 5 }}>
+                  {!demoModeEnabled && (
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: body, fontSize: 11, fontWeight: 700 }}>
+                      <input
+                        type="checkbox"
+                        checked={emailListBulkSendConfirmed}
+                        onChange={(event) => setEmailListBulkSendConfirmed(event.currentTarget.checked)}
+                        disabled={emailListDemoSending || emailListRows.length === 0}
+                      />
+                      I have proofed these {emailListRows.length.toLocaleString('en-GB')} recipients
+                    </label>
+                  )}
+                  {emailListDemoResult ? (
+                    <span className={`email-lists-demo-send__result email-lists-demo-send__result--${emailListDemoResult.status}`}>
+                      {emailListDemoResult.message}
+                    </span>
+                  ) : <span />}
+                </div>
+                <button type="submit" disabled={emailListDemoSending || (demoModeEnabled ? !emailListDemoTarget?.email : (!emailListBulkSendConfirmed || emailListRows.length === 0))}>
+                  {emailListDemoSending ? 'Sending' : demoModeEnabled ? 'Send test' : `Send ${emailListRows.length.toLocaleString('en-GB')}`}
                 </button>
               </div>
             </form>
@@ -2374,7 +2801,7 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
         </div>
       )}
 
-      {!isMattersDataset && !isEmailListsDataset && (
+      {!isMattersDataset && !isEmailListsDataset && !isTaskingHubDataset && !isTaskingLegacyDataset && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
           <div style={{
             display: 'flex',
@@ -2437,7 +2864,7 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
         </div>
       )}
 
-      {!isMattersDataset && !isEmailListsDataset && (
+      {!isMattersDataset && !isEmailListsDataset && !isTaskingHubDataset && !isTaskingLegacyDataset && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {previewTable && (
             <PrimaryButton

@@ -3,6 +3,7 @@ import { Icon } from '@fluentui/react/lib/Icon';
 import { NormalizedMatter, TeamData, UserData } from '../../app/functionality/types';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useEffectivePermissions } from '../../app/effectivePermissions';
+import { FORM_STREAM_USERS } from '../../app/admin';
 import { safeGetItem, safeSetItem } from '../../utils/storageUtils';
 import FormEmbed from '../../components/FormEmbed';
 import { laneOrder, processDefinitions, ProcessDefinition, ProcessLane, ProcessStreamItem, streamStatusMeta } from './processHubData';
@@ -196,7 +197,7 @@ export default function FormsHub({
   // dev-owner "View as" override can flip flags without changing tier helpers.
   const effective = useEffectivePermissions(currentUser);
   const formsStreamInitials = (currentUser?.Initials || '').toString().toUpperCase().trim();
-  const isFormsStreamOpsUser = ['LZ', 'AC', 'KW', 'EA'].includes(formsStreamInitials);
+  const isFormsStreamOpsUser = (FORM_STREAM_USERS as readonly string[]).includes(formsStreamInitials);
   const showDevStreamPanel = effective.isLzOrAc || isFormsStreamOpsUser;
   const canManageStreamEntries = effective.isAdminUser;
 

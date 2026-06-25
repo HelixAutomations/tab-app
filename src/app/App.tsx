@@ -14,7 +14,7 @@ import { app } from '@microsoft/teams-js';
 import { Matter, UserData, Enquiry, Tab, TeamData, POID, Transaction, BoardroomBooking, SoundproofPodBooking, InstructionData, NormalizedMatter } from './functionality/types';
 import { hasActiveMatterOpening } from './functionality/matterOpeningUtils';
 import { normalizeMatterData } from '../utils/matterNormalization';
-import { isAdminUser, canSeePrivateHubControls, canSeeActivityTab, canSeeTasksTab, canUseDemoModeControls, canUseSessionModeControls, isCclOperationsAvailable, canAccessReports, EXTRA_TOP_NAV_USERS } from './admin';
+import { isAdminUser, canSeePrivateHubControls, canSeeActivityTab, canSeeTasksTab, canUseDemoModeControls, canUseSessionModeControls, isCclOperationsAvailable, canAccessReports, EXTRA_TOP_NAV_USERS, DATA_HUB_USERS } from './admin';
 import { useCapability } from './useEffectiveCapabilities';
 import { EffectivePermissionsProvider } from './effectivePermissions';
 import HubToolsChip from '../components/HubToolsChip';
@@ -1450,8 +1450,9 @@ const App: React.FC<AppProps> = ({
 
   // Demo Cheat Sheet (Ctrl+Shift+D): local-only presenter notes.
   const [demoCheatAllowed, setDemoCheatAllowed] = React.useState<string[]>([]);
+  const demoCheatLocalOnly = isLocalDev && !featureToggles.viewAsProd;
   const refreshDemoCheatAccess = React.useCallback(async () => {
-    if (!isLocalDev) return;
+    if (!demoCheatLocalOnly) return;
     try {
       const res = await fetch('/api/demo-cheat-sheet/access', { headers: buildRequestAuthHeaders() });
       if (!res.ok) return;
@@ -1460,11 +1461,11 @@ const App: React.FC<AppProps> = ({
         setDemoCheatAllowed(json.allowed.map((v: string) => String(v || '').toUpperCase()));
       }
     } catch { /* ignore: overlay stays local-only and allowlist-gated */ }
-  }, [isLocalDev]);
+  }, [demoCheatLocalOnly]);
   React.useEffect(() => { void refreshDemoCheatAccess(); }, [refreshDemoCheatAccess]);
   // Cheat-sheet access: local-only now. The full Tools panel stays LZ-only
   // and is gated separately in HubToolsChip.
-  const demoCheatEnabled = isLocalDev && !!userInitials && (
+  const demoCheatEnabled = demoCheatLocalOnly && !!userInitials && (
     userInitials === 'LZ'
     || userInitials === 'AC'
     || userInitials === 'JW'
@@ -1801,6 +1802,7 @@ const App: React.FC<AppProps> = ({
     const initials = String((currentUser && (currentUser.Initials || '')) || '').toUpperCase().trim();
     const showReportsTab = canAccessReports(currentUser);
     const showExtraTopNavTabs = EXTRA_TOP_NAV_USERS.includes(initials as any);
+    const showDataHubTab = DATA_HUB_USERS.includes(initials as any);
 
     return [
       { key: 'enquiries', text: 'Prospects' },
@@ -1809,7 +1811,7 @@ const App: React.FC<AppProps> = ({
       ...(showTasksTab ? [{ key: 'tasks', text: 'Tasks' }] : []),
       { key: 'resources', text: 'Resources' },
       ...(showActivityTab ? [{ key: 'roadmap', text: 'System' }] : []),
-      ...(showExtraTopNavTabs ? [{ key: 'dataHub', text: 'Data Hub' }] : []),
+      ...(showDataHubTab ? [{ key: 'dataHub', text: 'Data' }] : []),
       ...(showReportsTab ? [{ key: 'reporting', text: 'Reports' }] : []),
       ...(showExtraTopNavTabs ? [{ key: 'marketing', text: 'Marketing' }] : []),
     ];
@@ -2114,6 +2116,8 @@ const App: React.FC<AppProps> = ({
                     instructionData={allInstructionData}
                     enquiries={enquiries}
                     matters={matters}
+                    featureToggles={featureToggles}
+                    demoModeEnabled={demoModeEnabled}
                   />
                 </TabMountMeter>
               </Suspense>
@@ -2121,14 +2125,14 @@ const App: React.FC<AppProps> = ({
             {activeTab === 'tasks' && showTasksTab && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
                 <TabMountMeter name="tasks">
-                  <TasksHome userData={userData} />
+                  <TasksHome userData={userData} featureToggles={featureToggles} />
                 </TabMountMeter>
               </Suspense>
             )}
             {activeTab === 'roadmap' && (
               <Suspense fallback={<ThemedSuspenseFallback />}>
                 <TabMountMeter name="roadmap">
-                <Roadmap userData={userData} showBootMonitor={isLocalDev && !isProductionPreview} isLocalDev={isLocalDev} localSupportMode={localSupportSettings.mode} />
+                <Roadmap userData={userData} showBootMonitor={isLocalDev && !isProductionPreview} isLocalDev={isLocalDev} localSupportMode={localSupportSettings.mode} featureToggles={featureToggles} />
                 </TabMountMeter>
               </Suspense>
             )}

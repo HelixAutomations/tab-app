@@ -6,6 +6,7 @@ import type { InstructionData } from '../../app/functionality/types';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import { colours, withAlpha } from '../../app/styles/colours';
 import { getApiUrl } from '../../utils/getApiUrl';
+import { checkIsLocalDev } from '../../utils/useIsLocalDev';
 import type { DateRange } from '../Reporting/hooks/useReportRange';
 import type { DubberCallRecord } from '../Reporting/dataSources';
 import { useStreamingDatasets } from '../../hooks/useStreamingDatasets';
@@ -23,6 +24,8 @@ interface MarketingHomeProps {
   instructionData?: InstructionData[] | null;
   enquiries?: Enquiry[] | null;
   matters?: Array<Matter | NormalizedMatter> | null;
+  featureToggles?: Record<string, boolean>;
+  demoModeEnabled?: boolean;
 }
 
 const panelStyle = (isDarkMode: boolean): React.CSSProperties => ({
@@ -381,13 +384,14 @@ function getRangeMonths(range: DateRange): number {
   return Math.max(1, Math.min(24, monthSpan));
 }
 
-const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructionData = [], enquiries = [], matters = [] }) => {
+const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructionData = [], enquiries = [], matters = [], featureToggles, demoModeEnabled = false }) => {
   const { isDarkMode } = useTheme();
   const { setContent } = useNavigatorActions();
   const selectedRange = lockedMarketingRangeKey;
   const localPreviewWithoutData = false;
   const [activeLedgerTab, setActiveLedgerTab] = useState<MarketingLedgerKey>('enquiries');
-  const [activeMarketingWorkspacePage, setActiveMarketingWorkspacePage] = useState<MarketingWorkspacePageKey>('seo');
+  const [activeMarketingWorkspacePage, setActiveMarketingWorkspacePage] = useState<MarketingWorkspacePageKey | null>(null);
+  const showMarketingDevDraftSurfaces = checkIsLocalDev(featureToggles);
   const [localHydrationDismissed, setLocalHydrationDismissed] = useState(false);
   const [marketingUnlockToastVisible, setMarketingUnlockToastVisible] = useState(false);
   const [searchAttributionValue, setSearchAttributionValue] = useState<MarketingSearchAttributionValue | null>(null);
@@ -957,17 +961,26 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
 
   useLayoutEffect(() => {
     setContent(
-      <NavigatorDetailBar
-        onBack={() => setActiveMarketingWorkspacePage('seo')}
-        showBackButton={activeMarketingWorkspacePage !== 'seo'}
-        backLabel="Marketing"
-        tabs={marketingNavigatorTabs}
-        activeTab={activeMarketingWorkspacePage}
-        onTabChange={(key) => setActiveMarketingWorkspacePage(key as MarketingWorkspacePageKey)}
-      />,
+      activeMarketingWorkspacePage ? (
+        <NavigatorDetailBar
+          onBack={() => setActiveMarketingWorkspacePage(null)}
+          showBackButton
+          backLabel="Marketing"
+          tabs={marketingNavigatorTabs}
+          activeTab={activeMarketingWorkspacePage}
+          onTabChange={(key) => setActiveMarketingWorkspacePage(key as MarketingWorkspacePageKey)}
+        />
+      ) : (
+        <NavigatorDetailBar
+          onBack={() => undefined}
+          showBackButton={false}
+          staticLabel="Marketing"
+        />
+      ),
     );
-    // No cleanup to avoid navigator race with the next tab writing its own content.
   }, [activeMarketingWorkspacePage, marketingNavigatorTabs, setContent]);
+
+  useEffect(() => () => { setContent(null); }, [setContent]);
 
   useEffect(() => {
     if (marketingHasHydrationAttention) setLocalHydrationDismissed(false);
@@ -1092,11 +1105,14 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
                 operatorEmail={userData?.[0]?.Email || ''}
                 activePage={activeMarketingWorkspacePage}
                 onActivePageChange={setActiveMarketingWorkspacePage}
+                showDevDraftSurfaces={showMarketingDevDraftSurfaces}
+                demoModeEnabled={demoModeEnabled}
               />
             </div>
           </div>
         </div>
 
+        {showMarketingDevDraftSurfaces && (
         <section
           data-helix-region="marketing/source-ledgers"
           className="marketing-source-ledgers"
@@ -1317,6 +1333,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
             )}
           </div>
         </section>
+        )}
       </div>
       ) : null}
 

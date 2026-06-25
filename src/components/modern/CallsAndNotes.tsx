@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FiPhone, FiPhoneIncoming, FiPhoneOutgoing, FiFileText, FiClock, FiCheck, FiLink, FiX, FiRefreshCw, FiChevronRight, FiChevronDown, FiEdit3, FiSave, FiUploadCloud, FiSearch, FiMail, FiCode, FiDownload, FiUsers, FiUser } from 'react-icons/fi';
 import { colours, withAlpha } from '../../app/styles/colours';
-import { canSeeFirmWideHomeData, isAdminUser, isDevOwner } from '../../app/admin';
+import { canSeeAllCalls, isDevOwner } from '../../app/admin';
 import { useFreshIds } from '../../hooks/useFreshIds';
 import clioLogo from '../../assets/clio.svg';
 import { disposeOnHmr, onServerBounced } from '../../utils/devHmr';
@@ -803,8 +803,8 @@ function NotePromptInspector({ systemPrompt, userPrompt, isDarkMode, accent, tex
 // ── Component ────────────────────────────────────────────────────────────────
 export default function CallsAndNotes({ isDarkMode, userInitials, userEmail, userRate, isNarrow, demoModeEnabled = false, isActive = true, matterLookupOptions = [], recentEnquiryOptions = [], teamOptions = [], viewAsProd = false }: CallsAndNotesProps) {
   const accessUser = React.useMemo(() => ({ Initials: userInitials, Email: userEmail || '' } as any), [userEmail, userInitials]);
-  const canUseAllView = isAdminUser(accessUser);
-  const startsInAllView = canSeeFirmWideHomeData(accessUser);
+  const canUseAllView = canSeeAllCalls(accessUser);
+  const startsInAllView = isDevOwner(accessUser);
   const journeyScopeStorageKey = React.useMemo(() => {
     const identity = normalizeInitials(userInitials) || String(userEmail || '').trim().toLowerCase() || 'anonymous';
     return `home-call-centre-scope:${identity}`;

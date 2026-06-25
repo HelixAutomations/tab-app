@@ -72,7 +72,7 @@ import { hasActivePitchBuilder, isPitchBuilderDraftStorageKey } from '../../app/
 import { normalizeMatterData } from '../../utils/matterNormalization';
 // Local JSON fixtures loaded dynamically (only when REACT_APP_USE_LOCAL_DATA=true) to keep ~75KB out of the production bundle
 import { checkIsLocalDev } from '../../utils/useIsLocalDev';
-import { canSeeFirmWideHomeData, canSeePrivateHubControls, isAdminUser, isHomeFirmWideBuiltIn, HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY, isCclOperationsAvailable } from '../../app/admin';
+import { canSeeFirmWideHomeData, canSeeFirmWideHomeSupportStreams, canSeePrivateHubControls, isAdminUser, isCclOperationsAvailable } from '../../app/admin';
 import { INTERNAL_POLICY_LINKS } from '../../app/customisation/InternalPolicies';
 import { useFirstHydration } from '../../utils/useFirstHydration';
 import { LocalSupportSettings } from '../../app/localSupportMode';
@@ -1500,7 +1500,7 @@ const Home: React.FC<HomeProps> = ({ context, userData, enquiries, enquiriesUsin
       return 'mine';
     }
   });
-  const canSeeTodoGodView = localSupportAllowTeamData && canSeeFirmWideHomeData(userData?.[0]);
+  const canSeeTodoGodView = localSupportAllowTeamData && canSeeFirmWideHomeSupportStreams(userData?.[0]);
 
   const immediateActionsReady = hasStartedParallelFetch
     && !isActionsLoading
@@ -7593,7 +7593,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     // least one document hasn't been pushed to ND yet. Backed by SQL on
     // dbo.Documents (TransferredToNdAt IS NULL), not a blob scan. Preview
     // visibility matches Allocate Documents; row scoping still follows Home.
-    const canSeeAllTransfers = canSeeFirmWideHomeData(userData?.[0]);
+    const canSeeAllTransfers = canSeeFirmWideHomeSupportStreams(userData?.[0]);
     const scopedPendingTransfers = canSeeAllTransfers
       ? pendingTransfers
       : pendingTransfers.filter(r => {
@@ -8210,101 +8210,6 @@ const conversionRate = displayEnquiriesMonthToDate
     autoDot: colours.highlight,
   }), [isDarkMode]);
 
-  // Admin-only master switch: lets admins (AC / JW / LA) opt their browser into
-  // firm-wide Home metrics, matching the LZ/KW/EA built-in view. Persisted in
-  // localStorage; flipping reloads the page so all the Home fetch effects re-run
-  // against the new gate. Hidden for users who already have built-in firm-wide
-  // access (no need for a toggle).
-  const currentHomeUser = userData?.[0];
-  const showFirmWideAdminToggle = isAdminUser(currentHomeUser) && !isHomeFirmWideBuiltIn(currentHomeUser);
-  const [firmWideAdminOptIn, setFirmWideAdminOptIn] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    try { return window.localStorage.getItem(HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY) === '1'; } catch { return false; }
-  });
-
-  const handleFirmWideAdminToggle = useCallback((next: boolean) => {
-    setFirmWideAdminOptIn(prev => {
-      if (prev === next) return prev;
-      try {
-        if (next) window.localStorage.setItem(HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY, '1');
-        else window.localStorage.removeItem(HOME_FIRM_WIDE_ADMIN_OPT_IN_KEY);
-      } catch { /* ignore */ }
-      try {
-        trackClientEvent('home', 'firm-wide-admin-toggled', {
-          to: next ? 'firm' : 'personal',
-          initials: (currentHomeUser?.Initials || '').toUpperCase(),
-        });
-      } catch { /* ignore */ }
-      // Reload so every fetch effect picks up the new gate cleanly.
-      try { window.location.reload(); } catch { /* ignore */ }
-      return next;
-    });
-  }, [currentHomeUser]);
-
-  const firmWideAdminToggle = showFirmWideAdminToggle ? (
-    <div
-      role="group"
-      aria-label="Home data scope"
-      title={firmWideAdminOptIn
-        ? 'Admin firm-wide view active. Toggle off to return to personal metrics.'
-        : 'Switch to firm-wide Home metrics. Reloads the page.'}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(2, minmax(74px, 1fr))',
-        minHeight: 28,
-        border: `1px solid ${firmWideAdminOptIn ? colours.cta : homeRightPanelToggleChrome.shellBorder}`,
-        background: homeRightPanelToggleChrome.shellBackground,
-        fontFamily: 'var(--font-primary)',
-        lineHeight: 1,
-        minWidth: 168,
-      }}
-    >
-      {([false, true] as const).map((opt) => {
-        const active = firmWideAdminOptIn === opt;
-        const label = opt ? 'Firm-wide' : 'Personal';
-        const activeBg = opt
-          ? (isDarkMode ? withAlpha(colours.cta, 0.16) : withAlpha(colours.cta, 0.12))
-          : homeRightPanelToggleChrome.activeBackground;
-        const activeText = opt ? colours.cta : homeRightPanelToggleChrome.activeText;
-        return (
-          <button
-            key={String(opt)}
-            type="button"
-            onClick={(e) => { e.stopPropagation(); handleFirmWideAdminToggle(opt); }}
-            style={{
-              appearance: 'none',
-              borderStyle: 'solid',
-              borderWidth: opt ? '0 0 0 1px' : 0,
-              borderColor: homeRightPanelToggleChrome.dividerBorder,
-              background: active ? activeBg : 'transparent',
-              padding: '0 10px',
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              cursor: active ? 'default' : 'pointer',
-              color: active ? activeText : homeRightPanelToggleChrome.inactiveText,
-              opacity: active ? 1 : 0.86,
-              transition: 'background 0.15s ease, color 0.15s ease, opacity 0.15s ease',
-              fontFamily: 'var(--font-primary)',
-              lineHeight: 1,
-              minWidth: 0,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-            }}
-          >
-            {opt && active && (
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: colours.cta }} />
-            )}
-            {label}
-          </button>
-        );
-      })}
-    </div>
-  ) : null;
-
   const todoScopeToggle = canSeeTodoGodView ? (
     <div
       role="group"
@@ -8357,9 +8262,8 @@ const conversionRate = displayEnquiriesMonthToDate
     </div>
   ) : null;
 
-  const combinedHomeScopeSlot = (todoScopeToggle || firmWideAdminToggle) ? (
+  const combinedHomeScopeSlot = todoScopeToggle ? (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-      {firmWideAdminToggle}
       {todoScopeToggle}
     </div>
   ) : null;
@@ -8699,7 +8603,6 @@ const conversionRate = displayEnquiriesMonthToDate
               ) : null}
               todoScopeSlot={replacePipelineAndMatters ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                  {firmWideAdminToggle}
                   {effectiveRightPanel === 'todo' && todoScopeToggle}
                   {rightPanelToggle}
                 </span>

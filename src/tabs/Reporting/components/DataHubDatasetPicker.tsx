@@ -5,7 +5,6 @@ import {
 } from '../styles/reportingFoundation';
 import {
   REPORTING_DATASET_DEFINITIONS,
-  type ReportingDatasetCategory,
   type ReportingDatasetKey,
   type ReportingDatasetRegistryEntry,
   type ReportingDatasetStatus,
@@ -19,22 +18,6 @@ type DataHubDatasetPickerProps = {
   isRefreshing: boolean;
   onRefreshDatasets: (keys: ReportingDatasetKey[]) => void | Promise<unknown>;
   onSelectDataset: (key: ReportingDatasetKey) => void;
-};
-
-const CATEGORY_ORDER: ReportingDatasetCategory[] = [
-  'external-analytics',
-  'reconciled-ledger',
-  'operational-cache',
-  'reference-data',
-  'communications-feed',
-];
-
-const CATEGORY_LABELS: Record<ReportingDatasetCategory, string> = {
-  'external-analytics': 'Marketing signals',
-  'reconciled-ledger': 'Money and matters',
-  'operational-cache': 'Ops cache',
-  'reference-data': 'Reference layer',
-  'communications-feed': 'Comms lists',
 };
 
 const statusColour = (status: ReportingDatasetStatus) => {
@@ -78,13 +61,6 @@ const datasetHasRefreshPath = (definition: ReportingDatasetRegistryEntry): boole
   Boolean(definition.provider.sourceRoute || definition.provider.providerCheck)
 );
 
-const groupDatasets = (): Array<{ category: ReportingDatasetCategory; entries: ReportingDatasetRegistryEntry[] }> => {
-  return CATEGORY_ORDER.map((category) => ({
-    category,
-    entries: allDatasetDefinitions.filter((definition) => definition.provider.category === category),
-  })).filter((group) => group.entries.length > 0);
-};
-
 const DataHubDatasetPicker: React.FC<DataHubDatasetPickerProps> = ({
   isDarkMode,
   datasets,
@@ -107,13 +83,6 @@ const DataHubDatasetPicker: React.FC<DataHubDatasetPickerProps> = ({
     const allowed = new Set(datasets.map((dataset) => dataset.definition.key));
     return allDatasetDefinitions.filter((definition) => allowed.has(definition.key));
   }, [datasets]);
-  const focusDatasets = React.useMemo(() => visibleDefinitions.filter((definition) => definition.provider.buildFocus), [visibleDefinitions]);
-  const groupedDatasets = React.useMemo(() => groupDatasets()
-    .map((group) => ({
-      ...group,
-      entries: group.entries.filter((definition) => !definition.provider.buildFocus && visibleDefinitions.some((entry) => entry.key === definition.key)),
-    }))
-    .filter((group) => group.entries.length > 0), [visibleDefinitions]);
 
   const defaultRefreshKeys = React.useMemo(() => {
     const freshCutoff = Date.now() - 30 * 60 * 1000;
@@ -301,42 +270,12 @@ const DataHubDatasetPicker: React.FC<DataHubDatasetPickerProps> = ({
           </button>
         </span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {focusDatasets.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 3, height: 14, background: colours.orange }} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: text, textTransform: 'uppercase', letterSpacing: 0 }}>
-                Being shaped
-              </span>
-            </div>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 12,
-            }}>
-              {focusDatasets.map(renderDatasetCard)}
-            </div>
-          </div>
-        )}
-
-        {groupedDatasets.map((group) => (
-          <div key={group.category} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 3, height: 14, background: muted }} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: text, textTransform: 'uppercase', letterSpacing: 0 }}>
-                {CATEGORY_LABELS[group.category]}
-              </span>
-            </div>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 12,
-            }}>
-              {group.entries.map(renderDatasetCard)}
-            </div>
-          </div>
-        ))}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+        gap: 12,
+      }}>
+        {visibleDefinitions.map(renderDatasetCard)}
       </div>
     </section>
   );

@@ -363,6 +363,7 @@ const SOURCE_LEDGER_ROW_EDITABLE_FIELDS = {
   keyword: { candidates: SOURCE_LEDGER_COLUMN_CANDIDATES.keyword, tokens: SOURCE_LEDGER_COLUMN_TOKENS.keyword, type: 'text', maxLength: 255 },
   source: { column: 'source', type: 'text', maxLength: 255 },
   url: { column: 'url', type: 'text', maxLength: 500 },
+  gclid: { column: 'gclid', type: 'text', maxLength: 100 },
 };
 const SOURCE_LEDGER_DEV_PREVIEW_INITIALS = new Set(['LZ', 'AC']);
 const EMAIL_LIST_COLUMN_CANDIDATES = {
@@ -383,6 +384,7 @@ const EMAIL_LIST_SENDGRID_ALLOWED_SENDERS = new Set([
   'team@helix-law.com',
   'lz@helix-law.com',
 ]);
+const EMAIL_LIST_BULK_SEND_ENABLED = ['1', 'true', 'yes'].includes(String(process.env.HELIX_ENABLE_MARKETING_EMAIL_MASS_SEND || '').toLowerCase());
 const EMAIL_LIST_SENDGRID_SECRET_NAMES = [
   'sendgrid-api-key',
   'sendgrid-helix-email',
@@ -1402,6 +1404,69 @@ router.get('/email-lists/stream', async (req, res) => {
   }
 });
 
+// Route: POST /api/enquiries-unified/email-lists/preview
+// Returns the same HTML renderer used for SendGrid test sends, without sending.
+router.post('/email-lists/preview', async (req, res) => {
+  const startedAt = Date.now();
+  const operation = 'email-lists-sendgrid-preview';
+  const requestId = randomUUID();
+  const triggeredBy = getEmailListOperatorActor(req) || req.user?.email || 'api';
+  const subject = String(req.body?.subject || '').trim().slice(0, 240);
+  const bodyText = String(req.body?.body || req.body?.bodyText || '').trim();
+  const preheaderText = String(req.body?.preheader || req.body?.previewText || '').trim().slice(0, 180);
+  const senderEmail = resolveEmailListSendGridSender(req.body?.sender || req.body?.fromEmail) || 'automations@helix-law.com';
+  const authenticatedEmail = normalizeEmails(req.user?.email || req.headers?.['x-user-email'])[0] || '';
+  const signatureInitials = String(req.body?.signatureInitials || req.user?.initials || '').trim().toUpperCase();
+  const signatureMode = normaliseEmailListSignatureMode(req.body?.signatureMode);
+  const operatorDisplayName = String(req.body?.operatorName || req.user?.name || req.user?.displayName || '').trim();
+  const operatorSignatureEmail = authenticatedEmail || normalizeEmails(req.body?.operatorEmail)[0] || senderEmail;
+
+  trackEvent('Enquiry.EmailLists.SendGridPreview.Started', {
+    operation,
+    requestId,
+    triggeredBy,
+    sender: senderEmail,
+    subjectLength: String(subject.length),
+    bodyLength: String(bodyText.length),
+    preheaderLength: String(preheaderText.length),
+    signatureMode,
+  });
+
+  try {
+    const html = buildEmailListSendGridHtml({
+      bodyText: bodyText || 'Hello,\n\nWe are preparing a short update for this audience.\n\nKind regards,\nHelix Law',
+      preheaderText,
+      fromEmail: senderEmail,
+      signatureInitials,
+      signatureMode,
+      operatorName: operatorDisplayName,
+      operatorEmail: operatorSignatureEmail,
+    });
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Enquiry.EmailLists.SendGridPreview.Completed', {
+      operation,
+      requestId,
+      triggeredBy,
+      durationMs: String(durationMs),
+      htmlLength: String(html.length),
+      signatureMode,
+    });
+    trackMetric('Enquiry.EmailLists.SendGridPreview.Duration', durationMs, { operation });
+    return res.json({ ok: true, generatedAt: new Date().toISOString(), subject, preheader: preheaderText, sender: senderEmail, signatureMode, html });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, requestId, phase: 'preview-render' });
+    trackEvent('Enquiry.EmailLists.SendGridPreview.Failed', {
+      operation,
+      requestId,
+      triggeredBy,
+      durationMs: String(durationMs),
+      error: error?.message || 'Unknown error',
+    });
+    return res.status(500).json({ ok: false, error: 'Failed to render SendGrid email preview' });
+  }
+});
+
 // Route: POST /api/enquiries-unified/email-lists/test-send
 // Sends a real SendGrid test email for the demo Email Control Room row only.
 router.post('/email-lists/test-send', async (req, res) => {
@@ -1571,6 +1636,196 @@ router.post('/email-lists/test-send', async (req, res) => {
   }
 });
 
+// Route: POST /api/enquiries-unified/email-lists/sendgrid-bulk-send
+// Sends a reviewed Email Lists segment through SendGrid. The client must send only rows the operator has proofed.
+router.post('/email-lists/sendgrid-bulk-send', async (req, res) => {
+  const startedAt = Date.now();
+  const operation = 'email-lists-sendgrid-bulk-send';
+  const requestId = randomUUID();
+  const triggeredBy = getEmailListOperatorActor(req) || req.user?.email || 'api';
+
+  try {
+    assertEmailListStreamConsent(req);
+  } catch (error) {
+    trackEvent('Enquiry.EmailLists.SendGridBulk.AccessDenied', {
+      operation,
+      requestId,
+      triggeredBy: triggeredBy || 'unknown',
+      reason: error?.message || 'Consent missing',
+    });
+    return res.status(error?.statusCode || 403).json({ error: 'Operator consent required for SendGrid bulk send' });
+  }
+
+  if (!EMAIL_LIST_BULK_SEND_ENABLED) {
+    trackEvent('Enquiry.EmailLists.SendGridBulk.Disabled', {
+      operation,
+      requestId,
+      triggeredBy,
+      reason: 'marketing-email-spine-required',
+    });
+    return res.status(403).json({ error: 'Mass send is disabled until the Marketing Email audience spine and approval controls are active' });
+  }
+
+  const senderEmail = resolveEmailListSendGridSender(req.body?.sender || req.body?.fromEmail);
+  const subject = String(req.body?.subject || '').trim();
+  const bodyText = String(req.body?.body || req.body?.bodyText || '').trim();
+  const preheaderText = String(req.body?.preheader || req.body?.previewText || '').trim().slice(0, 180);
+  const campaignName = String(req.body?.campaignName || 'email-list-send').trim().slice(0, 120) || 'email-list-send';
+  const segmentLabel = String(req.body?.segmentLabel || 'selected segment').trim().slice(0, 120) || 'selected segment';
+  const signatureInitials = String(req.body?.signatureInitials || req.user?.initials || '').trim().toUpperCase();
+  const signatureMode = normaliseEmailListSignatureMode(req.body?.signatureMode);
+  const operatorDisplayName = String(req.body?.operatorName || req.user?.name || req.user?.displayName || '').trim();
+  const operatorSignatureEmail = normalizeEmails(req.user?.email || req.headers?.['x-user-email'] || req.body?.operatorEmail)[0] || senderEmail || '';
+  const recipientsInput = Array.isArray(req.body?.recipients) ? req.body.recipients : [];
+  const expectedRecipientCount = Number.parseInt(String(req.body?.expectedRecipientCount || ''), 10);
+  const confirmMassSend = req.body?.confirmMassSend === true || String(req.body?.confirmMassSend || '').toLowerCase() === 'true';
+
+  const recipients = recipientsInput
+    .map((entry) => {
+      const email = normalizeEmails(entry?.email)[0] || '';
+      return email ? {
+        email,
+        enquiryId: String(entry?.enquiryId || '').trim().slice(0, 120),
+        areaOfWork: String(entry?.areaOfWork || '').trim().slice(0, 120),
+        activeCampaignId: String(entry?.activeCampaignId || '').trim().slice(0, 120),
+      } : null;
+    })
+    .filter(Boolean)
+    .filter((entry, index, list) => list.findIndex((candidate) => candidate.email.toLowerCase() === entry.email.toLowerCase()) === index);
+
+  if (!senderEmail) return res.status(400).json({ error: 'Unsupported SendGrid sender' });
+  if (!subject || !bodyText) return res.status(400).json({ error: 'Subject and body are required' });
+  if (recipients.length === 0) return res.status(400).json({ error: 'At least one reviewed recipient is required' });
+  if (recipients.length > 300) return res.status(400).json({ error: 'Bulk send is capped at 300 reviewed recipients per invocation' });
+  if (!confirmMassSend || expectedRecipientCount !== recipients.length) {
+    return res.status(400).json({ error: 'Confirm the exact reviewed recipient count before sending' });
+  }
+
+  trackEvent('Enquiry.EmailLists.SendGridBulk.Started', {
+    operation,
+    requestId,
+    triggeredBy,
+    sender: senderEmail,
+    recipientCount: String(recipients.length),
+    segmentLabel,
+    subjectLength: String(subject.length),
+    bodyLength: String(bodyText.length),
+    preheaderLength: String(preheaderText.length),
+    campaignNameLength: String(campaignName.length),
+    signatureMode,
+  });
+
+  try {
+    const apiKey = await getEmailListSendGridApiKey();
+    if (!apiKey) {
+      trackEvent('Enquiry.EmailLists.SendGridBulk.Failed', {
+        operation,
+        requestId,
+        triggeredBy,
+        phase: 'config',
+        error: 'SendGrid API key missing',
+      });
+      return res.status(503).json({ error: 'SendGrid is not configured. Add SENDGRID_API_KEY, HELIX_SENDGRID_API_KEY, or Key Vault secret sendgrid-helix-email.' });
+    }
+
+    const html = buildEmailListSendGridHtml({
+      bodyText,
+      preheaderText,
+      fromEmail: senderEmail,
+      signatureInitials,
+      signatureMode,
+      operatorName: operatorDisplayName,
+      operatorEmail: operatorSignatureEmail,
+    });
+    const plainText = preheaderText ? `${preheaderText}\n\n${bodyText}` : bodyText;
+    const sendGridPayload = {
+      personalizations: recipients.map((recipient) => ({
+        to: [{ email: recipient.email }],
+        custom_args: {
+          source: 'email-control-room',
+          mode: 'bulk-segment',
+          enquiryId: recipient.enquiryId,
+          areaOfWork: recipient.areaOfWork,
+          activeCampaignId: recipient.activeCampaignId,
+          requestId,
+          segmentLabel,
+          signatureMode,
+        },
+      })),
+      from: { email: senderEmail, name: 'Helix Law' },
+      reply_to: { email: 'support@helix-law.com', name: 'Helix Law' },
+      subject,
+      content: [
+        { type: 'text/plain', value: plainText },
+        { type: 'text/html', value: html },
+      ],
+      categories: ['email-control-room', 'bulk-segment'],
+    };
+
+    const sendGridResponse = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(sendGridPayload),
+    });
+    const durationMs = Date.now() - startedAt;
+    const sendGridMessageId = sendGridResponse.headers.get('x-message-id') || '';
+
+    if (sendGridResponse.status !== 202) {
+      const errorText = await sendGridResponse.text();
+      trackEvent('Enquiry.EmailLists.SendGridBulk.Failed', {
+        operation,
+        requestId,
+        triggeredBy,
+        phase: 'sendgrid',
+        statusCode: String(sendGridResponse.status),
+        durationMs: String(durationMs),
+        recipientCount: String(recipients.length),
+        error: errorText ? 'SendGrid rejected request' : 'SendGrid rejected request without body',
+      });
+      return res.status(502).json({ error: 'SendGrid rejected the bulk send request' });
+    }
+
+    trackEvent('Enquiry.EmailLists.SendGridBulk.Completed', {
+      operation,
+      requestId,
+      triggeredBy,
+      sender: senderEmail,
+      segmentLabel,
+      recipientCount: String(recipients.length),
+      durationMs: String(durationMs),
+      sendGridMessageId,
+    });
+    trackMetric('Enquiry.EmailLists.SendGridBulk.Duration', durationMs, { operation });
+    trackMetric('Enquiry.EmailLists.SendGridBulk.Recipients', recipients.length, { operation });
+
+    return res.json({
+      success: true,
+      provider: 'sendgrid',
+      mode: 'bulk-segment',
+      requestId,
+      sendGridMessageId,
+      recipientCount: recipients.length,
+      message: 'Bulk email accepted by SendGrid',
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'sendgrid-bulk-send', requestId });
+    trackEvent('Enquiry.EmailLists.SendGridBulk.Failed', {
+      operation,
+      requestId,
+      triggeredBy,
+      durationMs: String(durationMs),
+      recipientCount: String(recipients.length),
+      error: error?.message ? 'SendGrid bulk send failed' : 'Unknown error',
+    });
+    log.error('Error sending Email Control Room SendGrid bulk email:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to send SendGrid bulk email' });
+  }
+});
+
 // Route: POST /api/enquiries-unified/email-lists/activecampaign-contact
 // Looks up a single ActiveCampaign record on explicit operator action. Responses can contain
 // client contact details and are guarded with the same Email Lists read consent as the stream.
@@ -1694,7 +1949,7 @@ router.post('/source/row-update', async (req, res) => {
         if (entry.type === 'datetime') {
           request.input(parameterName, sql.DateTime2, entry.value);
         } else {
-          request.input(parameterName, sql.NVarChar(entry.field === 'url' ? 500 : 255), entry.value);
+          request.input(parameterName, sql.NVarChar(entry.field === 'url' ? 500 : entry.field === 'gclid' ? 100 : 255), entry.value);
         }
         return `${safeSqlColumnRef(entry.column, '')} = @${parameterName}`;
       });
@@ -1826,6 +2081,7 @@ router.get('/source/ledger', async (req, res) => {
           ${keywordProjection},
           e.source,
           e.url,
+          e.gclid,
           linkedMatter.displayNumber AS matterDisplayNumber
         FROM dbo.enquiries AS e
         OUTER APPLY (
@@ -1857,6 +2113,7 @@ router.get('/source/ledger', async (req, res) => {
       keyword: row.keyword == null ? '' : String(row.keyword),
       source: row.source == null ? '' : String(row.source),
       url: row.url == null ? '' : String(row.url),
+      gclid: row.gclid == null ? '' : String(row.gclid),
       matterDisplayNumber: row.matterDisplayNumber == null ? '' : String(row.matterDisplayNumber),
     }));
     const nextOffset = hasMore ? offset + rows.length : null;

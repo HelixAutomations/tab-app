@@ -146,6 +146,13 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
+function formatTimelineRangeLabel(label: string): string {
+  if (!label) return '';
+  return label
+    .replace(/\b0(\d)\b/g, '$1')
+    .replace(/\s+to\s+/gi, ' - ');
+}
+
 const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
   isDarkMode,
   rangeLabel,
@@ -159,8 +166,8 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
   const mutedColour = isDarkMode ? withAlpha(colours.dark.text, 0.82) : colours.greyText;
   const quietColour = isDarkMode ? colours.subtleGrey : colours.greyText;
   const border = reportingPanelBorder(isDarkMode);
-  const seoAccent = colours.highlight;
-  const ppcAccent = colours.green;
+  const spendColour = colours.highlight;
+  const valueColour = colours.green;
   const headerSurface = withAlpha(isDarkMode ? colours.dark.cardBackground : colours.sectionBackground, 0.72);
   const rowSurface = withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.018 : 0.42);
   const rowAltSurface = withAlpha(isDarkMode ? colours.dark.text : colours.sectionBackground, isDarkMode ? 0.032 : 0.62);
@@ -169,32 +176,31 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
   const totalWeeks = orderedMonths.reduce((sum, month) => sum + month.weeks.length, 0);
   const activeWeeks = orderedMonths.reduce((sum, month) => sum + month.weeks.filter(hasEffort).length, 0);
   const totalDays = orderedMonths.reduce((sum, month) => sum + month.weeks.reduce((weekSum, week) => weekSum + week.days.length, 0), 0);
-  const maxMonthValue = Math.max(1, ...orderedMonths.map((month) => {
-    const spend = month.seoSpend + month.ppcSpend;
-    const outcome = timelineOutcome(month);
-    return Math.max(spend, outcome.matterValue);
-  }));
 
-  const renderWeekline = (weeks: MarketingTimelineWeek[]) => {
-    const orderedWeeks = recentFirst(weeks);
-    const activeCount = orderedWeeks.filter(hasEffort).length;
+  const renderActivitySignal = (month: MarketingTimelineMonth) => {
+    const orderedWeeks = [...month.weeks].sort((left, right) => left.startTs - right.startTs);
+    const weeklyBuckets = Array.from({ length: 4 }, (_, index) => {
+      const weeks = index === 3 ? orderedWeeks.slice(3) : orderedWeeks.slice(index, index + 1);
+      return {
+        label: `Wk ${index + 1}`,
+        totals: weeks.length > 0 ? sumTimelineTotals(weeks) : null,
+      };
+    });
     return (
-      <span className="marketing-timeline-weekline-wrap">
-        <span className="marketing-timeline-weekline" aria-label={`${formatMetricNumber(activeCount)} active weeks of ${formatMetricNumber(orderedWeeks.length)}`}>
-          {orderedWeeks.map((week) => {
-            const outcome = timelineOutcome(week);
-            const active = hasEffort(week);
+      <span className="marketing-timeline-signal-cell">
+        <span className="marketing-timeline-weekly-breakdown" aria-label="Weekly spend and value breakdown">
+          {weeklyBuckets.map((bucket) => {
+            const weekOutcome = bucket.totals ? timelineOutcome(bucket.totals) : null;
+            const weekSpend = bucket.totals ? bucket.totals.seoSpend + bucket.totals.ppcSpend : null;
             return (
-              <span
-                key={week.key}
-                title={`${week.label}: ${formatMetricNumber(outcome.enquiries)} enquiries, ${formatMetricNumber(outcome.matters)} matters`}
-                className={active ? 'marketing-timeline-weekline-segment is-active' : 'marketing-timeline-weekline-segment'}
-                style={{ background: active ? (week.ppcSpend > week.seoSpend ? ppcAccent : seoAccent) : withAlpha(quietColour, 0.24) }}
-              />
+              <span key={bucket.label} className={bucket.totals ? 'marketing-timeline-weekly-row' : 'marketing-timeline-weekly-row is-empty'}>
+                <small style={{ color: quietColour }}>{bucket.label}</small>
+                <strong style={{ color: weekSpend == null ? quietColour : spendColour }}>{weekSpend == null ? '--' : formatMetricCurrency(weekSpend)}</strong>
+                <strong style={{ color: weekOutcome ? valueColour : quietColour }}>{weekOutcome ? formatMetricCurrency(weekOutcome.matterValue) : '--'}</strong>
+              </span>
             );
           })}
         </span>
-        <small>{formatMetricNumber(activeCount)} / {formatMetricNumber(orderedWeeks.length)} active weeks</small>
       </span>
     );
   };
@@ -205,7 +211,7 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
       className={summaryMode ? 'marketing-timeline-workbench is-summary' : 'marketing-timeline-workbench'}
       aria-busy={isProcessing}
       style={{
-        border: `1px solid ${summaryMode ? withAlpha(isDarkMode ? colours.highlight : colours.helixBlue, isDarkMode ? 0.18 : 0.14) : border}`,
+        border: `1px solid ${summaryMode ? withAlpha(colours.highlight, isDarkMode ? 0.18 : 0.14) : border}`,
         background: summaryMode
           ? withAlpha(isDarkMode ? colours.dark.cardBackground : colours.sectionBackground, isDarkMode ? 0.34 : 0.62)
           : reportingPanelBackground(isDarkMode),
@@ -217,7 +223,7 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
       {!summaryMode && (
         <header className="marketing-timeline-header" style={{ borderBottomColor: border, background: headerSurface }}>
           <span>
-            <strong style={{ color: seoAccent }}>Marketing timeline</strong>
+            <strong style={{ color: textColour }}>Marketing timeline</strong>
             <small style={{ color: mutedColour }}>{rangeLabel} | {formatMetricNumber(orderedMonths.length)} months | {formatMetricNumber(activeWeeks)} active weeks</small>
           </span>
           <span
@@ -247,24 +253,21 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
             <small style={{ color: mutedColour }}>matched matters</small>
           </span>
           <span>
-            <strong style={{ color: colours.green }}>{formatMetricRatio(timelineSummary.roi)}</strong>
+            <strong style={{ color: valueColour }}>{formatMetricRatio(timelineSummary.roi)}</strong>
             <small style={{ color: mutedColour }}>{formatMetricCurrency(timelineSummary.matterValue)} value</small>
           </span>
         </div>
       )}
 
       <div className="marketing-timeline-table" style={{ color: textColour }}>
-        <div className="marketing-timeline-row is-heading" style={{ background: withAlpha(colours.darkBlue, isDarkMode ? 0.95 : 1), color: colours.dark.text }}>
-          <span>Period</span>
-          <span>Spend to value</span>
-          <span>Activity</span>
-          <span>Weekly signal</span>
-        </div>
+        <span className="marketing-timeline-section-label" style={{ color: colours.dark.text, borderTopColor: withAlpha(colours.darkBlue, isDarkMode ? 0.72 : 0.88), background: colours.helixBlue }}>
+          Weekly Split
+        </span>
 
         {orderedMonths.length === 0 && isProcessing ? (
           Array.from({ length: 3 }).map((_, index) => (
             <div key={index} className="marketing-timeline-row is-skeleton" style={{ borderTopColor: border, background: index % 2 === 0 ? rowSurface : rowAltSurface }}>
-              {Array.from({ length: 4 }).map((__, cellIndex) => (
+              {Array.from({ length: 3 }).map((__, cellIndex) => (
                 <span key={cellIndex} className="marketing-timeline-skeleton-cell">
                   <span className="marketing-timeline-skeleton-line" style={{ width: `${cellIndex === 0 ? 72 : 58 + ((cellIndex + index) % 3) * 12}%` }} />
                   <span className="marketing-timeline-skeleton-line is-small" style={{ width: `${48 + ((cellIndex + index) % 4) * 9}%` }} />
@@ -278,44 +281,48 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
           </span>
         ) : orderedMonths.map((month, index) => {
           const outcome = timelineOutcome(month);
-          const orderedWeeks = recentFirst(month.weeks);
           const spend = month.seoSpend + month.ppcSpend;
-          const spendPercent = clampPercent((spend / maxMonthValue) * 100);
-          const valuePercent = clampPercent((outcome.matterValue / maxMonthValue) * 100);
-          const rangeStart = Math.min(spendPercent, valuePercent);
-          const rangeWidth = Math.max(2, Math.abs(valuePercent - spendPercent));
+          const spendAndReturnTotal = Math.max(0, spend + outcome.matterValue);
+          const spendPercent = spendAndReturnTotal > 0
+            ? clampPercent((spend / spendAndReturnTotal) * 100)
+            : 0;
+          const valuePercent = spendAndReturnTotal > 0
+            ? clampPercent((outcome.matterValue / spendAndReturnTotal) * 100)
+            : 0;
           return (
             <div key={month.key} className="marketing-timeline-row" style={{ borderTopColor: border, background: index % 2 === 0 ? rowSurface : rowAltSurface }}>
               <span className="marketing-timeline-period-cell">
                 <strong>{month.label}</strong>
-                <small style={{ color: quietColour }}>{month.rangeLabel}</small>
+                <small className="marketing-timeline-period-range" style={{ color: quietColour }}>{formatTimelineRangeLabel(month.rangeLabel)}</small>
               </span>
               <span className="marketing-timeline-progression-cell">
                 <span className="marketing-timeline-progression-values">
                   <span>
                     <small style={{ color: quietColour }}>Spend</small>
-                    <strong style={{ color: ppcAccent }}>{formatMetricCurrency(spend)}</strong>
+                    <strong style={{ color: spendColour }}>{formatMetricCurrency(spend)}</strong>
                   </span>
                   <span>
                     <small style={{ color: quietColour }}>Total value</small>
-                    <strong style={{ color: colours.green }}>{formatMetricCurrency(outcome.matterValue)}</strong>
+                    <strong style={{ color: valueColour }}>{formatMetricCurrency(outcome.matterValue)}</strong>
                   </span>
                 </span>
                 <span className="marketing-timeline-progression-track" aria-hidden="true">
-                  <span className="marketing-timeline-progression-range" style={{ left: `${rangeStart}%`, width: `${rangeWidth}%`, background: `linear-gradient(90deg, ${withAlpha(ppcAccent, 0.42)}, ${withAlpha(colours.green, 0.78)})` }} />
-                  <span className="marketing-timeline-progression-marker is-spend" style={{ left: `${spendPercent}%`, background: ppcAccent }} />
-                  <span className="marketing-timeline-progression-marker is-value" style={{ left: `${valuePercent}%`, background: colours.green }} />
+                  {spendPercent > 0 && (
+                    <span
+                      className="marketing-timeline-progression-segment is-spend"
+                      style={{ width: `${spendPercent}%`, background: withAlpha(spendColour, isDarkMode ? 0.72 : 0.68) }}
+                    />
+                  )}
+                  {valuePercent > 0 && (
+                    <span
+                      className="marketing-timeline-progression-segment is-value"
+                      style={{ width: `${valuePercent}%`, background: withAlpha(valueColour, isDarkMode ? 0.86 : 0.82) }}
+                    />
+                  )}
                 </span>
                 <small style={{ color: mutedColour }}>{formatMetricCurrency(outcome.received)} received | {formatMetricRatio(outcome.roi)} ROI</small>
               </span>
-              <span className="marketing-timeline-activity-cell">
-                <span><strong style={{ color: seoAccent }}>{formatMetricNumber(month.seoSessions)}</strong><small style={{ color: quietColour }}>SEO sessions</small></span>
-                <span><strong style={{ color: ppcAccent }}>{formatMetricNumber(month.ppcConversions, 1)}</strong><small style={{ color: quietColour }}>PPC conversions</small></span>
-                <span><strong style={{ color: colours.green }}>{formatMetricNumber(outcome.matters)}</strong><small style={{ color: quietColour }}>matters</small></span>
-              </span>
-              <span className="marketing-timeline-week-cell">
-                {renderWeekline(orderedWeeks)}
-              </span>
+              {renderActivitySignal(month)}
             </div>
           );
         })}
@@ -341,7 +348,7 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
         .marketing-timeline-summary-row strong,
         .marketing-timeline-period-cell strong,
         .marketing-timeline-progression-cell strong,
-        .marketing-timeline-activity-cell strong {
+        .marketing-timeline-signal-cell strong {
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -359,8 +366,7 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
         .marketing-timeline-summary-row small,
         .marketing-timeline-period-cell small,
         .marketing-timeline-progression-cell small,
-        .marketing-timeline-activity-cell small,
-        .marketing-timeline-weekline-wrap small {
+        .marketing-timeline-signal-cell small {
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -426,18 +432,30 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
 
         .marketing-timeline-row {
           display: grid;
-          grid-template-columns: minmax(126px, 0.84fr) minmax(270px, 1.8fr) minmax(210px, 1.2fr) minmax(150px, 0.95fr);
-          min-width: 820px;
+          grid-template-columns: minmax(126px, 0.84fr) minmax(270px, 1.62fr) minmax(320px, 1.9fr);
+          min-width: 760px;
           border-top: 1px solid;
+          transition: background-color 180ms ease, box-shadow 220ms ease;
         }
 
         .marketing-timeline-row.is-heading {
-          min-height: 30px;
+          display: none;
+          min-height: 0;
           border-top: 0;
         }
 
         .marketing-timeline-row.is-heading span {
           padding: 7px 8px;
+          font-size: 9px;
+          font-weight: 900;
+          letter-spacing: 0;
+          text-transform: uppercase;
+        }
+
+        .marketing-timeline-section-label {
+          display: block;
+          border-top: 1px solid;
+          padding: 7px 10px;
           font-size: 9px;
           font-weight: 900;
           letter-spacing: 0;
@@ -455,8 +473,7 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
 
         .marketing-timeline-period-cell,
         .marketing-timeline-progression-cell,
-        .marketing-timeline-activity-cell,
-        .marketing-timeline-week-cell,
+        .marketing-timeline-signal-cell,
         .marketing-timeline-skeleton-cell {
           display: grid;
           align-content: center;
@@ -468,9 +485,15 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
 
         .marketing-timeline-period-cell strong,
         .marketing-timeline-progression-cell strong,
-        .marketing-timeline-activity-cell strong {
+        .marketing-timeline-signal-cell strong {
           font-size: 12px;
           line-height: 1.05;
+        }
+
+        .marketing-timeline-period-range {
+          font-size: 10px;
+          letter-spacing: 0.01em;
+          transition: color 180ms ease;
         }
 
         .marketing-timeline-progression-values {
@@ -481,63 +504,77 @@ const MarketingTimelineWorkbench: React.FC<MarketingTimelineWorkbenchProps> = ({
         }
 
         .marketing-timeline-progression-values > span,
-        .marketing-timeline-activity-cell > span {
+        .marketing-timeline-signal-metrics > span,
+        .marketing-timeline-signal-bar {
           display: grid;
           gap: 2px;
           min-width: 0;
         }
 
         .marketing-timeline-progression-track {
-          position: relative;
-          display: block;
-          height: 7px;
-          margin: 2px 6px 1px;
-          background: ${withAlpha(isDarkMode ? colours.dark.text : colours.greyText, isDarkMode ? 0.12 : 0.10)};
-        }
-
-        .marketing-timeline-progression-range {
-          position: absolute;
-          top: 2px;
-          height: 3px;
-        }
-
-        .marketing-timeline-progression-marker {
-          position: absolute;
-          top: 50%;
-          width: 7px;
-          height: 7px;
-          transform: translate(-50%, -50%);
-        }
-
-        .marketing-timeline-activity-cell {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          align-items: center;
-          gap: 10px;
-        }
-
-        .marketing-timeline-weekline-wrap {
-          display: grid;
-          gap: 5px;
-          min-width: 0;
-        }
-
-        .marketing-timeline-weekline {
-          display: grid;
-          grid-auto-flow: column;
-          grid-auto-columns: minmax(12px, 1fr);
-          gap: 3px;
-          min-width: 0;
+          display: flex;
           height: 12px;
-          align-items: stretch;
+          margin: 2px 0 1px;
+          background: ${withAlpha(isDarkMode ? colours.dark.text : colours.greyText, isDarkMode ? 0.12 : 0.10)};
+          overflow: hidden;
         }
 
-        .marketing-timeline-weekline-segment {
+        .marketing-timeline-progression-segment {
+          display: block;
+          height: 100%;
+          transition: width 220ms ease, filter 180ms ease;
+        }
+
+        .marketing-timeline-row:not(.is-heading):hover {
+          box-shadow: inset 2px 0 0 ${withAlpha(colours.highlight, isDarkMode ? 0.74 : 0.66)};
+        }
+
+        .marketing-timeline-row:not(.is-heading):hover .marketing-timeline-period-range {
+          color: ${isDarkMode ? colours.dark.text : colours.darkBlue};
+        }
+
+        .marketing-timeline-row:not(.is-heading):hover .marketing-timeline-progression-segment {
+          filter: saturate(1.08);
+        }
+
+        .marketing-timeline-signal-cell {
+          display: grid;
+          gap: 6px;
           min-width: 0;
-          opacity: 0.48;
         }
 
-        .marketing-timeline-weekline-segment.is-active {
-          opacity: 1;
+        .marketing-timeline-weekly-breakdown {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 6px;
+          min-width: 0;
+        }
+
+        .marketing-timeline-weekly-row {
+          display: grid;
+          align-content: start;
+          gap: 1px;
+          min-width: 0;
+          padding: 0;
+          transition: opacity 180ms ease;
+        }
+
+        .marketing-timeline-weekly-row.is-empty {
+          opacity: 0.54;
+        }
+
+        .marketing-timeline-weekly-row small,
+        .marketing-timeline-weekly-row strong {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        @media (max-width: 980px) {
+          .marketing-timeline-weekly-breakdown {
+            gap: 4px;
+          }
         }
 
         .marketing-timeline-empty {
