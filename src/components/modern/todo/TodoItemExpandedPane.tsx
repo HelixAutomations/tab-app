@@ -1,6 +1,7 @@
 import React from 'react';
 import { colours, withAlpha } from '../../../app/styles/colours';
 import type { TodoExpansion } from '../../../tabs/home/ImmediateActionModel';
+import './TodoItemExpandedPane.css';
 
 interface TodoItemExpandedPaneProps {
   expansion: TodoExpansion;
@@ -35,116 +36,107 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
 }) => {
   const accent = resolveAccent(expansion, isDarkMode);
   const text = isDarkMode ? colours.dark.text : colours.light.text;
-  const bodyText = isDarkMode ? '#d1d5db' : '#374151';
   const helpText = isDarkMode ? colours.subtleGrey : colours.greyText;
   const surface = isDarkMode
-    ? withAlpha(colours.websiteBlue, 0.45)
-    : withAlpha(colours.highlightBlue, 0.35);
+    ? withAlpha(colours.dark.cardBackground, 0.58)
+    : withAlpha(colours.light.cardBackground, 0.96);
   const raisedSurface = isDarkMode
-    ? withAlpha(colours.dark.cardBackground, 0.72)
-    : withAlpha(colours.light.cardBackground, 0.88);
+    ? withAlpha(colours.dark.cardHover, 0.52)
+    : withAlpha(colours.grey, 0.55);
   const divider = isDarkMode
-    ? withAlpha(colours.dark.border, 0.4)
-    : withAlpha(colours.helixBlue, 0.12);
+    ? withAlpha(colours.dark.border, 0.58)
+    : withAlpha(colours.helixBlue, 0.14);
+  const accentSoft = withAlpha(accent, isDarkMode ? 0.15 : 0.08);
+  const accentLine = withAlpha(accent, isDarkMode ? 0.72 : 0.56);
+  const bodyText = isDarkMode ? '#d1d5db' : '#374151';
 
   const fields = (expansion.fields ?? []).slice(0, 4);
+  const prompts = (expansion.prompts ?? []).slice(0, 3);
   const actions = (expansion.actions ?? []).slice(0, 3);
   const listRows = (expansion.list ?? []).slice(0, MAX_LIST_ROWS);
   const hiddenRowCount = Math.max((expansion.list ?? []).length - MAX_LIST_ROWS, 0);
+  const kindLabel = expansion.kind === 'list'
+    ? 'Queue'
+    : expansion.kind === 'matter'
+      ? 'Matter workflow'
+      : expansion.kind === 'enquiry'
+        ? 'Prospect workflow'
+        : 'Task context';
+  const cssVars = {
+    '--todo-expansion-accent': accent,
+    '--todo-expansion-accent-soft': accentSoft,
+    '--todo-expansion-accent-line': accentLine,
+    '--todo-expansion-surface': surface,
+    '--todo-expansion-raised': raisedSurface,
+    '--todo-expansion-border': divider,
+    '--todo-expansion-text': text,
+    '--todo-expansion-body': bodyText,
+    '--todo-expansion-muted': helpText,
+  } as React.CSSProperties;
 
   return (
     <div
       role="region"
       aria-label={`${expansion.primary} details`}
-      style={{
-        display: 'flex',
-        gap: 0,
-        background: `linear-gradient(90deg, ${withAlpha(accent, isDarkMode ? 0.14 : 0.08)} 0%, ${surface} 34%, ${surface} 100%)`,
-        borderTop: `1px solid ${divider}`,
-        padding: '10px 12px',
-        fontFamily: 'var(--font-primary)',
-        animation: 'iabChipIn 0.18s ease both',
-        boxShadow: `inset 3px 0 0 ${withAlpha(accent, isDarkMode ? 0.65 : 0.52)}`,
-      }}
+      className="todo-expanded-pane"
+      style={cssVars}
     >
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {/* Heading block */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 12.5,
-              fontWeight: 600,
-              color: text,
-              lineHeight: 1.3,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-            title={expansion.primary}
-          >
-            {expansion.primary}
-          </div>
-          {expansion.secondary && (
+      <div className="todo-expanded-pane__rail" aria-hidden="true" />
+      <div className="todo-expanded-pane__content">
+        <div className="todo-expanded-pane__head">
+          <div className="todo-expanded-pane__title-block">
             <div
+              className="todo-expanded-pane__title"
               style={{
-                fontSize: 10.5,
-                color: helpText,
-                lineHeight: 1.3,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                letterSpacing: 0.15,
+                color: text,
               }}
-              title={expansion.secondary}
+              title={expansion.primary}
             >
-              {expansion.secondary}
+              {expansion.primary}
             </div>
-          )}
+            {expansion.secondary && (
+              <div
+                className="todo-expanded-pane__secondary"
+                style={{
+                  color: helpText,
+                }}
+                title={expansion.secondary}
+              >
+                {expansion.secondary}
+              </div>
+            )}
+          </div>
+          <span className="todo-expanded-pane__kind">{kindLabel}</span>
         </div>
 
-        {/* Description */}
         {expansion.description && (
           <p
-            style={{
-              margin: 0,
-              fontSize: 11.5,
-              color: bodyText,
-              lineHeight: 1.45,
-            }}
+            className="todo-expanded-pane__description"
+            style={{ color: bodyText }}
           >
             {expansion.description}
           </p>
         )}
 
-        {/* Field grid */}
         {fields.length > 0 && (
           <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: fields.length === 1 ? '1fr' : 'repeat(2, minmax(0, 1fr))',
-              gap: '4px 12px',
-            }}
+            className="todo-expanded-pane__fields"
+            data-single={fields.length === 1 ? 'true' : undefined}
           >
             {fields.map((f) => (
-              <div key={f.label} style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+              <div key={f.label} className="todo-expanded-pane__field">
                 <span
+                  className="todo-expanded-pane__field-label"
                   style={{
-                    fontSize: 9,
-                    fontWeight: 600,
                     color: helpText,
-                    textTransform: 'uppercase',
-                    letterSpacing: 0.4,
                   }}
                 >
                   {f.label}
                 </span>
                 <span
+                  className="todo-expanded-pane__field-value"
                   style={{
-                    fontSize: 11,
                     color: text,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
                   }}
                   title={f.value}
                 >
@@ -155,18 +147,21 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
           </div>
         )}
 
-        {/* Inline entity list (kind === 'list'). Renders a small clickable
-            queue inside the expansion so users can triage from Home without
-            navigating away. */}
+        {prompts.length > 0 && (
+          <div className="todo-expanded-pane__prompts" aria-label="Suggested prompts">
+            {prompts.map((prompt) => (
+              <div key={`${prompt.label}:${prompt.body}`} className="todo-expanded-pane__prompt" data-tone={prompt.tone || 'default'}>
+                <div className="todo-expanded-pane__prompt-label">{prompt.label}</div>
+                <div className="todo-expanded-pane__prompt-body">{prompt.body}</div>
+                {prompt.meta && <div className="todo-expanded-pane__prompt-meta">{prompt.meta}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+
         {listRows.length > 0 && (
           <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              border: `1px solid ${divider}`,
-              background: raisedSurface,
-              boxShadow: `inset 0 1px 0 ${withAlpha(accent, isDarkMode ? 0.10 : 0.08)}`,
-            }}
+            className="todo-expanded-pane__list"
           >
             {listRows.map((row, idx) => {
               const rowAccent = row.aow ? resolveAowColor(row.aow, isDarkMode) : accent;
@@ -179,21 +174,11 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
                     row.onClick();
                     onAction?.(`open:${row.id || row.primary}`);
                   }}
+                  className="todo-expanded-pane__list-row"
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '6px 10px',
+                    '--todo-expansion-row-accent': rowAccent,
                     borderTop: idx === 0 ? 'none' : `1px solid ${divider}`,
-                    background: 'transparent',
-                    border: 'none',
-                    borderRadius: 0,
-                    cursor: 'pointer',
-                    width: '100%',
-                    textAlign: 'left',
-                    fontFamily: 'var(--font-primary)',
-                    transition: 'background 0.12s ease, box-shadow 0.12s ease',
-                  }}
+                  } as React.CSSProperties}
                   onMouseEnter={(e) => {
                     (e.currentTarget as HTMLButtonElement).style.background = withAlpha(
                       rowAccent,
@@ -208,23 +193,14 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
                 >
                   <span
                     aria-hidden
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      background: rowAccent,
-                      flex: '0 0 auto',
-                    }}
+                    className="todo-expanded-pane__list-dot"
+                    style={{ background: rowAccent }}
                   />
-                  <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <span className="todo-expanded-pane__list-copy">
                     <span
+                      className="todo-expanded-pane__list-primary"
                       style={{
-                        fontSize: 11.5,
-                        fontWeight: 600,
                         color: text,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
                       }}
                       title={row.primary}
                     >
@@ -232,13 +208,9 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
                     </span>
                     {row.secondary && (
                       <span
+                        className="todo-expanded-pane__list-secondary"
                         style={{
-                          fontSize: 10,
                           color: helpText,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          letterSpacing: 0.15,
                         }}
                         title={row.secondary}
                       >
@@ -248,13 +220,10 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
                   </span>
                   {row.ownerInitials && (
                     <span
+                      className="todo-expanded-pane__list-owner"
                       style={{
-                        fontSize: 9.5,
-                        fontWeight: 700,
                         color: helpText,
-                        padding: '1px 5px',
                         border: `1px solid ${divider}`,
-                        letterSpacing: 0.4,
                       }}
                     >
                       {row.ownerInitials}
@@ -262,11 +231,9 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
                   )}
                   {row.badge && (
                     <span
+                      className="todo-expanded-pane__list-badge"
                       style={{
-                        fontSize: 10,
-                        fontWeight: 600,
                         color: rowAccent,
-                        whiteSpace: 'nowrap',
                       }}
                     >
                       {row.badge}
@@ -277,12 +244,10 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
             })}
             {hiddenRowCount > 0 && (
               <div
+                className="todo-expanded-pane__hidden-count"
                 style={{
-                  fontSize: 10,
                   color: helpText,
-                  padding: '5px 10px',
                   borderTop: `1px solid ${divider}`,
-                  letterSpacing: 0.2,
                 }}
               >
                 +{hiddenRowCount} more
@@ -291,9 +256,8 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
           </div>
         )}
 
-        {/* Action row */}
         {actions.length > 0 && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+          <div className="todo-expanded-pane__actions">
             {actions.map((a) => {
               const primary = a.tone !== 'ghost';
               return (
@@ -308,12 +272,6 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
                     onAction?.(a.label);
                   }}
                   style={{
-                    fontFamily: 'var(--font-primary)',
-                    fontSize: 10.5,
-                    fontWeight: 800,
-                    letterSpacing: 0.2,
-                    padding: '5px 10px',
-                    borderRadius: 0,
                     border: `1px solid ${primary ? accent : divider}`,
                     background: primary
                       ? withAlpha(accent, isDarkMode ? 0.22 : 0.12)
@@ -321,7 +279,6 @@ export const TodoItemExpandedPane: React.FC<TodoItemExpandedPaneProps> = ({
                     color: primary ? accent : text,
                     cursor: a.disabled ? 'not-allowed' : 'pointer',
                     opacity: a.disabled ? 0.5 : 1,
-                    transition: 'background 0.15s ease, border-color 0.15s ease',
                   }}
                   onMouseEnter={(e) => {
                     if (a.disabled) return;

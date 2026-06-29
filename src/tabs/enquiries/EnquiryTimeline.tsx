@@ -21,6 +21,7 @@ import { WorkbenchJourneyRail } from '../../components/workbench/WorkbenchJourne
 import PortalLaunchModal from '../../components/portal/PortalLaunchModal';
 import { buildPortalLaunchModel } from '../../utils/portalLaunch';
 import { deriveWorkbenchStageStatuses } from '../../utils/workbenchStatusDerivation';
+import { deriveProspectJourneyState } from '../../utils/workbenchJourneyState';
 import type {
   WorkbenchContextStage,
   WorkbenchItem,
@@ -5427,7 +5428,7 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
           enquiry={enquiry}
           isDarkMode={isDarkMode}
           copiedField={copiedField}
-          inlineWorkbenchItem={inlineWorkbenchItem}
+          inlineWorkbenchItem={{ ...(inlineWorkbenchItem || {}), enquiry, enrichmentTeamsData, pitchData: enrichmentPitchData }}
           currentRating={String((enquiry as any)?.Rating ?? (inlineWorkbenchItem as any)?.enquiry?.Rating ?? '').trim() || null}
           displayAreaOfWork={displayAreaOfWork}
           pocDisplayName={(() => {
@@ -5496,6 +5497,12 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               // Determine stage statuses from inlineWorkbenchItem
               const workbenchPitch = (inlineWorkbenchItem?.pitch || inlineWorkbenchItem?.Pitch || inlineWorkbenchItem?.pitchData || null) as Record<string, any> | null;
               const workbenchDeal = (inlineWorkbenchItem?.deal || null) as Record<string, any> | null;
+              const journeyState = deriveProspectJourneyState({
+                workbenchItem: { ...(inlineWorkbenchItem || {}), enquiry, enrichmentTeamsData, pitchData: enrichmentPitchData } as any,
+                enquiry: enquiry as any,
+                enrichmentPitchData: enrichmentPitchData as any,
+                enrichmentTeamsData: enrichmentTeamsData as any,
+              });
               const workbenchPitchStatus = String(
                 workbenchPitch?.status
                   || workbenchPitch?.DealStatus
@@ -5549,13 +5556,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
               // Require actual email content to count as a sent pitch. A bare
               // PITCHED/SENT deal status without content usually indicates a
               // link-only deal and must not light the Pitch stage green.
-              const hasWorkbenchPitch = Boolean(workbenchPitchContent);
+              const hasWorkbenchPitch = journeyState.hasPitchEvidence || Boolean(workbenchPitchContent);
               const instruction = inlineWorkbenchItem?.instruction;
-              const instructionRef = instruction?.InstructionRef || instruction?.instructionRef || '';
-              const instructionStage = (instruction?.Stage || instruction?.stage || '').toLowerCase();
+              const instructionRef = journeyState.instructionRef || instruction?.InstructionRef || instruction?.instructionRef || '';
               const instructedDate = instruction?.instructedDate || instruction?.InstructedDate || instruction?.SubmissionDate || instruction?.submissionDate || instruction?.SubmittedAt || instruction?.submittedAt || instruction?.InstructionDateTime || instruction?.instructionDateTime || instruction?.InstructionDate || instruction?.instructionDate;
-              const isShellInstruction = Boolean(instructionRef) && (instructionStage === 'initialised' || instructionStage === 'opened' || instructionStage === 'pitched' || instructionStage === '');
-              const hasInstruction = Boolean(instructionRef) && (Boolean(instructedDate) || !isShellInstruction);
+              const hasInstruction = journeyState.isInstructionSubmitted;
               const hasInstructionActivity = Boolean(instructionRef);
               const sentPitchCount = sentPitchTimelineItems.length;
               const hasPitch = sentPitchCount > 0 || hasWorkbenchPitch;
@@ -5631,11 +5636,11 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 stageStatuses,
               }, { mediumRiskStatus: 'warning' });
 
-              const identityStatus = derivedStageStatuses.id;
-              const paymentStatus = derivedStageStatuses.payment;
-              const riskStatus = derivedStageStatuses.risk;
-              const matterStageStatus = derivedStageStatuses.matter;
-              const documentStatus = derivedStageStatuses.documents;
+              const identityStatus = journeyState.stages.identity.status as WorkbenchJourneyStatus;
+              const paymentStatus = journeyState.stages.payment.status as WorkbenchJourneyStatus;
+              const riskStatus = journeyState.stages.risk.status as WorkbenchJourneyStatus;
+              const matterStageStatus = journeyState.stages.matter.status as WorkbenchJourneyStatus;
+              const documentStatus = journeyState.stages.documents.status as WorkbenchJourneyStatus;
               
               // Get dates for completed stages
               const enquiryDate = enquiry?.Date_Created ? new Date(enquiry.Date_Created) : null;
@@ -5696,15 +5701,16 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                   icon: <FiSend size={14} strokeWidth={1.8} />,
                   status: hasPitch ? 'complete' : 'pending',
                   date: firstPitchDate,
-                  detail: sentPitchCount > 0 ? `${sentPitchCount} pitch${sentPitchCount > 1 ? 'es' : ''}` : undefined,
+                  detail: sentPitchCount > 0 ? `${sentPitchCount} pitch${sentPitchCount > 1 ? 'es' : ''}` : (hasPitch ? journeyState.stages.pitch.statusText : undefined),
                 },
                 { 
                   key: 'instructed', 
-                  label: hasInstructionActivity ? 'Instruction Received' : 'Instruction', 
-                  shortLabel: hasInstructionActivity ? 'Instruction received' : 'Instruction',
+                  label: hasInstruction ? 'Instruction Received' : (hasInstructionActivity ? 'Checkout Opened' : 'Instruction'),
+                  shortLabel: hasInstruction ? 'Instruction received' : (hasInstructionActivity ? 'Checkout opened' : 'Instruction'),
                   icon: <FiClipboard size={14} strokeWidth={1.8} />,
-                  status: hasInstruction ? 'complete' : (hasInstructionActivity ? 'current' : 'disabled'),
+                  status: hasInstruction ? 'complete' : (hasInstructionActivity ? 'processing' : 'disabled'),
                   date: instructionDate,
+                  detail: hasInstructionActivity && !hasInstruction ? 'Awaiting client' : undefined,
                 },
                 { 
                   key: 'payment', 
@@ -5716,10 +5722,10 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
                 },
                 { 
                   key: 'id', 
-                  label: eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check', 
+                  label: identityStatus === 'blocked' ? 'ID Waiting' : eidDisplayResult ? `ID: ${eidDisplayResult}` : 'ID Check',
                   shortLabel: 'ID',
                   icon: <FiShield size={14} strokeWidth={1.8} />, 
-                  status: !hasInstruction ? 'disabled' : identityStatus,
+                  status: !hasInstruction ? (identityStatus === 'blocked' ? 'blocked' : 'disabled') : identityStatus,
                   date: null,
                 },
                 { 
@@ -5844,7 +5850,33 @@ const EnquiryTimeline: React.FC<EnquiryTimelineProps> = ({ enquiry, showDataLoad
             style={{ boxShadow: `inset 0 1px 0 ${activeCaseAccentColor}26` }}
           >
             <InlineWorkbench
-              item={{ ...(inlineWorkbenchItem ?? {}), enquiry, enrichmentTeamsData, pitchData: enrichmentPitchData }}
+              item={(() => {
+                const base: any = { ...(inlineWorkbenchItem ?? {}), enquiry, enrichmentTeamsData, pitchData: enrichmentPitchData };
+                // Corpus lookup can miss the linked deal (stale slice, scope, or id mismatch).
+                // When we have pitch enrichment but no linked deal, synthesize a minimal deal so
+                // the Pitch/deal fields render from real data. Does NOT synthesize an instruction,
+                // so instruction completion stays accurate (pitched != instructed).
+                if (!base.deal && enrichmentPitchData && (enrichmentPitchData.dealId || enrichmentPitchData.instructionRef)) {
+                  const ref = String(enrichmentPitchData.instructionRef || '').trim();
+                  const passcodeMatch = ref.match(/^HLX-\d+-(\d+)$/i);
+                  base.deal = {
+                    DealId: enrichmentPitchData.dealId,
+                    InstructionRef: enrichmentPitchData.instructionRef,
+                    ProspectId: ref.match(/^HLX-(\d+)-\d+$/i)?.[1],
+                    Status: enrichmentPitchData.status,
+                    Stage: enrichmentPitchData.status,
+                    ServiceDescription: enrichmentPitchData.serviceDescription,
+                    Amount: enrichmentPitchData.amount,
+                    AreaOfWork: enrichmentPitchData.areaOfWork,
+                    PitchedBy: enrichmentPitchData.pitchedBy,
+                    PitchedDate: enrichmentPitchData.pitchedDate,
+                    PitchedTime: enrichmentPitchData.pitchedTime,
+                    Passcode: passcodeMatch ? passcodeMatch[1] : undefined,
+                    __synthesizedFromEnrichment: true,
+                  };
+                }
+                return base;
+              })()}
               isDarkMode={isDarkMode}
               teamData={teamData}
               currentUser={userEmail ? { Email: userEmail } : null}

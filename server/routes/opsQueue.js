@@ -1,6 +1,7 @@
 const express = require('express');
 const sql = require('mssql');
 const { trackEvent, trackException } = require('../utils/appInsights');
+const { append: opAppend } = require('../utils/opLog');
 const { withRequest, getPool } = require('../utils/db');
 const { getCache, setCache, generateCacheKey, deleteCache } = require('../utils/redisClient');
 const {
@@ -449,11 +450,26 @@ router.post('/transaction-approve', async (req, res) => {
     });
 
     trackEvent('OpsQueue.Transaction.ApproveCompleted', { transactionId, action, newStatus, userInitials });
+    opAppend({
+      type: 'ops.transaction',
+      status: 'success',
+      title: 'Transaction updated',
+      action,
+      newStatus,
+      userInitials,
+    });
     invalidateOpsCache();
     res.json({ success: true, transactionId, newStatus });
   } catch (error) {
     trackException(error, { operation: 'OpsQueue.Transaction.Approve', phase: 'update' });
     trackEvent('OpsQueue.Transaction.ApproveFailed', { transactionId: req.body?.transactionId, error: error.message });
+    opAppend({
+      type: 'ops.transaction',
+      status: 'error',
+      title: 'Transaction update failed',
+      action: req.body?.action || 'unknown',
+      userInitials: req.body?.userInitials || 'unknown',
+    });
     res.status(500).json({ error: 'Failed to approve transaction', details: error.message });
   }
 });

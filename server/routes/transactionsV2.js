@@ -1,5 +1,6 @@
 const express = require('express');
 const { trackEvent, trackException } = require('../utils/appInsights');
+const { append: opAppend } = require('../utils/opLog');
 const { sql, getPool, withRequest } = require('../utils/db');
 const { getCache, setCache, generateCacheKey, deleteCache } = require('../utils/redisClient');
 const {
@@ -200,6 +201,14 @@ router.post('/', async (req, res) => {
     const inserted = result.recordset?.[0];
     trackEvent('TransactionsV2.CreateCompleted', {
       id: String(inserted?.id), matterRef, createdBy,
+    });
+    opAppend({
+      type: 'ops.transaction',
+      status: 'success',
+      title: 'Transaction created',
+      action: 'create',
+      newStatus: 'pending',
+      userInitials: createdBy || 'unknown',
     });
 
     await recordStep(submissionId, {
@@ -442,11 +451,26 @@ router.post('/:id/action', async (req, res) => {
     });
 
     trackEvent('TransactionsV2.ActionCompleted', { id: String(id), action, newStatus, userInitials });
+    opAppend({
+      type: 'ops.transaction',
+      status: 'success',
+      title: 'Transaction actioned',
+      action,
+      newStatus,
+      userInitials,
+    });
     invalidateV2Cache();
     res.json({ success: true, id, newStatus });
   } catch (error) {
     trackException(error, { operation: 'TransactionsV2.Action', phase: 'update' });
     trackEvent('TransactionsV2.ActionFailed', { id: req.params.id, error: error.message });
+    opAppend({
+      type: 'ops.transaction',
+      status: 'error',
+      title: 'Transaction action failed',
+      action: req.body?.action || 'unknown',
+      userInitials: req.body?.userInitials || 'unknown',
+    });
     res.status(500).json({ error: 'Failed to action transaction' });
   }
 });

@@ -128,6 +128,7 @@ import {
 import StatusFilterWithScope, { EnquiriesActiveState } from './components/StatusFilterWithScope';
 import MiniPipelineChip, { MiniChipProps, renderPipelineIcon } from './components/MiniPipelineChip';
 import { mergeInstructionOverrides, buildInlineWorkbenchMap } from './utils/buildInlineWorkbenchMap';
+import { deriveProspectJourneyState, isInstructionShellStage } from '../../utils/workbenchJourneyState';
 import QueueLoadingSkeleton from './components/QueueLoadingSkeleton';
 import ClaimPromptChip from './components/ClaimPromptChip';
 import { usePipelineContactData } from './hooks/usePipelineContactData';
@@ -568,6 +569,14 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     let hasInstruction = false;
     let hasPitch = false;
 
+    const isSubmittedInstruction = (instruction: any) => {
+      const ref = instruction?.InstructionRef || instruction?.instructionRef || instruction?.instruction_ref;
+      if (!ref) return false;
+      const stage = instruction?.Stage || instruction?.stage || '';
+      const submitted = instruction?.SubmissionDate || instruction?.submissionDate || instruction?.SubmissionDateTime || instruction?.submissionDateTime || instruction?.SubmittedAt || instruction?.submittedAt || instruction?.InstructionDate || instruction?.instructionDate;
+      return Boolean(submitted) || !isInstructionShellStage(stage);
+    };
+
     // Check if this enquiry ID matches any prospect IDs in instruction data
     instructionData.forEach((item: any) => {
       // Check if the enquiry ID matches prospect ID in deals or instructions
@@ -577,7 +586,7 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         promotedCount++;
         
         // Check if it has actual instructions (not just deals/pitches)
-        if (item.instructions && item.instructions.length > 0) {
+        if (item.instructions && item.instructions.some(isSubmittedInstruction)) {
           hasInstruction = true;
         } else if (item.deals && item.deals.length > 0) {
           hasPitch = true;
@@ -599,7 +608,11 @@ const Enquiries: React.FC<EnquiriesProps> = ({
         item.instructions.forEach((instruction: any) => {
           if (instruction.ProspectId?.toString() === enquiry.ID?.toString() || instruction.prospectId?.toString() === enquiry.ID?.toString()) {
             promotedCount++;
-            hasInstruction = true;
+            if (isSubmittedInstruction(instruction)) {
+              hasInstruction = true;
+            } else {
+              hasPitch = true;
+            }
           }
         });
       }
@@ -647,6 +660,18 @@ const Enquiries: React.FC<EnquiriesProps> = ({
     [effectiveInstructionData, demoModeEnabled, userData],
   );
 
+  const addWorkbenchKeyCandidate = useCallback((candidates: string[], seen: Set<string>, value: unknown) => {
+    const key = String(value ?? '').trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    candidates.push(key);
+  }, []);
+
+  const extractProspectIdFromInstructionRef = useCallback((value: unknown): string | null => {
+    const match = String(value ?? '').trim().match(/^HLX-(\d+)-\d+$/i);
+    return match ? match[1] : null;
+  }, []);
+
   // Legacy used ActiveCampaign ID as internal ID; new space stores it in ACID.
   // deal.ProspectId = ActiveCampaign ID = enquiry.ACID
   const getEnquiryWorkbenchKey = useCallback((enquiry: Enquiry): string | null => {
@@ -657,27 +682,37 @@ const Enquiries: React.FC<EnquiriesProps> = ({
   }, []);
 
   // Look up workbench item by enquiry's ACID (maps to deal.ProspectId). Fallback to enquiry ID, then email.
-  const getEnquiryWorkbenchItem = useCallback((enquiry: Enquiry): any | undefined => {
+  const getEnquiryWorkbenchItem = useCallback((enquiry: Enquiry, hints?: { instructionRef?: unknown; prospectId?: unknown }): any | undefined => {
     const acid = (enquiry as any).ACID || (enquiry as any).acid || (enquiry as any).Acid;
     const fallbackId = (enquiry as any).ProspectId || (enquiry as any).prospectId || enquiry.ID;
     const legacyId = (enquiry as any).legacyEnquiryId;
-    const key = acid || fallbackId;
-    if (key) {
-      const byId = inlineWorkbenchByEnquiryId.get(String(key));
-      if (byId) return byId;
+    const processingEnquiryId = (enquiry as any).processingEnquiryId;
+    const pitchEnquiryId = (enquiry as any).pitchEnquiryId;
+    const hintedInstructionRef = hints?.instructionRef;
+    const hintedProspectId = hints?.prospectId || extractProspectIdFromInstructionRef(hintedInstructionRef);
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+
+    addWorkbenchKeyCandidate(candidates, seen, hintedProspectId);
+    addWorkbenchKeyCandidate(candidates, seen, hintedInstructionRef);
+    addWorkbenchKeyCandidate(candidates, seen, acid);
+    addWorkbenchKeyCandidate(candidates, seen, fallbackId);
+    addWorkbenchKeyCandidate(candidates, seen, legacyId);
+    addWorkbenchKeyCandidate(candidates, seen, pitchEnquiryId);
+    addWorkbenchKeyCandidate(candidates, seen, processingEnquiryId);
+
+    for (const candidate of candidates) {
+      const byCandidate = inlineWorkbenchByEnquiryId.get(candidate);
+      if (byCandidate) return byCandidate;
     }
-    // Legacy annotation from unified endpoint may carry the cross-referenced ID
-    if (legacyId && legacyId !== key) {
-      const byLegacy = inlineWorkbenchByEnquiryId.get(String(legacyId));
-      if (byLegacy) return byLegacy;
-    }
+
     // v2 enquiries may lack ACID — fall back to email match
     const email = String((enquiry as any).Email || (enquiry as any).email || '').trim().toLowerCase();
     if (email) {
       return inlineWorkbenchByEnquiryId.get(`email:${email}`);
     }
     return undefined;
-  }, [inlineWorkbenchByEnquiryId]);
+  }, [addWorkbenchKeyCandidate, extractProspectIdFromInstructionRef, inlineWorkbenchByEnquiryId]);
 
   const PROSPECTS_INSTRUCTION_REF_KEY = 'navigateToInstructionRef';
   const PROSPECTS_INSTRUCTION_ACTION_KEY = 'navigateToInstructionAction';
@@ -4585,7 +4620,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
       filtered = filtered.filter(enquiry => {
         try {
           const enrichmentData = enrichmentMap.get(String(enquiry.ID));
-          const inlineWorkbenchItem = getEnquiryWorkbenchItem(enquiry);
+          const inlineWorkbenchItem = getEnquiryWorkbenchItem(enquiry, {
+            instructionRef: enrichmentData?.pitchData?.instructionRef,
+          });
           const inst = inlineWorkbenchItem?.instruction;
           const deal = inlineWorkbenchItem?.deal;
           const instructionRef = (inst?.InstructionRef ?? inst?.instructionRef ?? deal?.InstructionRef ?? deal?.instructionRef) as string | undefined;
@@ -4598,16 +4635,22 @@ const Enquiries: React.FC<EnquiriesProps> = ({
             }
             let hasStage = false;
 
+            const journeyState = deriveProspectJourneyState({
+              workbenchItem: inlineWorkbenchItem,
+              enquiry: enquiry as any,
+              enrichmentData: enrichmentData as any,
+            });
+
             if (stage === 'poc') {
               // POC is active if there's Teams data OR a valid POC assignment
               hasStage = !!(enrichmentData?.teamsData) || (Boolean(poc) && poc !== 'team@helix-law.com');
             } else if (stage === 'pitched') {
-              hasStage = !!(enrichmentData?.pitchData);
+              hasStage = journeyState.hasPitchEvidence;
             } else if (stage === 'instructed') {
-              // Require actual instruction record, not just InstructionRef from deal
-              hasStage = Boolean(inst);
+              // Require actual submission, not a checkout shell/initialised row.
+              hasStage = journeyState.isInstructionSubmitted;
             } else if (stage === 'idcheck') {
-              hasStage = Boolean(inlineWorkbenchItem?.eid);
+              hasStage = journeyState.hasIdentityResult;
             } else if (stage === 'paid') {
               hasStage = Array.isArray(inlineWorkbenchItem?.payments) && inlineWorkbenchItem.payments.length > 0;
             } else if (stage === 'risk') {
@@ -5766,7 +5809,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
               setSelectedPitchScenario(scenarioId);
               setActiveSubTab('Pitch');
             }}
-            inlineWorkbenchItem={getEnquiryWorkbenchItem(enquiry)}
+            inlineWorkbenchItem={getEnquiryWorkbenchItem(enquiry, {
+              instructionRef: enrichmentMap.get(String(enquiry.ID))?.pitchData?.instructionRef,
+            })}
             teamData={teamData}
             enrichmentPitchData={enquiry.ID ? enrichmentMap.get(String(enquiry.ID))?.pitchData : undefined}
             enrichmentTeamsData={enquiry.ID ? enrichmentMap.get(String(enquiry.ID))?.teamsData : undefined}
@@ -7465,7 +7510,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                           if (parts.length <= 1) {
                             // Look for any instruction in the group's enquiries
                             for (const enq of item.enquiries) {
-                              const wb = getEnquiryWorkbenchItem(enq);
+                              const enrichmentData = enrichmentMap.get(String(enq.ID));
+                              const wb = getEnquiryWorkbenchItem(enq, {
+                                instructionRef: enrichmentData?.pitchData?.instructionRef,
+                              });
                               const instFirst = (wb?.instruction?.FirstName || '').trim();
                               const instLast = (wb?.instruction?.LastName || '').trim();
                               if (instFirst && instLast) return `${instFirst} ${instLast}`;
@@ -7501,7 +7549,10 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                         const groupAreaLabel = latestEnquiry.Area_of_Work || 'Unspecified';
                         // Check if any enquiry in this group has been converted / matter opened
                         const groupHasConverted = item.enquiries.some((enq: any) => {
-                          const wb = getEnquiryWorkbenchItem(enq);
+                          const enrichmentData = enrichmentMap.get(String(enq.ID));
+                          const wb = getEnquiryWorkbenchItem(enq, {
+                            instructionRef: enrichmentData?.pitchData?.instructionRef,
+                          });
                           return Boolean(wb?.instruction?.MatterId || (wb?.matters && wb.matters.length > 0));
                         });
                         return (
@@ -7648,7 +7699,9 @@ const Enquiries: React.FC<EnquiriesProps> = ({
                             const childHasNotes = childEnquiry.Initial_first_call_notes && childEnquiry.Initial_first_call_notes.trim().length > 0;
                             const childNoteKey = buildEnquiryIdentityKey(childEnquiry);
                             const childNotesExpanded = expandedNotesInTable.has(childNoteKey);
-                            const childInlineWorkbenchItem = getEnquiryWorkbenchItem(childEnquiry);
+                            const childInlineWorkbenchItem = getEnquiryWorkbenchItem(childEnquiry, {
+                              instructionRef: childEnrichmentData?.pitchData?.instructionRef,
+                            });
                             const childHasInlineWorkbench = Boolean(childInlineWorkbenchItem);
                             // Detect converted / matter-opened child enquiry
                             const childIsConverted = Boolean(

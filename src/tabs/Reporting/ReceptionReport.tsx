@@ -87,6 +87,8 @@ interface HandlerRow {
   identityVerified?: number;
   identityMismatch?: number;
   identityUnverified?: number;
+  loggedForms?: number;
+  lastCallAt?: string | null;
 }
 
 interface CoverageEntry { source?: string | null; status?: string; note?: string; }
@@ -279,7 +281,7 @@ interface LiveCue {
   receivedAt: number;
 }
 
-type KpiKey = 'callsTaken' | 'handled' | 'avgCall' | 'conversion' | 'notesClarity' | 'opened' | 'inFlight';
+type KpiKey = 'callsTaken' | 'handled' | 'avgCall' | 'notesClarity' | 'shortCalls' | 'conversion' | 'opened' | 'inFlight';
 type ReviewFocusKey = 'all' | 'noMatterLink' | 'unratedNotes' | 'formOnly' | 'identityMismatch' | 'shortCalls' | 'mpOnly';
 
 interface KpiBreakdownRow {
@@ -663,9 +665,19 @@ const handlerLabel = (raw: string): string => {
     wh: 'Wolfgang',
     wolfgang: 'Wolfgang',
     'wolfgang hartung': 'Wolfgang',
+    ld: 'Libby',
+    libby: 'Libby',
   };
   if (knownLabels[lower]) return knownLabels[lower];
   return raw.toUpperCase();
+};
+
+const HANDLER_DISPLAY_ORDER = ['Emma', 'Kanchel', 'Wolfgang', 'Libby', 'MoneyPenny'];
+
+const handlerSortRank = (raw: string): number => {
+  const label = handlerLabel(raw);
+  const index = HANDLER_DISPLAY_ORDER.indexOf(label);
+  return index >= 0 ? index : HANDLER_DISPLAY_ORDER.length;
 };
 
 type ClarityBand = 'high' | 'mid' | 'low' | 'noSample';
@@ -735,8 +747,8 @@ const describeTotalsDelta = (
   const inFlightDelta = next.prospectsInProgress - previous.prospectsInProgress;
   const notesDelta = next.notesRated - previous.notesRated;
   if (callsDelta > 0) changes.push(`+${callsDelta} call${callsDelta === 1 ? '' : 's'}`);
-  if (openedDelta > 0) changes.push(`+${openedDelta} matter path${openedDelta === 1 ? '' : 's'}`);
-  if (inFlightDelta > 0) changes.push(`+${inFlightDelta} onboarding`);
+  if (openedDelta > 0) changes.push(`+${openedDelta} related matter${openedDelta === 1 ? '' : 's'}`);
+  if (inFlightDelta > 0) changes.push(`+${inFlightDelta} related instruction${inFlightDelta === 1 ? '' : 's'}`);
   if (notesDelta > 0) changes.push(`+${notesDelta} note rating${notesDelta === 1 ? '' : 's'}`);
   return changes.length ? changes.slice(0, 2).join(', ') : 'metrics checked';
 };
@@ -1046,7 +1058,11 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
 
   const handlers = useMemo(() => {
     if (!data?.handlers) return [];
-    return [...data.handlers].sort((a, b) => b.callsTaken - a.callsTaken);
+    return [...data.handlers].sort((a, b) => {
+      const rankDelta = handlerSortRank(a.handler) - handlerSortRank(b.handler);
+      if (rankDelta !== 0) return rankDelta;
+      return handlerLabel(a.handler).localeCompare(handlerLabel(b.handler));
+    });
   }, [data]);
 
   const totals = data?.totals;
@@ -1080,7 +1096,6 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
   const evidenceByHandler = useMemo(() => groupEvidenceByHandler(evidenceRows), [evidenceRows, groupEvidenceByHandler]);
   const focusedEvidenceByHandler = useMemo(() => groupEvidenceByHandler(focusedEvidenceRows), [focusedEvidenceRows, groupEvidenceByHandler]);
 
-  const mpPickupRows = useMemo(() => data?.phonePickups?.unmatched.rows || [], [data?.phonePickups?.unmatched.rows]);
   const mpPickupTotal = data?.phonePickups?.unmatched.calls || 0;
   const hasMpHandlerRow = handlers.some((h) => handlerLabel(h.handler) === 'MoneyPenny');
   const shouldRenderMpPickupRow = mpPickupTotal > 0 && (activeReviewFocus === 'mpOnly' || (activeReviewFocus === 'all' && !hasMpHandlerRow));
@@ -1097,13 +1112,13 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
     const mismatchRows = evidenceRows.filter((row) => matchesReviewFocus(row, 'identityMismatch'));
     const shortCallRows = evidenceRows.filter((row) => matchesReviewFocus(row, 'shortCalls'));
     return [
-      { key: 'all', label: 'All evidence', value: evidenceRows.length, detail: `${fmtInt(handlers.length)} handler${handlers.length === 1 ? '' : 's'} loaded`, tone: 'default', iconName: 'BulletedList' },
-      { key: 'noMatterLink', label: 'No matter link', value: noMatterLinkRows.length, detail: 'Calls needing path review', tone: 'red', iconName: 'Link' },
-      { key: 'unratedNotes', label: 'Unrated notes', value: unratedNoteRows.length, detail: 'Teams cards still awaiting FE signal', tone: 'orange', iconName: 'EditNote' },
-      { key: 'formOnly', label: 'Form-only attribution', value: formOnlyRows.length, detail: 'No Dubber match', tone: 'mute', iconName: 'Help' },
-      { key: 'identityMismatch', label: 'Line mismatch', value: mismatchRows.length, detail: 'Dubber line differs from handler', tone: 'highlight', iconName: 'Warning' },
+      { key: 'all', label: 'All evidence', value: evidenceRows.length, detail: 'Logged form rows', tone: 'default', iconName: 'BulletedList' },
+      { key: 'noMatterLink', label: 'No related matter', value: noMatterLinkRows.length, detail: 'Relationship context only', tone: 'mute', iconName: 'Link' },
+      { key: 'unratedNotes', label: 'Unrated notes', value: unratedNoteRows.length, detail: 'Awaiting FE signal', tone: 'orange', iconName: 'EditNote' },
+      { key: 'formOnly', label: 'Form-only log', value: formOnlyRows.length, detail: 'No Dubber match', tone: 'mute', iconName: 'Help' },
+      { key: 'identityMismatch', label: 'Handler/Dubber mismatch', value: mismatchRows.length, detail: 'Line differs from form handler', tone: 'highlight', iconName: 'Warning' },
       { key: 'shortCalls', label: 'Short calls', value: shortCallRows.length, detail: 'Under 30 seconds', tone: 'orange', iconName: 'Timer' },
-      { key: 'mpOnly', label: 'MoneyPenny recordings', value: mpPickupTotal, detail: 'Unmatched inbound Dubber rows', tone: 'mute', iconName: 'Microphone' },
+      { key: 'mpOnly', label: 'Unmatched Dubber', value: mpPickupTotal, detail: 'MoneyPenny or missed-match reference', tone: 'mute', iconName: 'Microphone' },
     ];
   }, [evidenceRows, handlers.length, mpPickupTotal]);
 
@@ -1185,9 +1200,9 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
     ]);
 
     const outcomeValue = (row: EvidenceRow): string => {
-      if (row.outcome === 'opened') return row.matterDisplayNumber ? `Matter ${row.matterDisplayNumber}` : 'Matter path resolved';
-      if (row.outcome === 'in_progress') return 'Onboarding';
-      return row.enquiryId != null || row.enquiryAcid ? 'No matter link' : 'No enquiry link';
+      if (row.outcome === 'opened') return row.matterDisplayNumber ? `Related matter ${row.matterDisplayNumber}` : 'Related matter found';
+      if (row.outcome === 'in_progress') return 'Related instruction found';
+      return row.enquiryId != null || row.enquiryAcid ? 'No related matter' : 'No related enquiry';
     };
 
     const outcomeTone = (row: EvidenceRow): KpiBreakdownRow['tone'] => {
@@ -1203,15 +1218,16 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
       return 'default';
     };
 
-    const handledItems = itemRows.filter((row) => String(row.callStatus || '').toLowerCase() === 'handled');
+    const loggedFormItems = itemRows;
     const timedItems = itemRows.filter((row) => row.durationSeconds != null);
     const openedItems = itemRows.filter((row) => row.outcome === 'opened');
     const inFlightItems = itemRows.filter((row) => row.outcome === 'in_progress');
     const ratedNoteItems = itemRows.filter((row) => Boolean(row.notesRating));
+    const shortCallItems = itemRows.filter((row) => isShortCall(row));
 
     return {
       callsTaken: {
-        title: 'Calls taken',
+        title: 'Inbound calls',
         value: fmtInt(totals.callsTaken),
         rows: rowsOrEmpty(itemRows.map((row) => ({
           label: callReference(row),
@@ -1223,12 +1239,12 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
         }))),
       },
       handled: {
-        title: 'Handled',
-        value: `${fmtInt(totals.callsHandled)} / ${fmtInt(totals.callsTaken)}`,
-        rows: rowsOrEmpty(handledItems.map((row) => ({
+        title: 'Form coverage',
+        value: `${fmtInt(totals.loggedForms ?? loggedFormItems.length)} / ${fmtInt(totals.callsTaken)}`,
+        rows: rowsOrEmpty(loggedFormItems.map((row) => ({
           label: callReference(row),
-          value: outcomeValue(row),
-          detail: callContext(row),
+          value: row.dubberRecordingId ? 'Form + Dubber link' : 'Form only',
+          detail: callContext(row, [outcomeValue(row)]),
           hoverDetail: hoverDetail(row),
           tone: outcomeTone(row),
           evidence: row,
@@ -1247,14 +1263,14 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
         }))),
       },
       conversion: {
-        title: 'Matter-path resolution',
+        title: 'Related matter evidence',
         value: fmtPct(conversionStages?.callToMatterConversionRate ?? totals.conversionRate),
         rows: rowsOrEmpty(openedItems.map((row) => ({
           label: callReference(row),
-          value: row.matterDisplayNumber ? `Matter ${row.matterDisplayNumber}` : 'Matter path resolved',
+          value: row.matterDisplayNumber ? `Related matter ${row.matterDisplayNumber}` : 'Related matter found',
           detail: callContext(row, ['linked enquiry/instruction path']),
           hoverDetail: hoverDetail(row),
-          tone: 'highlight',
+          tone: 'default',
           evidence: row,
         }))),
       },
@@ -1271,24 +1287,36 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
         }))),
       },
       opened: {
-        title: 'Resolved matter paths',
+        title: 'Related matter records',
         value: fmtInt(totals.prospectsOpened),
         rows: rowsOrEmpty(openedItems.map((row) => ({
           label: callReference(row),
-          value: row.matterDisplayNumber ? `Matter ${row.matterDisplayNumber}` : 'Matter path resolved',
+          value: row.matterDisplayNumber ? `Related matter ${row.matterDisplayNumber}` : 'Related matter found',
           detail: callContext(row),
           hoverDetail: hoverDetail(row),
-          tone: 'green',
+          tone: 'default',
           evidence: row,
         }))),
       },
       inFlight: {
-        title: 'Onboarding in progress',
+        title: 'Related instructions',
         value: fmtInt(totals.prospectsInProgress),
         rows: rowsOrEmpty(inFlightItems.map((row) => ({
           label: callReference(row),
-          value: row.instructionRef || 'Onboarding',
+          value: row.instructionRef || 'Related instruction found',
           detail: callContext(row),
+          hoverDetail: hoverDetail(row),
+          tone: 'default',
+          evidence: row,
+        }))),
+      },
+      shortCalls: {
+        title: 'Short calls',
+        value: fmtInt(shortCallItems.length),
+        rows: rowsOrEmpty(shortCallItems.map((row) => ({
+          label: callReference(row),
+          value: row.durationSeconds != null ? fmtMSS(row.durationSeconds) : 'Under 30 seconds',
+          detail: callContext(row, [outcomeValue(row)]),
           hoverDetail: hoverDetail(row),
           tone: 'orange',
           evidence: row,
@@ -1365,6 +1393,9 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
         </div>
       );
     }
+    const formsLogged = totals.loggedForms ?? evidenceRows.length;
+    const formCoverage = totals.callsTaken > 0 ? formsLogged / totals.callsTaken : null;
+    const shortCallCount = reviewFocusTiles.find((tile) => tile.key === 'shortCalls')?.value ?? 0;
     const stripClasses = [
       'dashboard-kpi-summary',
       liveCue?.phase === 'updated' ? 'reception-live-updated' : '',
@@ -1378,23 +1409,21 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
         style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}
         data-range-key={`${fromIso || 'all'}|${toIso || 'all'}`}
       >
-        {renderChip('callsTaken', 'Calls taken', fmtInt(totals.callsTaken))}
-        {renderChip('handled', 'Handled', (
+        {renderChip('callsTaken', 'Inbound calls', fmtInt(totals.callsTaken))}
+        {renderChip('handled', 'Form coverage', (
           <>
-            {fmtInt(totals.callsHandled)}
-            <span style={{ color: textHelp, fontWeight: 500, fontSize: 14 }}> / {fmtInt(totals.callsTaken)}</span>
+            {fmtPct(formCoverage)}
+            <span style={{ color: textHelp, fontWeight: 500, fontSize: 14 }}> {fmtInt(formsLogged)} / {fmtInt(totals.callsTaken)}</span>
           </>
         ))}
         {renderChip('avgCall', 'Avg call', fmtMSS(totals.avgCallSeconds))}
-        {renderChip('conversion', 'Matter path rate', fmtPct(conversionStages?.callToMatterConversionRate ?? totals.conversionRate), { color: colours.highlight })}
         {renderChip(
           'notesClarity',
           `Notes clarity${lowClaritySample ? ' · low sample' : ''}`,
           fmtPct(totals.clarityScore),
           { color: totalsClarityColour },
         )}
-        {renderChip('opened', 'Resolved matters', fmtInt(totals.prospectsOpened), { color: colours.green })}
-        {renderChip('inFlight', 'Onboarding', fmtInt(totals.prospectsInProgress), { color: colours.orange })}
+        {renderChip('shortCalls', 'Short calls', fmtInt(shortCallCount), { color: shortCallCount > 0 ? colours.orange : textPrimary })}
       </div>
     );
   };
@@ -1408,25 +1437,24 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
     const enquiryLinked = conversionStages?.enquiryLinked ?? null;
     const noEnquiryLink = conversionStages?.noEnquiryLink ?? null;
     const stageTiles = [
-      { key: 'logged', label: 'Logged calls', value: fmtInt(callsLogged), detail: 'Reception form rows', tone: 'default' as const },
-      { key: 'enquiry', label: 'Enquiry linked', value: enquiryLinked == null ? '-' : fmtInt(enquiryLinked), detail: 'call has enquiry id', tone: 'default' as const },
-      { key: 'onboarding', label: 'Onboarding', value: fmtInt(onboarding), detail: 'instruction started', tone: 'orange' as const },
-      { key: 'opened', label: 'Matter path', value: fmtInt(matterOpened), detail: 'resolved via instruction or matter row', tone: 'green' as const },
+      { key: 'logged', label: 'Logged forms', value: fmtInt(callsLogged), detail: 'submitted call forms', tone: 'default' as const },
+      { key: 'enquiry', label: 'Enquiry record', value: enquiryLinked == null ? '-' : fmtInt(enquiryLinked), detail: 'enquiry id present', tone: 'default' as const },
+      { key: 'onboarding', label: 'Instruction record', value: fmtInt(onboarding), detail: 'instruction found', tone: 'default' as const },
+      { key: 'opened', label: 'Related matter', value: fmtInt(matterOpened), detail: 'matter row or opened event', tone: 'default' as const },
       {
         key: 'missing',
-        label: 'No matter link',
+        label: 'No related matter',
         value: fmtInt(noMatterLink),
-        detail: noEnquiryLink && noEnquiryLink > 0 ? `${fmtInt(noEnquiryLink)} no enquiry link` : 'visible in drilldown',
-        tone: 'red' as const,
+        detail: noEnquiryLink && noEnquiryLink > 0 ? `${fmtInt(noEnquiryLink)} no enquiry record` : 'visible in drilldown',
+        tone: 'default' as const,
       },
-      { key: 'rate', label: 'Matter path rate', value: fmtPct(conversionStages?.callToMatterConversionRate ?? totals.conversionRate), detail: 'resolved matter paths / calls', tone: 'highlight' as const },
     ];
 
     return (
       <div className="reception-conversion-stitch" data-helix-region="reports/reception/conversion-stages">
         <div className="reception-conversion-stitch-head">
-          <span className="reception-conversion-stitch-title" style={{ color: textPrimary }}>Call-to-matter stitching</span>
-          <span className="reception-conversion-stitch-sub" style={{ color: textHelp }}>Path-resolution view, not causal attribution for why a matter opened</span>
+          <span className="reception-conversion-stitch-title" style={{ color: textPrimary }}>Related-record evidence</span>
+          <span className="reception-conversion-stitch-sub" style={{ color: textHelp }}>Context for logged calls, not a reception performance score</span>
         </div>
         <div className="reception-conversion-stitch-grid">
           {stageTiles.map((tile) => (
@@ -1446,9 +1474,9 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
     return (
       <div className="reception-review-focus" data-helix-region="reports/reception/review-focus">
         <div className="reception-review-focus-head">
-          <span className="reception-review-focus-title" style={{ color: textPrimary }}>Review focus</span>
+          <span className="reception-review-focus-title" style={{ color: textPrimary }}>Evidence filters</span>
           <span className="reception-review-focus-sub" style={{ color: textHelp }}>
-            Click a signal to focus the handler table on calls worth checking first.
+            Optional source and link checks. These do not rank handler performance.
           </span>
         </div>
         <div className="reception-review-focus-grid">
@@ -1485,9 +1513,13 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
     const noMatterCount = reviewFocusTiles.find((tile) => tile.key === 'noMatterLink')?.value ?? 0;
     const formOnlyCount = reviewFocusTiles.find((tile) => tile.key === 'formOnly')?.value ?? 0;
     const mismatchCount = reviewFocusTiles.find((tile) => tile.key === 'identityMismatch')?.value ?? 0;
+    const relatedMatterCount = conversionStages?.matterOpened ?? totals.prospectsOpened;
+    const relatedInstructionCount = conversionStages?.onboardingInProgress ?? totals.prospectsInProgress;
     const summaryParts = [
-      `Matter path rate ${fmtPct(conversionStages?.callToMatterConversionRate ?? totals.conversionRate)}`,
-      `${fmtInt(noMatterCount)} no matter`,
+      `${fmtInt(evidenceRows.length)} form rows`,
+      `${fmtInt(relatedMatterCount)} related matter${relatedMatterCount === 1 ? '' : 's'}`,
+      relatedInstructionCount > 0 ? `${fmtInt(relatedInstructionCount)} related instruction${relatedInstructionCount === 1 ? '' : 's'}` : null,
+      `${fmtInt(noMatterCount)} without related matter`,
       formOnlyCount > 0 ? `${fmtInt(formOnlyCount)} form-only` : null,
       mismatchCount > 0 ? `${fmtInt(mismatchCount)} mismatch` : null,
       activeReviewFocus !== 'all' ? `Focused: ${activeReviewFocusLabel}` : null,
@@ -1503,7 +1535,7 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
         >
           <span className="reception-report-context-title" style={{ color: textPrimary }}>
             <Icon iconName={reportContextOpen ? 'ChevronUp' : 'ChevronDown'} style={{ fontSize: 12, color: textHelp }} />
-            <span>Report context</span>
+            <span>Record-link context</span>
           </span>
           <span className="reception-report-context-summary" style={{ color: textHelp }}>{summaryParts.join(' / ')}</span>
         </button>
@@ -1529,14 +1561,14 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
             <strong>{breakdown.value}</strong>
           </div>
           <p style={{ color: textHelp }}>
-            {fmtInt(breakdown.rows.filter((row) => row.evidence).length)} source line item{breakdown.rows.filter((row) => row.evidence).length === 1 ? '' : 's'} behind this metric.
+            {fmtInt(breakdown.rows.filter((row) => row.evidence).length)} logged line item{breakdown.rows.filter((row) => row.evidence).length === 1 ? '' : 's'} available for this view.
           </p>
         </div>
         <div className="reception-kpi-bench" role="table" aria-label={`${breakdown.title} evidence bench`}>
           <div className="reception-kpi-bench-head" role="row" style={{ color: textHelp }}>
             <span>Call</span>
             <span>{expandedKpi === 'callsTaken' ? 'Source evidence' : 'Metric evidence'}</span>
-            <span>Matter path</span>
+            <span>Related record</span>
             <span>Match</span>
           </div>
           {breakdown.rows.map((row) => {
@@ -1567,12 +1599,12 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
                     ? `Enquiry #${fmtInt(evidence.enquiryId)}`
                     : 'No linked enquiry';
             const pathDetail = evidence.outcome === 'opened'
-              ? 'Resolved matter path'
+              ? 'Related matter found'
               : evidence.outcome === 'in_progress'
-                ? 'Onboarding in progress'
+                ? 'Related instruction found'
                 : evidence.enquiryId != null || evidence.enquiryAcid
-                  ? 'Needs matter path review'
-                  : 'Needs enquiry lookup';
+                  ? 'No related matter recorded'
+                  : 'No related enquiry recorded';
 
             return (
               <div
@@ -1666,122 +1698,18 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
     );
   };
 
-  const renderMpPickupRows = (rows: PhonePickupEvidenceRow[], totalCalls: number) => {
-    const drillGroups = buildDrillPeriodGroups('MoneyPenny', rows, (row) => row.startedAt);
-    const callsCopy = rows.length < totalCalls
-      ? `showing latest ${fmtInt(rows.length)} of ${fmtInt(totalCalls)} calls in range`
-      : `${fmtInt(rows.length)} call${rows.length === 1 ? '' : 's'} in range`;
-
-    const renderPickupRows = (groupRows: PhonePickupEvidenceRow[], groupKey: string) => (
-      <div className="reception-handler-drill-rows">
-        {groupRows.map((row, idx) => {
-          const id = row.recordingId || `${groupKey}-${idx}`;
-          const shortId = row.recordingId ? row.recordingId.slice(-8) : 'No ID';
-          return (
-            <div key={id} className="reception-handler-drill-row reception-handler-drill-row--static" data-source="dubber">
-              <span className="reception-handler-drill-cell reception-handler-drill-cell--handler">
-                <span className="reception-handler-drill-submission">
-                  <span className="reception-handler-drill-submission-title" style={{ color: textPrimary }}>{shortId}</span>
-                  <span className="reception-handler-drill-submission-meta" style={{ color: textHelp }}>MoneyPenny</span>
-                </span>
-              </span>
-              <span className="reception-handler-drill-cell" style={{ color: textBody }}>
-                {fmtDateTime(row.startedAt)?.split(', ').slice(-1)[0] || fmtDateTime(row.startedAt)}
-              </span>
-              <span className="reception-handler-drill-cell reception-handler-drill-duration">
-                <span style={{ color: textBody }}>{fmtMSS(row.durationSeconds)}</span>
-                <span className="reception-handler-drill-source-pill reception-handler-drill-source-pill--dubber">
-                  <Icon iconName="Microphone" style={{ fontSize: 9 }} />
-                  <span>Dubber</span>
-                </span>
-              </span>
-              <span className="reception-handler-drill-cell" style={{ color: textBody }}>{row.callType || 'Inbound'}</span>
-              <span className="reception-handler-drill-cell" style={{ color: textHelp }}>{row.aiStatus || '-'}</span>
-              <span className="reception-handler-drill-cell" />
-            </div>
-          );
-        })}
-      </div>
-    );
-
-    return (
-      <div className="reception-handler-drill" id="reception-handler-calls-MoneyPenny" data-helix-region="reports/reception/mp-drilldown">
-        <div className="reception-handler-drill-head reception-handler-drill-head--continuation" style={{ color: textHelp }}>
-          <span className="reception-handler-drill-heading">
-            <span style={{ color: textPrimary, fontWeight: 700 }}>Pickup detail</span>
-            <span>{callsCopy}</span>
-          </span>
-        </div>
-        {drillGroups.map((group) => {
-          const isGroupExpanded = expandedDrillGroups.has(group.key);
-          const metaParts = [
-            `${fmtInt(group.rows.length)} call${group.rows.length === 1 ? '' : 's'}`,
-            group.kind === 'week' ? `${fmtInt(group.days.length)} day${group.days.length === 1 ? '' : 's'}` : null,
-          ].filter(Boolean).join(' · ');
-          return (
-            <div key={group.key} className="reception-handler-drill-group">
-              <button
-                type="button"
-                className={`reception-handler-drill-day reception-handler-drill-fold ${group.kind === 'week' ? 'reception-handler-drill-day--week' : ''}`}
-                onClick={() => toggleDrillGroup(group.key)}
-                aria-expanded={isGroupExpanded}
-              >
-                <span className="reception-handler-drill-day-label" style={{ color: textPrimary }}>
-                  <Icon iconName={isGroupExpanded ? 'ChevronDown' : 'ChevronRight'} style={{ fontSize: 10, color: textHelp }} />
-                  <span>{group.label}</span>
-                </span>
-                <span className="reception-handler-drill-day-meta" style={{ color: textHelp }}>{metaParts}</span>
-              </button>
-              {isGroupExpanded && (
-                <>
-                  <div className="reception-handler-drill-subhead" style={{ color: textHelp }} aria-hidden="true">
-                    <span>Recording</span>
-                    <span>Time</span>
-                    <span>Duration</span>
-                    <span>Source</span>
-                    <span>Status</span>
-                    <span />
-                  </div>
-                  {group.kind === 'week'
-                    ? group.days.map((dayGroup) => (
-                      <React.Fragment key={dayGroup.key}>
-                        <div className="reception-handler-drill-subday">
-                          <span style={{ color: textPrimary }}>{dayGroup.label}</span>
-                          <span style={{ color: textHelp }}>{fmtInt(dayGroup.rows.length)} call{dayGroup.rows.length === 1 ? '' : 's'}</span>
-                        </div>
-                        {renderPickupRows(dayGroup.rows, dayGroup.key)}
-                      </React.Fragment>
-                    ))
-                    : renderPickupRows(group.rows, group.key)}
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const renderMpPickupDrilldown = (rows: PhonePickupEvidenceRow[], totalCalls: number) => {
-    if (!rows.length) {
-      return (
-        <div className="reception-handler-drill" id="reception-handler-calls-MoneyPenny">
-          <div className="reception-handler-drill-empty" style={{ color: textBody }}>No MoneyPenny recordings returned for this date range yet.</div>
-        </div>
-      );
-    }
-    return renderMpPickupRows(rows, totalCalls);
-  };
-
   const renderHandlerTable = () => (
     <div className="metrics-table reception-handler-table">
+      <div className="reception-table-heading" data-helix-region="reports/reception/team-coverage">
+        <span className="reception-table-title" style={{ color: textPrimary }}>Reception coverage</span>
+        <span className="reception-table-subtitle" style={{ color: textHelp }}>Stable team order. Counts show coverage evidence, not a leaderboard.</span>
+      </div>
       <div className="metrics-table-header">
-        <span>Handler</span>
-        <span>Calls</span>
-        <span>Marked handled</span>
-        <span>Avg call</span>
-        <span>Latest call</span>
-        <span>Notes clarity</span>
+        <span>Reception</span>
+        <span>Answered</span>
+        <span>Form coverage</span>
+        <span>Avg length</span>
+        <span>Notes feedback</span>
       </div>
       {visibleHandlers.map((h) => {
         const band = clarityBand(h);
@@ -1789,7 +1717,6 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
         const handlerKey = handlerLabel(h.handler);
         const allHandlerCalls = evidenceByHandler.get(handlerKey) || [];
         const handlerCalls = activeReviewFocus === 'all' ? allHandlerCalls : (focusedEvidenceByHandler.get(handlerKey) || []);
-        const latestCallAt = handlerCalls[0]?.callCreatedAt || null;
         const isExpanded = expandedHandler === handlerKey;
         const canExpand = handlerCalls.length > 0;
         return (
@@ -1816,12 +1743,12 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
                   )}
                 </span>
               </span>
-              <span className="metrics-cell metrics-cell--value" style={{ color: textPrimary }}>{h.callsTaken}</span>
-              <span className="metrics-cell metrics-cell--value" style={{ color: textBody }}>{h.callsHandled}</span>
-              <span className="metrics-cell metrics-cell--value" style={{ color: textBody }}>{fmtMSS(h.avgCallSeconds)}</span>
-              <span className="metrics-cell metrics-cell--value reception-date-cell" style={{ color: textBody }}>
-                <span className="reception-date-stamp">{fmtDateTime(latestCallAt)}</span>
+              <span className="metrics-cell metrics-cell--value" style={{ color: textPrimary }}>{fmtInt(h.callsTaken)}</span>
+              <span className="metrics-cell metrics-cell--value" style={{ color: textBody }}>
+                {fmtInt(h.loggedForms ?? h.callsHandled)}
+                <span style={{ color: textHelp, fontWeight: 500 }}> / {fmtInt(h.callsTaken)}</span>
               </span>
+              <span className="metrics-cell metrics-cell--value" style={{ color: textBody }}>{fmtMSS(h.avgCallSeconds)}</span>
               <span className="metrics-cell metrics-cell--value">
                 {h.notesRated === 0 ? (
                   <span style={{ color: textHelp }}>–</span>
@@ -1844,40 +1771,23 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
         </div>
       )}
       {shouldRenderMpPickupRow && (() => {
-        const pickups = data?.phonePickups?.unmatched;
-        const canExpand = mpPickupRows.length > 0;
-        const isExpanded = expandedHandler === 'MoneyPenny';
         return (
           <React.Fragment key="mp-phone-pickups">
-            <div className={`metrics-table-row animate-table-row ${isExpanded ? 'is-expanded' : ''}`}>
-              <span className="metrics-cell metrics-cell--member" style={{ color: textPrimary, fontWeight: 600 }}>
-                {canExpand ? (
-                  <button
-                    type="button"
-                    className={`reception-handler-trigger ${isExpanded ? 'is-active' : ''}`}
-                    onClick={() => toggleHandlerDrilldown('MoneyPenny')}
-                    aria-expanded={isExpanded}
-                    aria-controls="reception-handler-calls-MoneyPenny"
-                    title={`${isExpanded ? 'Hide' : 'Show'} MoneyPenny calls in this range`}
-                  >
-                    <span className="reception-handler-trigger-icon">
-                      <Icon iconName={isExpanded ? 'ChevronDown' : 'ChevronRight'} style={{ fontSize: 10 }} />
-                    </span>
-                    <span className="reception-handler-trigger-name">MoneyPenny</span>
-                  </button>
-                ) : (
-                  <span className="reception-handler-static">MoneyPenny</span>
-                )}
+            <div
+              className="metrics-table-row animate-table-row reception-handler-row--excluded"
+              aria-disabled="true"
+              title="MoneyPenny/dev attribution is excluded from reception-handler KPIs until the source is reliable."
+              style={{ opacity: 0.52 }}
+            >
+              <span className="metrics-cell metrics-cell--member" style={{ color: textHelp, fontWeight: 600 }}>
+                <span className="reception-handler-static">MoneyPenny</span>
+                <span style={{ color: textHelp, fontSize: 10, fontWeight: 700, marginLeft: 8 }}>excluded</span>
               </span>
-              <span className="metrics-cell metrics-cell--value" style={{ color: textPrimary }}>{fmtInt(mpPickupTotal)}</span>
               <span className="metrics-cell metrics-cell--value" style={{ color: textHelp }}>-</span>
-              <span className="metrics-cell metrics-cell--value" style={{ color: textBody }}>{fmtMSS(pickups?.avgCallSeconds)}</span>
-              <span className="metrics-cell metrics-cell--value reception-date-cell" style={{ color: textBody }}>
-                <span className="reception-date-stamp">{fmtDateTime(pickups?.lastCallAt)}</span>
-              </span>
+              <span className="metrics-cell metrics-cell--value" style={{ color: textHelp }}>-</span>
+              <span className="metrics-cell metrics-cell--value" style={{ color: textHelp }}>-</span>
               <span className="metrics-cell metrics-cell--value" style={{ color: textHelp }}>-</span>
             </div>
-            {isExpanded && renderMpPickupDrilldown(mpPickupRows, mpPickupTotal)}
           </React.Fragment>
         );
       })()}
@@ -1887,8 +1797,8 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
   const renderPhonePickupsStrip = () => {
     const pickups = data?.phonePickups;
     if (!pickups) return null;
-    const RECEPTION_INITIALS = ['EA', 'KW', 'WH'] as const;
-    const RECEPTION_LABELS: Record<string, string> = { EA: 'Emma', KW: 'Kanchel', WH: 'Wolfgang' };
+    const RECEPTION_INITIALS = ['EA', 'KW', 'WH', 'LD'] as const;
+    const RECEPTION_LABELS: Record<string, string> = { EA: 'Emma', KW: 'Kanchel', WH: 'Wolfgang', LD: 'Libby' };
     const byInitials = new Map(pickups.handlers.map((h) => [h.handlerInitials, h] as const));
     const orderedReception = RECEPTION_INITIALS.map((init) => ({
       init,
@@ -1901,7 +1811,7 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
         <div className="reception-phone-pickups-head">
           <span className="reception-phone-pickups-title" style={{ color: textPrimary }}>Phone pickups (reception team)</span>
           <span className="reception-phone-pickups-sub" style={{ color: textHelp }}>
-            External inbound calls Dubber matched to Emma, Kanchel or Wolfgang. Internal Helix-to-Helix calls excluded. Unmatched bucket is the MoneyPenny / missed-match proxy and is shown for reference, not as a KPI.
+            External inbound calls Dubber matched to Emma, Kanchel, Wolfgang or Libby. Internal Helix-to-Helix calls excluded. Unmatched bucket is the MoneyPenny / missed-match proxy and is shown for reference, not as a KPI.
           </span>
         </div>
         <div className="reception-phone-pickups-grid">
@@ -2455,11 +2365,11 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
     const instructionCount = calls.filter((c) => Boolean(c.instructionRef)).length;
     const matterCount = calls.filter((c) => Boolean(c.matterDisplayNumber || c.matterId)).length;
     const stageSnapshot: Array<{ key: JourneyStageKey; label: string; value: number; total: number; title: string }> = [
-      { key: 'call', label: 'Dubber', value: dubberMatched, total: callsTotal, title: `${fmtInt(dubberMatched)} of ${fmtInt(callsTotal)} calls have a Dubber match` },
+      { key: 'call', label: 'Dubber link', value: dubberMatched, total: callsTotal, title: `${fmtInt(dubberMatched)} of ${fmtInt(callsTotal)} logged form rows have a Dubber match` },
       { key: 'notes', label: 'Notes', value: notesRated, total: teamsCardCount, title: teamsCardCount ? `${fmtInt(notesRated)} of ${fmtInt(teamsCardCount)} Teams cards have a notes rating` : 'No Teams cards posted in range' },
-      { key: 'enquiry', label: 'Enquiry', value: enquiryLinked, total: callsTotal, title: `${fmtInt(enquiryLinked)} of ${fmtInt(callsTotal)} calls linked to an enquiry` },
-      { key: 'instruction', label: 'Instruction', value: instructionCount, total: callsTotal, title: `${fmtInt(instructionCount)} of ${fmtInt(callsTotal)} calls progressed to instruction` },
-      { key: 'matter', label: 'Matter', value: matterCount, total: callsTotal, title: `${fmtInt(matterCount)} of ${fmtInt(callsTotal)} calls resolved to a matter (${fmtPct(conversion)} matter rate)` },
+      { key: 'enquiry', label: 'Enquiry', value: enquiryLinked, total: callsTotal, title: `${fmtInt(enquiryLinked)} of ${fmtInt(callsTotal)} logged form rows linked to an enquiry` },
+      { key: 'instruction', label: 'Instruction', value: instructionCount, total: callsTotal, title: `${fmtInt(instructionCount)} of ${fmtInt(callsTotal)} logged form rows progressed to instruction` },
+      { key: 'matter', label: 'Matter', value: matterCount, total: callsTotal, title: `${fmtInt(matterCount)} of ${fmtInt(callsTotal)} logged form rows resolved to a matter (${fmtPct(conversion)} matter rate)` },
     ];
     const reviewSignals = [
       { key: 'noMatterLink' as ReviewFocusKey, count: calls.filter((row) => matchesReviewFocus(row, 'noMatterLink')).length, label: 'no matter', tone: 'red' as ReviewFocusTone, title: 'Calls with no matter or onboarding link' },
@@ -2469,8 +2379,8 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
       { key: 'shortCalls' as ReviewFocusKey, count: calls.filter((row) => matchesReviewFocus(row, 'shortCalls')).length, label: 'short', tone: 'orange' as ReviewFocusTone, title: 'Calls under 30 seconds' },
     ].filter((flag) => flag.count > 0);
     const callsCopy = calls.length < totalCalls
-      ? `showing latest ${fmtInt(calls.length)} of ${fmtInt(totalCalls)} calls in range`
-      : `${fmtInt(calls.length)} call${calls.length === 1 ? '' : 's'} in range`;
+      ? `${fmtInt(calls.length)} logged form row${calls.length === 1 ? '' : 's'} for ${fmtInt(totalCalls)} Dubber call${totalCalls === 1 ? '' : 's'} in range`
+      : `${fmtInt(calls.length)} logged form row${calls.length === 1 ? '' : 's'} for ${fmtInt(totalCalls)} Dubber call${totalCalls === 1 ? '' : 's'} in range`;
 
     const renderEvidenceRows = (rows: EvidenceRow[]) => (
       <div className="reception-handler-drill-rows">
@@ -2608,7 +2518,7 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
           const groupOpened = group.rows.filter((r) => r.outcome === 'opened').length;
           const isGroupExpanded = expandedDrillGroups.has(group.key);
           const metaParts = [
-            `${fmtInt(group.rows.length)} call${group.rows.length === 1 ? '' : 's'}`,
+            `${fmtInt(group.rows.length)} logged form row${group.rows.length === 1 ? '' : 's'}`,
             group.kind === 'week' ? `${fmtInt(group.days.length)} day${group.days.length === 1 ? '' : 's'}` : null,
             groupOpened ? `${fmtInt(groupOpened)} resolved matter path${groupOpened === 1 ? '' : 's'}` : null,
           ].filter(Boolean).join(' · ');
@@ -2652,13 +2562,16 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
 
   const renderHandlerSkeleton = (rows: number) => (
     <div className="metrics-table reception-handler-table reception-handler-table--skeleton" aria-hidden="true">
+      <div className="reception-table-heading">
+        <span className="reception-skeleton-bar reception-handler-skeleton-name" />
+        <span className="reception-skeleton-bar reception-handler-skeleton-date" />
+      </div>
       <div className="metrics-table-header">
-        <span>Handler</span>
-        <span>Calls</span>
-        <span>Marked handled</span>
-        <span>Avg call</span>
-        <span>Latest call</span>
-        <span>Notes clarity</span>
+        <span>Reception</span>
+        <span>Answered</span>
+        <span>Form coverage</span>
+        <span>Avg length</span>
+        <span>Notes feedback</span>
       </div>
       {Array.from({ length: rows }).map((_, i) => (
         <div key={`reception-handler-skeleton-${i}`} className="metrics-table-row reception-skeleton-row">
@@ -2673,10 +2586,6 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
           <span className="metrics-cell metrics-cell--value"><span className="reception-skeleton-bar reception-handler-skeleton-number" /></span>
           <span className="metrics-cell metrics-cell--value"><span className="reception-skeleton-bar reception-handler-skeleton-number" /></span>
           <span className="metrics-cell metrics-cell--value"><span className="reception-skeleton-bar reception-handler-skeleton-number reception-handler-skeleton-number--time" /></span>
-          <span className="metrics-cell metrics-cell--value reception-date-cell">
-            <span className="reception-skeleton-bar reception-handler-skeleton-date" />
-            <span className="reception-skeleton-bar reception-handler-skeleton-date-tag" />
-          </span>
           <span className="metrics-cell metrics-cell--value"><span className="reception-skeleton-bar reception-handler-skeleton-clarity" /></span>
         </div>
       ))}
@@ -2719,8 +2628,8 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
         <div className="reception-empty-state" style={{ color: textBody }}>
           No reception activity in this window.
         </div>
-        {renderReportContextPanel()}
         {renderKpiBreakdown()}
+        {renderReportContextPanel()}
       </ReportShell>
     );
   }
@@ -2730,8 +2639,8 @@ const ReceptionReport: React.FC<ReceptionReportProps> = ({
       {refreshErrorBanner}
       {renderKpiStrip()}
       {renderHandlerTable()}
-      {renderReportContextPanel()}
       {renderKpiBreakdown()}
+      {renderReportContextPanel()}
     </ReportShell>
   );
 };

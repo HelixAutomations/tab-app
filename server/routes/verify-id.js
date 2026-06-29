@@ -97,6 +97,7 @@ router.post('/', async (req, res) => {
         .query(`
           SELECT 
             i.InstructionRef,
+            i.Stage,
             i.ClientId,
             i.Email,
             i.FirstName,
@@ -125,6 +126,28 @@ router.post('/', async (req, res) => {
     }
 
     const instructionData = instructionResult.recordset[0];
+    const instructionStage = String(instructionData.Stage || '').trim().toLowerCase();
+    const isShellInstruction = !instructionStage || instructionStage === 'initialised' || instructionStage === 'initialized' || instructionStage === 'opened' || instructionStage === 'pitched' || instructionStage === 'checkout_link';
+    const hasIdentityDocument = Boolean(instructionData.PassportNumber || instructionData.DriversLicenseNumber);
+    const hasCoreIdentity = Boolean(instructionData.DOB && instructionData.Postcode && hasIdentityDocument);
+
+    if (isShellInstruction || !hasCoreIdentity) {
+      const reason = isShellInstruction ? 'instruction-shell' : 'missing-identity-fields';
+      trackEvent('VerifyId.Blocked', {
+        operation: 'verifyId',
+        instructionRef,
+        reason,
+        hasDob: Boolean(instructionData.DOB),
+        hasPostcode: Boolean(instructionData.Postcode),
+        hasIdentityDocument,
+      });
+      return res.status(409).json({
+        error: isShellInstruction
+          ? 'ID verification is waiting for the client to submit the instruction form'
+          : 'ID verification needs captured identity details before it can run',
+        code: reason,
+      });
+    }
 
     const existingResult = await runInstructionQuery((request, s) =>
       request
@@ -204,6 +227,13 @@ router.post('/', async (req, res) => {
     });
   } catch (error) {
     const transient = isTransientSqlError(error);
+    trackException(error, { operation: 'verifyId', phase: 'submit', instructionRef, transient });
+    trackEvent('VerifyId.Failed', {
+      operation: 'verifyId',
+      instructionRef,
+      transient,
+      error: 'verify-id submit failed',
+    });
     console.error(
       `[verify-id] Error processing verification for ${instructionRef}${transient ? ' (transient)' : ''}:`,
       error

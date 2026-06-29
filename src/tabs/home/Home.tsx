@@ -238,9 +238,11 @@ type FormsTodoRegisterTab = 'ld' | 'undertakings' | 'complaints';
 // CCL autopilot pickup card — when matter opening fires autopilot and the
 // Safety Net flags fields (score ≤7), the server creates a hub_todo card so
 // the fee earner sees it on Home even if they weren't at the modal when
-// autopilot finished. Keeps the registry-sourced kinds visible even though
-// the historical name is "FORMS" — kept for blame/git-log continuity.
-const FORMS_TODO_KINDS = new Set(['ld-review', 'undertaking-request', 'complaint-followup', 'review-ccl']);
+// autopilot finished. Open-file and risk-assessment are the onboarding
+// pipeline pickup cards that route into the prospect workbench.
+const HOME_TODO_KINDS = new Set(['ld-review', 'undertaking-request', 'complaint-followup', 'review-ccl', 'open-file', 'risk-assessment']);
+const HOME_TODO_PREVIEW_OWNER_INITIALS = 'LZ';
+const PUBLIC_INSTRUCTION_TODO_ACTIONS = new Set(['Verify ID', 'Review ID']);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -2581,7 +2583,7 @@ const handleApprovalUpdate = (updatedRequestId: string, newStatus: string) => {
       }
 
       const cards = Array.isArray(data.cards) ? data.cards : [];
-      setTodoRegistryCards(cards.filter((card: ToDoCard) => FORMS_TODO_KINDS.has(card.kind)));
+      setTodoRegistryCards(cards.filter((card: ToDoCard) => HOME_TODO_KINDS.has(card.kind)));
     } catch (error) {
       if (controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
         return;
@@ -7167,37 +7169,83 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
 
   /* upcomingLeaveSummary + openUpcomingLeaveModal removed — leave view now lives in AwayInsight */
 
-  // Group instruction next actions by type with counts and sample detail
-  const groupedInstructionActions = useMemo(() => {
-    const actionGroups: Record<string, { count: number; icon: string; disabled?: boolean; sampleDetail: string; firstSummary?: InstructionSummary }> = {};
-    
-    actionableSummaries.forEach(summary => {
-      const action = summary.nextAction;
-      if (actionGroups[action]) {
-        actionGroups[action].count++;
-      } else {
-        // Map next actions to appropriate icons
-        let icon = 'OpenFile'; // default
-        if (action === 'Verify ID') icon = 'ContactCard';
-        else if (action === 'Assess Risk') icon = 'Shield';
-        else if (action === 'CCL Service' || action === 'Review CCL' || action === 'Open CCL Workbench') icon = 'Send';
-        else if (action === 'Review') icon = 'ReviewRequestMirrored';
-        
-        // Use first item's client name as sample detail
-        const detail = summary.clientName || summary.service || '';
-        
-        actionGroups[action] = { 
-          count: 1, 
-          icon,
-          disabled: summary.disabled,
-          sampleDetail: detail,
-          firstSummary: summary,
-        };
+  const instructionTodoActions = useMemo<HomeImmediateAction[]>(() => {
+    const canSeePreviewInstructionActions = isLocalhost || String(userInitials || '').trim().toUpperCase() === HOME_TODO_PREVIEW_OWNER_INITIALS;
+    const iconFor = (action: string): string => {
+      if (action === 'Verify ID' || action === 'Review ID') return 'ContactCard';
+      if (action === 'Assess Risk' || action === 'Review Risk') return 'Shield';
+      if (action === 'CCL Service' || action === 'Review CCL' || action === 'Open CCL Workbench') return 'Send';
+      if (action === 'Open Matter') return 'OpenFolderHorizontal';
+      if (action === 'Review') return 'ReviewRequestMirrored';
+      return 'OpenFile';
+    };
+    const workbenchTabFor = (action: string): 'identity' | 'risk' | 'matter' | 'documents' | 'details' => {
+      if (action === 'Verify ID' || action === 'Review ID') return 'identity';
+      if (action === 'Assess Risk' || action === 'Review Risk') return 'risk';
+      if (action === 'Open Matter') return 'matter';
+      return 'details';
+    };
+    const categoryFor = (action: string): ImmediateActionCategory => (
+      ['Verify ID', 'Review ID', 'Review', 'Open Matter'].includes(action) ? 'standard' : 'critical'
+    );
+    const openSummaryWorkbench = (summary: InstructionSummary) => {
+      const instructionRef = String(summary.id || '').trim();
+      const enquiryId = instructionRef.match(/^HLX-(\d+)-\d+$/i)?.[1] || '';
+      const workbenchTab = workbenchTabFor(summary.nextAction);
+      if (enquiryId) {
+        try { localStorage.setItem('navigateToWorkbenchTab', workbenchTab); } catch { /* ignore */ }
+        window.dispatchEvent(new CustomEvent('navigateToEnquiry', {
+          detail: { enquiryId, subTab: 'Timeline', workbenchTab },
+        }));
+        return;
       }
+      window.dispatchEvent(new CustomEvent('navigateToInstructions', {
+        detail: { instructionRef, action: summary.nextAction, tab: workbenchTab, source: 'home-instruction-todo' },
+      }));
+    };
+
+    return actionableSummaries.flatMap((summary) => {
+      const previewOnly = !PUBLIC_INSTRUCTION_TODO_ACTIONS.has(summary.nextAction);
+      if (previewOnly && !canSeePreviewInstructionActions) return [];
+      const openInstructionAction = summary.disabled
+        ? () => debugLog('Instruction action disabled in production preview')
+        : () => openSummaryWorkbench(summary);
+      const subtitle = [summary.clientName || summary.service, previewOnly ? 'Preview' : null]
+        .filter(Boolean)
+        .join(' · ');
+      return [{
+        title: summary.nextAction,
+        subtitle,
+        icon: iconFor(summary.nextAction),
+        disabled: summary.disabled,
+        onClick: openInstructionAction,
+        category: categoryFor(summary.nextAction),
+        expansion: {
+          kind: 'matter' as const,
+          primary: summary.clientName || 'Instruction workflow',
+          secondary: summary.service || summary.id,
+          description: `Open the prospect workbench on ${workbenchTabFor(summary.nextAction)}.`,
+          fields: [
+            { label: 'Instruction', value: summary.id },
+            { label: 'Next', value: summary.nextAction },
+          ],
+          prompts: [
+            {
+              label: previewOnly ? 'Preview gate' : 'Prompt',
+              body: previewOnly
+                ? 'Visible to LZ/local only until this workflow is ready for wider rollout.'
+                : 'Use the workbench state before acting. If a step is waiting on the client, leave it parked.',
+              meta: previewOnly ? 'Hidden from fee earners for now.' : 'Internal prompt only.',
+              tone: previewOnly ? 'blocked' as const : 'check' as const,
+            },
+          ],
+          actions: [
+            { label: 'Open workbench', onClick: openInstructionAction, tone: 'primary' as const },
+          ],
+        },
+      }];
     });
-    
-    return actionGroups;
-  }, [actionableSummaries]);
+  }, [actionableSummaries, isLocalhost, userInitials]);
       const formsTodoActions = useMemo<HomeImmediateAction[]>(() => {
         const allScopeActive = canSeeTodoGodView && homeTodoScope === 'all';
         // In god-view, the canonical "is this card mine?" identity is always LZ.
@@ -7241,6 +7289,76 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
           .filter(card => cclOperationsAvailable || card.kind !== 'review-ccl')
           .map((card) => {
           const payload = asRecord(card.payload);
+
+          if (card.kind === 'open-file' || card.kind === 'risk-assessment') {
+            const instructionRef = readStringValue(payload?.instructionRef) || readStringValue(payload?.InstructionRef) || readStringValue(card.matterRef) || '';
+            const enquiryId = readStringValue(payload?.enquiryId)
+              || readStringValue(payload?.prospectId)
+              || readStringValue(payload?.acid)
+              || (instructionRef.match(/^HLX-(\d+)-\d+$/i)?.[1] || '');
+            const matterRef = readStringValue(payload?.matterRef) || readStringValue(payload?.matterReference) || readStringValue(card.matterRef) || '';
+            const areaOfWork = readStringValue(payload?.areaOfWork) || readStringValue(payload?.practiceArea) || '';
+            const service = readStringValue(payload?.service) || readStringValue(payload?.serviceDescription) || readStringValue(payload?.docType) || card.docType || '';
+            const owner = String(card.ownerInitials || '').trim().toUpperCase();
+            const targetWorkbenchTab = card.kind === 'risk-assessment' ? 'risk' : 'matter';
+            const actionLabel = card.kind === 'risk-assessment' ? 'Complete risk' : 'Open file';
+            const promptMeta = instructionRef || matterRef || 'Prospect workbench';
+            const openWorkbench = () => {
+              if (enquiryId) {
+                try { localStorage.setItem('navigateToWorkbenchTab', targetWorkbenchTab); } catch { /* ignore */ }
+                window.dispatchEvent(new CustomEvent('navigateToEnquiry', {
+                  detail: { enquiryId, subTab: 'Timeline', workbenchTab: targetWorkbenchTab },
+                }));
+                return;
+              }
+              window.dispatchEvent(new CustomEvent('navigateToInstructions', {
+                detail: { instructionRef, action: card.kind, tab: targetWorkbenchTab, source: 'home-todo' },
+              }));
+            };
+
+            return decorate(card, {
+              title: card.kind === 'risk-assessment' ? 'Risk assessment' : 'Open file',
+              subtitle: [service || areaOfWork || matterRef || instructionRef, owner ? `@${owner}` : null].filter(Boolean).join(' · '),
+              icon: card.kind === 'risk-assessment' ? 'Shield' : 'OpenFolderHorizontal',
+              category: card.kind === 'risk-assessment' ? 'critical' : 'standard',
+              onClick: openWorkbench,
+              expansion: {
+                kind: 'matter',
+                primary: card.summary || (card.kind === 'risk-assessment' ? 'Risk assessment due' : 'File opening due'),
+                secondary: card.lastEvent || [areaOfWork, service].filter(Boolean).join(' · ') || instructionRef || matterRef,
+                aow: areaOfWork || undefined,
+                description: card.kind === 'risk-assessment'
+                  ? 'Complete risk from the prospect workbench.'
+                  : 'Continue matter opening from the prospect workbench.',
+                fields: [
+                  ...(instructionRef ? [{ label: 'Instruction', value: instructionRef }] : []),
+                  ...(matterRef && matterRef !== instructionRef ? [{ label: 'Matter', value: matterRef }] : []),
+                  ...(areaOfWork ? [{ label: 'Work type', value: areaOfWork }] : []),
+                  ...(card.stage ? [{ label: 'Stage', value: String(card.stage) }] : []),
+                ],
+                prompts: card.kind === 'risk-assessment'
+                  ? [
+                      {
+                        label: 'Internal prompt',
+                        body: 'Check ID, payment and source-of-funds blockers before completing risk.',
+                        meta: promptMeta,
+                        tone: 'check',
+                      },
+                    ]
+                  : [
+                      {
+                        label: 'Internal prompt',
+                        body: 'Confirm description, value band and conflict state before opening the matter.',
+                        meta: promptMeta,
+                        tone: 'check',
+                      },
+                    ],
+                actions: [
+                  { label: actionLabel, onClick: openWorkbench, tone: 'primary' },
+                ],
+              },
+            });
+          }
 
           if (card.kind === 'review-ccl') {
             // CCL autopilot surfaced fields that need fee-earner review. Card
@@ -7431,62 +7549,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     }
     // Resume prompts (pitch / matter) suppressed intentionally; cached data remains for manual navigation
     
-    // Add grouped instruction actions (replaces old single "Review Instructions" action)
-    const canSeeAllGroupedInstructionActions = userInitials === 'LZ' || isLocalhost;
-    if (!instructionsActionDone && (canSeeAllGroupedInstructionActions || groupedInstructionActions['Verify ID'])) {
-      const instructionCategoryFor = (actionType: string): ImmediateActionCategory => {
-        if (['Verify ID', 'Review ID', 'Review', 'Open Matter'].includes(actionType)) {
-          return 'standard';
-        }
-        return 'critical';
-      };
-
-      Object.entries(groupedInstructionActions).forEach(([actionType, { count, icon, disabled, sampleDetail, firstSummary }]) => {
-        if (!canSeeAllGroupedInstructionActions && actionType !== 'Verify ID') return;
-        const title = actionType;
-        // Show client name or "+X more" if multiple
-        const subtitle = count > 1 
-          ? `${sampleDetail} +${count - 1} more`
-          : sampleDetail || '';
-        const openInstructionAction = disabled
-          ? () => debugLog('CCL action disabled in production')
-          : () => handleActionClick({ title, icon });
-
-        // Phase E — matter-kind expansion. Surfaces the first instruction's context
-        // so the user can read who's next before clicking through. Only wire when
-        // not disabled and we have a concrete summary to describe.
-        const expansionPayload = (!disabled && firstSummary) ? {
-          kind: 'matter' as const,
-          primary: firstSummary.clientName || 'Unknown client',
-          secondary: count > 1
-            ? `${firstSummary.service} · +${count - 1} more waiting`
-            : firstSummary.service,
-          description: count > 1
-            ? `${count} instructions need "${actionType}". Opening the workflow starts with ${firstSummary.clientName || 'the first client'}; the rest queue behind.`
-            : `Next step on this instruction is "${actionType}". Open the workflow to action it.`,
-          fields: [
-            { label: 'Instruction', value: firstSummary.id },
-            { label: 'Service', value: firstSummary.service },
-            { label: 'Next step', value: actionType },
-            ...(count > 1 ? [{ label: 'Queue', value: `${count} waiting` }] : []),
-          ],
-          actions: [
-            { label: count > 1 ? 'Open first workflow' : 'Open workflow', onClick: openInstructionAction, tone: 'primary' as const },
-          ],
-        } : undefined;
-
-        actions.push({
-          title,
-          subtitle,
-          icon,
-          disabled,
-          count: count > 1 ? count : undefined,
-          onClick: openInstructionAction,
-          category: instructionCategoryFor(actionType),
-          expansion: expansionPayload,
-        });
-      });
-    }
+    actions.push(...instructionTodoActions);
     actions.push(
       ...immediateALActions.map(a => ({
         ...a,
@@ -7841,8 +7904,7 @@ const filteredBalancesForPanel = useMemo<OutstandingClientBalance[]>(() => {
     demoModeEnabled,
     hasActiveMatter,
     instructionData,
-    groupedInstructionActions,
-    instructionsActionDone,
+    instructionTodoActions,
     immediateALActions,
     formsTodoActions,
     handleActionClick,

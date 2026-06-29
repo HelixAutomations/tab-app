@@ -457,6 +457,11 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
   const [savingKey, setSavingKey] = React.useState<string | null>(null);
   const [callRailProcessingKey, setCallRailProcessingKey] = React.useState<string | null>(null);
   const [feedback, setFeedback] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = React.useState<{
+    open: boolean;
+    rowsToDelete: Array<{ row: SourceLedgerRow; rowKey: string }>;
+  }>({ open: false, rowsToDelete: [] });
+  const [deleting, setDeleting] = React.useState(false);
   const [expandedRowKey, setExpandedRowKey] = React.useState<string | null>(null);
   const [processingPanel, setProcessingPanel] = React.useState<ReportProcessingRailItem | null>(null);
   const [processingPanelFolded, setProcessingPanelFolded] = React.useState(false);
@@ -1487,6 +1492,48 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
     setLastSelectedRowKey(rowKey);
   }, [allSelectableRowKeys, lastSelectedRowKey]);
 
+  const handleDeleteSelected = React.useCallback(() => {
+    const rowsToDelete = rows
+      .map((row, index) => ({ row, rowKey: getRowKey(row, index) }))
+      .filter(({ row, rowKey }) => row.id != null && selectedRowKeys[rowKey]);
+    if (!rowsToDelete.length) return;
+    setDeleteConfirm({ open: true, rowsToDelete });
+  }, [getRowKey, rows, selectedRowKeys]);
+
+  const handleConfirmDelete = React.useCallback(async () => {
+    const { rowsToDelete } = deleteConfirm;
+    if (!rowsToDelete.length) return;
+    setDeleting(true);
+    setFeedback(null);
+    try {
+      const ids = rowsToDelete.map(({ row }) => row.id as number);
+      const response = await fetch(getApiUrl('/api/enquiries-unified/source/delete-rows'), {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ ids }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(payload?.error || `Delete failed (${response.status})`));
+      const deletedIds = new Set((Array.isArray(payload?.deleted) ? payload.deleted : []).map(String));
+      setRows((prev) => prev.filter((row) => row.id == null || !deletedIds.has(String(row.id))));
+      setSelectedRowKeys((prev) => {
+        const next = { ...prev };
+        rowsToDelete.forEach(({ rowKey }) => { delete next[rowKey]; });
+        return next;
+      });
+      const acNote = payload?.acDeleted > 0 ? ` (${payload.acDeleted} AC contact${payload.acDeleted === 1 ? '' : 's'} removed)` : '';
+      const failNote = payload?.failed?.length > 0 ? `, ${payload.failed.length} not found` : '';
+      setFeedback({ type: 'success', message: `Deleted ${deletedIds.size} enquiry row${deletedIds.size === 1 ? '' : 's'}${acNote}${failNote}.` });
+      setRefreshKey((prev) => prev + 1);
+    } catch (error) {
+      setFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Delete failed.' });
+    } finally {
+      setDeleting(false);
+      setDeleteConfirm({ open: false, rowsToDelete: [] });
+    }
+  }, [deleteConfirm]);
+
   const handleSelectedCallRailCheck = React.useCallback(async () => {
     if (!selectedRowsForCallRail.length || callRailProcessingKey || savingKey === 'rows:save-multi') return;
     let checkedCount = 0;
@@ -1794,6 +1841,26 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
               }}
             >
               {callRailProcessingKey ? 'Checking' : `Check selected (${selectedRowsForCallRail.length.toLocaleString('en-GB')})`}
+            </button>
+          )}
+          {Object.values(selectedRowKeys).filter(Boolean).length > 0 && (
+            <button
+              type="button"
+              onClick={handleDeleteSelected}
+              disabled={deleting || savingKey === 'rows:save-multi'}
+              style={{
+                ...toolbarControlStyle,
+                backgroundColor: withAlpha(colours.cta, isDarkMode ? 0.14 : 0.08),
+                color: colours.cta,
+                border: `1px solid ${withAlpha(colours.cta, 0.38)}`,
+                padding: '0 10px',
+                cursor: deleting || savingKey === 'rows:save-multi' ? 'not-allowed' : 'pointer',
+                opacity: deleting || savingKey === 'rows:save-multi' ? 0.55 : 1,
+                whiteSpace: 'nowrap',
+                textTransform: 'uppercase',
+              }}
+            >
+              Delete selected
             </button>
           )}
           {changedRows.length > 0 && (
@@ -2471,6 +2538,92 @@ const EnquirySourceLedger: React.FC<EnquirySourceLedgerProps> = ({ isDarkMode, p
             surfaceTitle={processingPanelFolded ? 'Open feed breakdown' : undefined}
           />
         </aside>
+      )}
+
+      {deleteConfirm.open && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-confirm-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0,0,0,0.48)',
+          }}
+        >
+          <div
+            style={{
+              background: isDarkMode ? colours.dark.cardBackground : colours.light.cardBackground,
+              border: `1px solid ${withAlpha(colours.cta, 0.45)}`,
+              padding: '24px 28px',
+              maxWidth: 420,
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.28)',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: '0.12em', textTransform: 'uppercase', color: colours.cta }}>
+                Permanent action
+              </span>
+              <h3
+                id="delete-confirm-title"
+                style={{ margin: 0, fontSize: 16, fontWeight: 800, color: isDarkMode ? colours.dark.text : colours.light.text }}
+              >
+                Delete {deleteConfirm.rowsToDelete.length} {deleteConfirm.rowsToDelete.length === 1 ? 'enquiry' : 'enquiries'}?
+              </h3>
+            </div>
+            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.55, color: isDarkMode ? '#d1d5db' : '#374151' }}>
+              This will permanently remove {deleteConfirm.rowsToDelete.length === 1 ? 'this record' : `these ${deleteConfirm.rowsToDelete.length} records`} from the Instructions database. Any matching ActiveCampaign contact will also be deleted if found. This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteConfirm({ open: false, rowsToDelete: [] })}
+                style={{
+                  border: `1px solid ${dataHubBorder}`,
+                  background: dataHubControlSurface,
+                  color: isDarkMode ? colours.dark.text : colours.light.text,
+                  padding: '6px 16px',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  fontFamily: 'Raleway, sans-serif',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  textTransform: 'uppercase',
+                  opacity: deleting ? 0.55 : 1,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => { void handleConfirmDelete(); }}
+                style={{
+                  border: `1px solid ${withAlpha(colours.cta, 0.6)}`,
+                  background: withAlpha(colours.cta, isDarkMode ? 0.18 : 0.1),
+                  color: colours.cta,
+                  padding: '6px 16px',
+                  fontSize: 11,
+                  fontWeight: 900,
+                  fontFamily: 'Raleway, sans-serif',
+                  cursor: deleting ? 'wait' : 'pointer',
+                  textTransform: 'uppercase',
+                  opacity: deleting ? 0.7 : 1,
+                }}
+              >
+                {deleting ? 'Deleting...' : 'Confirm delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

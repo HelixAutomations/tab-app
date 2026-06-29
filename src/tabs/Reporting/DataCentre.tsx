@@ -17,6 +17,7 @@ import { colours, withAlpha } from '../../app/styles/colours';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { useToast } from '../../components/feedback/ToastProvider';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
+import { trackClientEvent } from '../../utils/telemetry';
 import NavigatorDetailBar from '../../components/NavigatorDetailBar';
 import OutstandingMatterExplorer from './components/OutstandingMatterExplorer';
 import ManagementDashboardTrustRail from './ManagementDashboardTrustRail';
@@ -24,11 +25,13 @@ import DataHubDatasetDetail from './components/DataHubDatasetDetail';
 import DataHubDatasetPicker from './components/DataHubDatasetPicker';
 import DataHubAttributionWorkbench from './components/DataHubAttributionWorkbench';
 import { EXTRA_TOP_NAV_USERS } from '../../app/admin';
+import { isCclOperationsAvailable } from '../../app/admin';
 import AccessMatrixConnector from './components/AccessMatrixConnector';
 import DataHubStreamsPanel from './components/DataHubStreamsPanel';
 import GoogleAnalyticsProviderPanel from './components/GoogleAnalyticsProviderPanel';
 import EnquirySourceLedger from './components/EnquirySourceLedger';
 import MattersSourceLedger from './components/MattersSourceLedger';
+import CallsLedger from './components/CallsLedger';
 import {
   REPORTING_DATASET_BY_KEY,
   type Ga4ProviderCheckState,
@@ -71,6 +74,13 @@ type OperationLogEntry = {
   changedRows?: number;
   durationMs?: number;
   message?: string;
+  dataset?: string;
+  datasetLabel?: string;
+  datasetSummary?: string;
+  datasets?: string[];
+  datasetLabels?: string[];
+  datasetCount?: number;
+  target?: string;
 };
 
 function normaliseOperationLogEntry(entry: Partial<OperationLogEntry> & Record<string, unknown>, index: number): OperationLogEntry | null {
@@ -103,6 +113,71 @@ function normaliseOperationLogEntry(entry: Partial<OperationLogEntry> & Record<s
     changedRows: typeof entry.changedRows === 'number' ? entry.changedRows : undefined,
     durationMs: typeof entry.durationMs === 'number' ? entry.durationMs : undefined,
     message: typeof entry.message === 'string' ? entry.message : undefined,
+  };
+}
+
+function stringFromTelemetryData(data: Record<string, unknown>, field: string): string | undefined {
+  const value = data[field];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function stringArrayFromTelemetryData(data: Record<string, unknown>, field: string): string[] | undefined {
+  const value = data[field];
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.map((item) => String(item || '').trim()).filter(Boolean);
+  return strings.length > 0 ? strings : undefined;
+}
+
+function normaliseDataHubTelemetryEntry(entry: Record<string, unknown>, index: number): OperationLogEntry | null {
+  const type = String(entry.type || '');
+  if (!type.startsWith('telemetry.DataHub.')) return null;
+  const data = entry.data && typeof entry.data === 'object' ? entry.data as Record<string, unknown> : {};
+  const eventType = type.replace(/^telemetry\.DataHub\./, '');
+  const rawTs = entry.ts || entry.clientTimestamp;
+  const ts = typeof rawTs === 'number' ? rawTs : Date.parse(String(rawTs || ''));
+  const safeTs = Number.isFinite(ts) ? ts : Date.now();
+  const datasets = stringArrayFromTelemetryData(data, 'datasets');
+  const datasetLabels = stringArrayFromTelemetryData(data, 'datasetLabels');
+  const dataset = stringFromTelemetryData(data, 'dataset');
+  const datasetLabel = stringFromTelemetryData(data, 'datasetLabel') || dataset;
+  const datasetSummary = stringFromTelemetryData(data, 'datasetSummary');
+  const datasetCount = typeof data.datasetCount === 'number'
+    ? data.datasetCount
+    : datasets?.length;
+  const actor = typeof entry.userInitials === 'string' && entry.userInitials.trim()
+    ? entry.userInitials.trim().toUpperCase()
+    : 'User';
+
+  const operation = eventType === 'refreshQueued'
+    ? 'dataHubRefreshQueued'
+    : eventType === 'datasetEntered'
+      ? 'dataHubDatasetEntered'
+      : 'dataHubEntered';
+  const message = operation === 'dataHubRefreshQueued'
+    ? `Queued ${datasetSummary || `${datasetCount || 0} dataset refresh${datasetCount === 1 ? '' : 'es'}`}`
+    : operation === 'dataHubDatasetEntered'
+      ? `Opened ${datasetLabel || 'dataset'}`
+      : 'Opened Data Hub datasets';
+
+  return {
+    id: String(entry.id || `${operation}-${safeTs}-${index}`),
+    ts: safeTs,
+    jobId: null,
+    operation,
+    entity: 'DataHub',
+    sourceSystem: 'DataHub',
+    direction: 'ui',
+    status: 'completed',
+    triggeredBy: 'user',
+    invokedBy: actor,
+    message,
+    dataset,
+    datasetLabel,
+    datasetSummary,
+    datasets,
+    datasetLabels,
+    datasetCount,
+    target: stringFromTelemetryData(data, 'target') || stringFromTelemetryData(data, 'surface'),
   };
 }
 
@@ -1146,9 +1221,15 @@ const DataCentre: React.FC<DataCentreProps> = ({
     });
   }, []);
   const handleDatasetSelect = React.useCallback((key: ReportingDatasetKey) => {
+    const definition = REPORTING_DATASET_BY_KEY[key];
+    const target = datasetTargetTabs[key] ?? 'datasetDetail';
+    trackClientEvent('DataHub', 'datasetEntered', {
+      dataset: key,
+      datasetLabel: definition?.name || key,
+      target,
+    }, { throttleKey: `datahub-dataset-${key}`, cooldownMs: 5000 });
     setSelectedDatasetKey(key);
     setMattersLedgerOpen(false);
-    const target = datasetTargetTabs[key] ?? 'datasetDetail';
     setActiveOp(key === 'wip' || key === 'recoveredFees' ? target : 'datasetDetail');
   }, [datasetTargetTabs]);
   const handleBackToDatasets = React.useCallback(() => {
@@ -1172,6 +1253,13 @@ const DataCentre: React.FC<DataCentreProps> = ({
     const target = datasetTargetTabs[key] ?? 'datasetDetail';
     return key === 'wip' || key === 'recoveredFees' ? datasetTargetLabels[target] : 'Dataset detail';
   }, [datasetTargetLabels, datasetTargetTabs]);
+
+  React.useEffect(() => {
+    if (activeOp !== 'datasets') return;
+    trackClientEvent('DataHub', 'entered', {
+      surface: 'datasets',
+    }, { throttleKey: 'datahub-entered-datasets', cooldownMs: 60000 });
+  }, [activeOp]);
 
   React.useEffect(() => {
     if (!mattersLedgerOpen) return;
@@ -1256,7 +1344,7 @@ const DataCentre: React.FC<DataCentreProps> = ({
   const [wipConfirmChecked, setWipConfirmChecked] = React.useState(false);
   const [opsLog, setOpsLog] = React.useState<OperationLogEntry[]>([]);
   const [matterOpeningEvents, setMatterOpeningEvents] = React.useState<MatterOpeningActivityEntry[]>([]);
-  const [opsLogLoading, setOpsLogLoading] = React.useState(false);
+  const [opsLogLoading, setOpsLogLoading] = React.useState(true);
   const [wipWeekExclusionChecked, setWipWeekExclusionChecked] = React.useState(false);
   /* Month coverage side panel state */
 const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' | 'agedDebt' | null>(null);
@@ -1784,9 +1872,10 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
   const fetchOpsLog = React.useCallback(async () => {
     setOpsLogLoading(true);
     try {
-      const [opsLogResult, persistedOpsLogResult, activityResult] = await Promise.allSettled([
+      const [opsLogResult, persistedOpsLogResult, telemetryResult, activityResult] = await Promise.allSettled([
         fetch('/api/data-operations/log'),
         fetch('/api/data-operations/ops-log?limit=80'),
+        fetch('/api/telemetry/recent?source=DataHub&limit=80'),
         fetch('/api/activity-feed?limit=60'),
       ]);
       const mergedEntries: OperationLogEntry[] = [];
@@ -1804,6 +1893,15 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
         if (Array.isArray(data.entries)) {
           data.entries.forEach((entry: Record<string, unknown>, index: number) => {
             const normalised = normaliseOperationLogEntry(entry, index + mergedEntries.length);
+            if (normalised) mergedEntries.push(normalised);
+          });
+        }
+      }
+      if (telemetryResult.status === 'fulfilled' && telemetryResult.value.ok) {
+        const data = await telemetryResult.value.json();
+        if (Array.isArray(data)) {
+          data.forEach((entry: Record<string, unknown>, index: number) => {
+            const normalised = normaliseDataHubTelemetryEntry(entry, index + mergedEntries.length);
             if (normalised) mergedEntries.push(normalised);
           });
         }
@@ -2750,6 +2848,10 @@ const [monthAuditOp, setMonthAuditOp] = React.useState<'collectedTime' | 'wip' |
 
           {selectedDatasetKey === 'enquiries' && canAccessDataHubLedgers && (
             <EnquirySourceLedger isDarkMode={isDarkMode} />
+          )}
+
+          {selectedDatasetKey === 'dubberCalls' && canAccessDataHubLedgers && isCclOperationsAvailable() && (
+            <CallsLedger isDarkMode={isDarkMode} />
           )}
 
           {selectedDatasetKey === 'allMatters' && canAccessDataHubLedgers && (

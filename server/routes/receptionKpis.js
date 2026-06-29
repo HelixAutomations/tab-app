@@ -114,19 +114,27 @@ const STAGE_RANK_SQL = `CASE i.Stage
         WHEN 'initialised'           THEN 7
         ELSE NULL END`;
 
+const RECEPTION_HANDLER_KEYS = ['ea', 'kw', 'wh', 'ld'];
+const RECEPTION_HANDLER_IN_SQL = RECEPTION_HANDLER_KEYS.map((key) => `'${key}'`).join(',');
+const RAW_HANDLER_SQL = `LOWER(LTRIM(RTRIM(COALESCE(ic.taken_by_resolved, ic.taken_by))))`;
+const RECEPTION_HANDLER_SQL = `CASE
+          WHEN ${RAW_HANDLER_SQL} IN ('dev', 'mp', 'moneypenny', 'money penny') THEN 'mp'
+          WHEN ${RAW_HANDLER_SQL} IN ('ea', 'emma', 'emma albers') THEN 'ea'
+          WHEN ${RAW_HANDLER_SQL} IN ('kw', 'kanchel', 'kch', 'kc') THEN 'kw'
+          WHEN ${RAW_HANDLER_SQL} IN ('wh', 'wolfgang', 'wolfgang hartung') THEN 'wh'
+          WHEN ${RAW_HANDLER_SQL} IN ('ld', 'libby') THEN 'ld'
+          ELSE ${RAW_HANDLER_SQL}
+        END`;
+
 const SQL_QUERY = `
 WITH calls AS (
     SELECT
     ic.id AS callId,
         -- Prefer resolved handler (back-filled from Dubber phone+time match) over the
         -- raw form-default. See dbo.incoming_calls.taken_by_resolved / taken_by_confidence.
-        -- Alias 'kanchel' -> 'kw' so the same person doesn't split into two handler buckets
-        -- (form default still writes 'kanchel' for some intakes; the resolved column writes 'kw').
-        CASE
-          WHEN LOWER(LTRIM(RTRIM(COALESCE(ic.taken_by_resolved, ic.taken_by)))) = 'kanchel'
-            THEN 'kw'
-          ELSE LOWER(LTRIM(RTRIM(COALESCE(ic.taken_by_resolved, ic.taken_by))))
-        END AS handler,
+        -- Canonicalise reception aliases before aggregation so form defaults like
+        -- 'wolfgang'/'wh' or 'dev'/'moneypenny' cannot split into duplicate UI rows.
+        ${RECEPTION_HANDLER_SQL} AS handler,
         ic.taken_by AS rawTakenBy,
         ic.taken_by_resolved AS takenByResolved,
         ic.taken_by_confidence AS takenByConfidence,
@@ -206,6 +214,7 @@ WITH calls AS (
       AND ic.created_at <  @to
       AND COALESCE(ic.taken_by_resolved, ic.taken_by) IS NOT NULL
       AND LTRIM(RTRIM(COALESCE(ic.taken_by_resolved, ic.taken_by))) <> ''
+      AND ${RECEPTION_HANDLER_SQL} IN (${RECEPTION_HANDLER_IN_SQL})
 ),
     callInstruction AS (
       SELECT
@@ -365,17 +374,26 @@ SELECT
 `;
 
 // Independent view of inbound phone activity, sourced directly from Dubber recordings.
-// Answers "who actually picked up the phone" (Emma, Wolfgang, Kanchel, etc.), which the
+// Answers "who actually picked up the phone" (Emma, Kanchel, Wolfgang, Libby), which the
 // incoming_calls form-intake aggregate cannot show because fee-earner pickups never go
 // through the Reception form.
 // Reception team in scope for pickup KPIs. Other initials are fee-earner pickups
 // (interesting elsewhere, noise here). The unmatched bucket is the MoneyPenny proxy:
 // inbound external calls Dubber could not tie back to a Helix team member.
-const RECEPTION_PICKUP_INITIALS = ['EA', 'KW', 'WH'];
+const RECEPTION_PICKUP_INITIALS = ['EA', 'KW', 'WH', 'LD'];
+const RECEPTION_PICKUP_IN_SQL = RECEPTION_PICKUP_INITIALS.map((initials) => `'${initials}'`).join(',');
+const RECEPTION_PICKUP_HANDLER_SQL = `CASE
+      WHEN UPPER(LTRIM(RTRIM(COALESCE(matched_team_initials, '')))) IN (${RECEPTION_PICKUP_IN_SQL}) THEN UPPER(LTRIM(RTRIM(matched_team_initials)))
+      WHEN LOWER(CONCAT(COALESCE(to_label, ''), ' ', COALESCE(to_party, ''), ' ', COALESCE(channel, ''))) LIKE '%emma%' THEN 'EA'
+      WHEN LOWER(CONCAT(COALESCE(to_label, ''), ' ', COALESCE(to_party, ''), ' ', COALESCE(channel, ''))) LIKE '%kanchel%' THEN 'KW'
+      WHEN LOWER(CONCAT(COALESCE(to_label, ''), ' ', COALESCE(to_party, ''), ' ', COALESCE(channel, ''))) LIKE '%wolfgang%' THEN 'WH'
+      WHEN LOWER(CONCAT(COALESCE(to_label, ''), ' ', COALESCE(to_party, ''), ' ', COALESCE(channel, ''))) LIKE '%libby%' THEN 'LD'
+      ELSE '__unmatched__'
+    END`;
 const PHONE_PICKUPS_SQL = `
   SELECT
-    COALESCE(NULLIF(LTRIM(RTRIM(matched_team_initials)), ''), '__unmatched__') AS handler,
-    matched_team_email AS handlerEmail,
+    ${RECEPTION_PICKUP_HANDLER_SQL} AS handler,
+    MAX(CASE WHEN UPPER(LTRIM(RTRIM(COALESCE(matched_team_initials, '')))) IN (${RECEPTION_PICKUP_IN_SQL}) THEN matched_team_email ELSE NULL END) AS handlerEmail,
     COUNT(*) AS calls,
     SUM(CASE WHEN duration_seconds IS NOT NULL AND duration_seconds < 30 THEN 1 ELSE 0 END) AS shortCalls,
     SUM(CASE WHEN duration_seconds IS NOT NULL THEN duration_seconds ELSE 0 END) AS totalDurationSeconds,
@@ -390,12 +408,8 @@ const PHONE_PICKUPS_SQL = `
     -- this pattern, so they stay in the unmatched bucket.
     AND (from_party IS NULL OR LOWER(from_party) NOT LIKE '%@helix-law.com%')
     -- Reception team only, plus the unmatched bucket (MoneyPenny proxy).
-    AND (
-      UPPER(LTRIM(RTRIM(matched_team_initials))) IN ('EA','KW','WH')
-      OR matched_team_initials IS NULL
-      OR LTRIM(RTRIM(matched_team_initials)) = ''
-    )
-  GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(matched_team_initials)), ''), '__unmatched__'), matched_team_email
+    AND (${RECEPTION_PICKUP_HANDLER_SQL} IN (${RECEPTION_PICKUP_IN_SQL}) OR ${RECEPTION_PICKUP_HANDLER_SQL} = '__unmatched__')
+  GROUP BY ${RECEPTION_PICKUP_HANDLER_SQL}
   ORDER BY calls DESC;
 `;
 
@@ -413,14 +427,14 @@ const PHONE_PICKUP_UNMATCHED_SQL = `
     AND start_time_utc >= @from
     AND start_time_utc <  @to
     AND (from_party IS NULL OR LOWER(from_party) NOT LIKE '%@helix-law.com%')
-    AND (matched_team_initials IS NULL OR LTRIM(RTRIM(matched_team_initials)) = '')
+    AND ${RECEPTION_PICKUP_HANDLER_SQL} = '__unmatched__'
   ORDER BY start_time_utc DESC, recording_id DESC;
 `;
 
 const COVERAGE = {
   callsTaken: {
-    source: 'dbo.incoming_calls',
-    note: 'Handler is COALESCE(taken_by_resolved, taken_by). taken_by_resolved is back-filled by enquiry-processing-v2 from Dubber phone+time matches; raw taken_by is the form default (often "dev" for MoneyPenny intakes). The residual "dev" bucket is surfaced as MP in the UI. Fee-earner phone pickups that bypass the form are surfaced separately under phonePickups, sourced from dbo.dubber_recordings.',
+    source: 'dbo.dubber_recordings',
+    note: 'Handler call counts are Dubber-first direct inbound phone pickups for reception lines. Logged Reception form rows remain attached as evidence for enquiry, instruction, matter, notes, and review follow-up, but missing forms no longer suppress the call denominator. MoneyPenny/dev form rows are excluded from reception-handler KPI totals until attribution is reliable.',
   },
   avgCallSeconds: {
     source: 'dbo.dubber_recordings.duration_seconds, fallback dbo.incoming_calls.call_duration_seconds',
@@ -428,7 +442,7 @@ const COVERAGE = {
   },
   prospectsOpened: {
     source: "dbo.Instructions.Stage IN ('matter-opened','completed','payment-complete') joined via dbo.enquiries.acid",
-    note: 'Matter path rate denominator is logged calls. The count means the call row is stitched to an enquiry/instruction path that now resolves to a paid/opened instruction or matter row. It is not proof that the reception call caused the matter to open. Earlier pitch stages appear as onboarding in progress.',
+    note: 'Matter path counts come from logged form evidence stitched to enquiry/instruction paths. Rates use the Dubber-first call denominator, so missing forms now reduce evidence coverage rather than suppressing call volume. This is not proof that the reception call caused the matter to open. Earlier pitch stages appear as onboarding in progress.',
   },
   prospectsInProgress: {
     source: "dbo.Instructions.Stage IN ('id-only-complete','proof-of-id-complete','proof-of-id','initialised')",
@@ -729,10 +743,13 @@ function aggregateEvidenceRows(evidenceRows) {
         identityVerified: 0,
         identityMismatch: 0,
         identityUnverified: 0,
+        loggedForms: 0,
+        lastCallAt: null,
       });
     }
     const aggregate = byHandler.get(key);
     aggregate.callsTaken += 1;
+    aggregate.loggedForms += 1;
     if (String(row.callStatus || '').toLowerCase() === 'handled') aggregate.callsHandled += 1;
     if (row.durationSeconds != null) {
       aggregate.callsWithDuration += 1;
@@ -770,8 +787,62 @@ function aggregateEvidenceRows(evidenceRows) {
       identityVerified: row.identityVerified,
       identityMismatch: row.identityMismatch,
       identityUnverified: row.identityUnverified,
+      loggedForms: row.loggedForms,
+      lastCallAt: row.lastCallAt,
     };
   }).sort((a, b) => b.callsTaken - a.callsTaken || a.handler.localeCompare(b.handler));
+}
+
+function emptyHandlerAggregate(handler) {
+  return {
+    handler,
+    callsTaken: 0,
+    callsHandled: 0,
+    avgCallSeconds: null,
+    callsWithDuration: 0,
+    prospectsOpened: 0,
+    prospectsInProgress: 0,
+    conversionRate: null,
+    notesRated: 0,
+    notesClear: 0,
+    notesUnclear: 0,
+    clarityScore: null,
+    callsByType: emptyCallsByType(),
+    identityVerified: 0,
+    identityMismatch: 0,
+    identityUnverified: 0,
+    loggedForms: 0,
+    lastCallAt: null,
+  };
+}
+
+function buildDubberFirstHandlers(evidenceHandlers, phonePickupAggregates) {
+  const byHandler = new Map();
+  for (const row of evidenceHandlers) {
+    byHandler.set(row.handler, {
+      ...row,
+      loggedForms: Number(row.loggedForms || row.callsTaken || 0),
+      callsTaken: 0,
+      avgCallSeconds: null,
+      callsWithDuration: 0,
+      conversionRate: null,
+      lastCallAt: null,
+    });
+  }
+
+  for (const pickup of phonePickupAggregates.handlers || []) {
+    const key = String(pickup.handler || '').trim().toLowerCase();
+    if (!key) continue;
+    const row = byHandler.get(key) || emptyHandlerAggregate(key);
+    row.callsTaken = Number(pickup.calls || 0);
+    row.avgCallSeconds = pickup.avgCallSeconds == null ? null : Number(pickup.avgCallSeconds);
+    row.callsWithDuration = Number(pickup.callsWithDuration || 0);
+    row.lastCallAt = pickup.lastCallAt || null;
+    row.conversionRate = row.callsTaken > 0 ? round4(row.prospectsOpened / row.callsTaken) : null;
+    byHandler.set(key, row);
+  }
+
+  return [...byHandler.values()].sort((a, b) => b.callsTaken - a.callsTaken || b.loggedForms - a.loggedForms || a.handler.localeCompare(b.handler));
 }
 
 function buildEvidenceSummary(evidenceRows) {
@@ -841,6 +912,8 @@ function computeTotals(handlers) {
   let totalIdentityVerified = 0;
   let totalIdentityMismatch = 0;
   let totalIdentityUnverified = 0;
+  let totalLoggedForms = 0;
+  let latestCallAt = null;
   for (const h of handlers) {
     totalCallsTaken += h.callsTaken;
     totalCallsHandled += h.callsHandled;
@@ -861,6 +934,8 @@ function computeTotals(handlers) {
     totalIdentityVerified += h.identityVerified || 0;
     totalIdentityMismatch += h.identityMismatch || 0;
     totalIdentityUnverified += h.identityUnverified || 0;
+    totalLoggedForms += Number(h.loggedForms || 0);
+    if (h.lastCallAt && (!latestCallAt || h.lastCallAt > latestCallAt)) latestCallAt = h.lastCallAt;
   }
   return {
     handler: null,
@@ -879,6 +954,8 @@ function computeTotals(handlers) {
     identityVerified: totalIdentityVerified,
     identityMismatch: totalIdentityMismatch,
     identityUnverified: totalIdentityUnverified,
+    loggedForms: totalLoggedForms,
+    lastCallAt: latestCallAt,
   };
 }
 
@@ -1016,13 +1093,14 @@ router.get('/reception-kpis', async (req, res) => {
     ]);
     const rawRows = (result && result.recordset) || [];
     const evidenceRows = rawRows.map(shapeEvidenceRow);
-    const handlers = aggregateEvidenceRows(evidenceRows);
-    const totals = computeTotals(handlers);
+    const evidenceHandlers = aggregateEvidenceRows(evidenceRows);
     const evidenceSummary = buildEvidenceSummary(evidenceRows);
     const conversionStages = buildConversionStageSummary(evidenceRows);
     const pickupRows = (pickupsResult && pickupsResult.recordset) || [];
     const unmatchedPickupRows = ((unmatchedPickupsResult && unmatchedPickupsResult.recordset) || []).map(shapePhonePickupEvidenceRow);
     const phonePickupAggregates = aggregatePhonePickups(pickupRows);
+    const handlers = buildDubberFirstHandlers(evidenceHandlers, phonePickupAggregates);
+    const totals = computeTotals(handlers);
     const phonePickups = {
       ...phonePickupAggregates,
       unmatched: {

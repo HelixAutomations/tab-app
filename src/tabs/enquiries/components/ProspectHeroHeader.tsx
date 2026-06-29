@@ -5,7 +5,7 @@
  * chrome, not a hero card: essential identity first, case switching second.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Enquiry } from '../../../app/functionality/types';
 import { colours } from '../../../app/styles/colours';
@@ -24,6 +24,7 @@ import {
 import { useToast } from '../../../components/feedback/ToastProvider';
 import { trackClientEvent } from '../../../utils/telemetry';
 import { recordProcessEvent } from '../../../utils/processStreamEvents';
+import { deriveProspectJourneyState } from '../../../utils/workbenchJourneyState';
 import { derivePitchLinkMetadata } from '../pitch-builder/pitchLinkMetadata';
 import { DEFAULT_PITCH_AMOUNT } from '../pitch-builder/scenarios';
 
@@ -163,6 +164,10 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
   inlineWorkbenchItem,
 }) => {
   const areaColour = getAreaColour(displayAreaOfWork);
+  const journeyState = useMemo(() => deriveProspectJourneyState({
+    workbenchItem: inlineWorkbenchItem,
+    enquiry: enquiry as any,
+  }), [enquiry, inlineWorkbenchItem]);
 
   // Send Pitch Link popover: issues a passcode + instruct URL without drafting an email.
   const { showToast } = useToast();
@@ -392,6 +397,29 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
   const pitchLinkPopoverBorder = isDarkMode ? colours.highlight : colours.helixBlue;
   const pitchLinkInputSurface = isDarkMode ? colours.dark.cardHover : colours.grey;
   const pitchLinkShadow = isDarkMode ? '0 18px 42px rgba(0, 3, 25, 0.78)' : '0 16px 36px rgba(6, 23, 51, 0.24)';
+  const workflowCurrent = journeyState.currentStageKey ? journeyState.stages[journeyState.currentStageKey] : journeyState.stages.claimed;
+  const workflowNext = journeyState.nextStageKey ? journeyState.stages[journeyState.nextStageKey] : null;
+  const workflowTone = workflowNext?.status === 'blocked'
+    ? colours.orange
+    : workflowNext?.status === 'review'
+      ? colours.cta
+      : workflowNext?.status === 'warning'
+        ? colours.orange
+        : workflowCurrent?.status === 'complete'
+          ? colours.green
+          : areaColour;
+  const environmentLabel = (() => {
+    if (typeof window === 'undefined') return process.env.NODE_ENV === 'development' ? 'Local' : 'Production';
+    const host = window.location.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1') return 'Local';
+    if (host.includes('staging') || host.includes('uat') || host.includes('preview')) return 'Staging';
+    return 'Production';
+  })();
+  const environmentTone = environmentLabel === 'Production'
+    ? colours.green
+    : environmentLabel === 'Staging'
+      ? colours.orange
+      : colours.highlight;
 
   const showCaseSelectorRow = showCaseSelector && enquiryWindows.length > 1;
   const activeCampaignIconFilter = isDarkMode ? 'brightness(0) invert(1)' : 'none';
@@ -696,6 +724,66 @@ const ProspectHeroHeader: React.FC<ProspectHeroHeaderProps> = ({
               )}
             </div>
           )}
+        </div>
+
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+          flexWrap: 'wrap',
+          padding: '8px 0 2px',
+          borderTop: `1px solid ${shellDivider}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 8px',
+              border: `1px solid ${workflowTone}33`,
+              background: `${workflowTone}12`,
+              color: workflowTone,
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: '0.25px',
+              textTransform: 'uppercase',
+              whiteSpace: 'nowrap',
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: workflowTone, flexShrink: 0 }} />
+              {workflowCurrent?.statusText || 'Workflow open'}
+            </span>
+            {workflowNext && workflowNext.key !== workflowCurrent?.key && (
+              <span style={{
+                color: textBody,
+                fontSize: 11,
+                fontWeight: 600,
+                lineHeight: 1.2,
+                whiteSpace: 'nowrap',
+              }}>
+                Next: {workflowNext.statusText}
+              </span>
+            )}
+            {journeyState.instructionRef && (
+              <span style={{ color: textMuted, fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {journeyState.instructionRef}
+              </span>
+            )}
+          </div>
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            color: environmentTone,
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: '0.35px',
+            textTransform: 'uppercase',
+            whiteSpace: 'nowrap',
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: environmentTone }} />
+            {environmentLabel}
+          </span>
         </div>
 
         {/* Row 2: action strip. Draft pitch (primary), client link (secondary), Rate plus Share, value right-anchored. */}

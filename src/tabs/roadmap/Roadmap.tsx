@@ -1,6 +1,6 @@
 // src/tabs/roadmap/Roadmap.tsx — Activity dashboard (live ops + changelog)
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { Spinner } from '@fluentui/react/lib/Spinner';
 import { useTheme } from '../../app/functionality/ThemeContext';
 import { colours } from '../../app/styles/colours';
@@ -26,11 +26,12 @@ import SystemProjectsView from './system/SystemProjectsView';
 import SystemActivityLedgerView from './system/SystemActivityLedgerView';
 import SystemTasksView from './system/SystemTasksView';
 import { SystemLandingTile } from './system/shared';
-import { PROCESS_STREAM_UPDATED_EVENT } from '../forms/processStreamStore';
+import { PROCESS_STREAM_KEY, PROCESS_STREAM_UPDATED_EVENT, readStoredStream } from '../forms/processStreamStore';
+import type { ProcessStreamItem } from '../forms/processHubData';
 import { useOpsPulse } from './hooks/useOpsPulse';
 import { useActivityLayout } from './hooks/useActivityLayout';
 import { ActivityProvider } from './ActivityContext';
-import { ActivityFeedItem } from './parts/types';
+import { ActivityFeedItem, FeedStatus } from './parts/types';
 import type { OpsPulseState, PresenceEntry } from './parts/ops-pulse-types';
 import { useNavigatorActions } from '../../app/functionality/NavigatorContext';
 import { LocalSupportSettings } from '../../app/localSupportMode';
@@ -139,6 +140,34 @@ const containerStyles = (isDarkMode: boolean): React.CSSProperties => ({
 });
 
 type SystemMode = 'entry' | 'errors' | 'activity' | 'tasks' | 'api-audit' | 'infrastructure' | 'projects' | 'audit-pack' | 'dashboard';
+type SystemEntryAccessPreview = 'dev-owner' | 'restricted';
+type SystemStreamFilter = 'all' | 'system' | 'cards' | 'forms' | 'ops';
+type SystemStreamGroup = Exclude<SystemStreamFilter, 'all'>;
+
+type SystemEntryStreamEvent = {
+  id: string;
+  group: SystemStreamGroup;
+  badge: string;
+  title: string;
+  detail: string;
+  tone: FeedStatus;
+  ts: number;
+};
+
+const SYSTEM_STREAM_FILTERS: Array<{ key: SystemStreamFilter; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'system', label: 'System' },
+  { key: 'cards', label: 'Cards' },
+  { key: 'forms', label: 'Forms' },
+  { key: 'ops', label: 'Ops' },
+];
+
+const CARD_ACTIVITY_SOURCES = new Set<ActivityFeedItem['source']>([
+  'teams.card',
+  'activity.cardlab',
+  'activity.card.send',
+  'activity.dm.send',
+]);
 
 const SYSTEM_NAV_TABS = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -163,70 +192,435 @@ const SystemAccessSection: React.FC<{ isDarkMode: boolean }> = ({ isDarkMode }) 
   </div>
 );
 
-function compactSeenLabel(timestamp: number): string {
-  const secondsAgo = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+function compactSeenLabel(timestamp: number, now = Date.now()): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return 'unknown';
+  const secondsAgo = Math.max(0, Math.floor((now - timestamp) / 1000));
   if (secondsAgo < 10) return 'now';
   if (secondsAgo < 60) return `${secondsAgo}s`;
   return `${Math.floor(secondsAgo / 60)}m`;
 }
 
-const SystemEntryStatusStrip: React.FC<{
+function systemTabLabel(tab: string | null | undefined): string {
+  const cleaned = String(tab || '').trim().replace(/^tab\//i, '');
+  if (!cleaned) return 'Hub';
+  return cleaned
+    .replace(/[\/_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function splitActivitySummary(summary: string | undefined): string[] {
+  return String(summary || '')
+    .split('·')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function humaniseActivityToken(value: string): string {
+  const cleaned = value
+    .replace(/^activity\.api\./i, '')
+    .replace(/^stage\s+/i, '')
+    .replace(/[._/-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return 'Activity';
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+}
+
+function safeTimestamp(value: string | number | null | undefined): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function statusDetail(status: string): string {
+  const normalised = String(status || '').replace(/_/g, ' ').trim().toLowerCase();
+  if (normalised === 'complete' || normalised === 'success') return 'Completed';
+  if (normalised === 'failed' || normalised === 'error') return 'Needs attention';
+  if (normalised === 'processing' || normalised === 'active') return 'In progress';
+  if (normalised === 'queued') return 'Queued';
+  if (normalised === 'info') return 'Logged';
+  return humaniseActivityToken(normalised || 'Logged');
+}
+
+function formatDurationShort(ms: number | null | undefined): string | null {
+  if (!Number.isFinite(Number(ms)) || Number(ms) < 0) return null;
+  const seconds = Math.round(Number(ms) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+}
+
+function safeRouteArea(path: string | null | undefined): string {
+  const cleaned = String(path || '').split('?')[0].replace(/^\/api\//i, '').trim();
+  if (!cleaned) return 'System';
+  const [area] = cleaned.split('/').filter(Boolean);
+  return humaniseActivityToken(area || 'system');
+}
+
+function activityGroup(item: ActivityFeedItem): SystemStreamGroup {
+  if (CARD_ACTIVITY_SOURCES.has(item.source)) return 'cards';
+  if (item.source === 'forms.submission') return 'forms';
+  return 'ops';
+}
+
+function activityPresentation(item: ActivityFeedItem): Omit<SystemEntryStreamEvent, 'id' | 'group' | 'ts'> {
+  const parts = splitActivitySummary(item.summary);
+  const methodMatch = item.title.match(/\b(GET|POST|PATCH|PUT|DELETE)\s+\/api\/([^\s]+)/i);
+  if (methodMatch) {
+    const area = humaniseActivityToken(methodMatch[2].split('/')[0] || 'system');
+    const statusPart = parts.find((part) => /\b\d{3}\b/.test(part));
+    return {
+      badge: 'API',
+      title: `${area} request`,
+      detail: [methodMatch[1].toUpperCase(), statusPart && /\b\d{3}\b/.test(statusPart) ? statusPart.match(/\b\d{3}\b/)?.[0] : null, statusPart && /\b[45]\d{2}\b/.test(statusPart) ? 'Needs attention' : 'Completed'].filter(Boolean).join(' · '),
+      tone: item.status,
+    };
+  }
+
+  if (CARD_ACTIVITY_SOURCES.has(item.source) || /^Card\s+/i.test(item.title)) {
+    const category = humaniseActivityToken(parts[0] || item.sourceLabel || 'card');
+    const stage = parts.find((part) => /^stage\s+/i.test(part));
+    const claimed = parts.some((part) => /^claimed by\s+/i.test(part));
+    const action = /tracked/i.test(item.title) ? 'tracked' : /updated/i.test(item.title) ? 'updated' : 'changed';
+    return {
+      badge: 'CARD',
+      title: `Card ${action}`,
+      detail: [category, stage ? humaniseActivityToken(stage) : null, claimed ? 'Claimed' : null].filter(Boolean).join(' · ') || 'Card activity',
+      tone: item.status,
+    };
+  }
+
+  if (item.source === 'forms.submission') {
+    const statusPart = parts.find((part) => /queued|processing|complete|failed/i.test(part));
+    return {
+      badge: 'FORM',
+      title: 'Form submission',
+      detail: [humaniseActivityToken(parts[0] || item.sourceLabel || 'Submission'), statusPart ? statusDetail(statusPart) : null].filter(Boolean).join(' · '),
+      tone: item.status,
+    };
+  }
+
+  if (item.source === 'data.activity') {
+    return {
+      badge: 'DATA',
+      title: item.title || 'Data Hub activity',
+      detail: humaniseActivityToken(parts[0] || item.sourceLabel || 'Data Hub'),
+      tone: item.status,
+    };
+  }
+
+  if (item.source.includes('email')) {
+    return {
+      badge: 'MAIL',
+      title: 'Email activity',
+      detail: humaniseActivityToken(parts[0] || item.sourceLabel || 'Email'),
+      tone: item.status,
+    };
+  }
+
+  if (item.source === 'activity.matter-opening') {
+    const step = parts.find((part) => !/^trace\s+/i.test(part) && !/^operator\s+/i.test(part));
+    return {
+      badge: 'MAT',
+      title: 'Matter opening',
+      detail: humaniseActivityToken(step || item.sourceLabel || 'Matter activity'),
+      tone: item.status,
+    };
+  }
+
+  if (item.source === 'hub.todo') {
+    const kind = parts.find((part) => /^kind\s+/i.test(part));
+    const completed = parts.find((part) => /^completed\s+/i.test(part));
+    return {
+      badge: 'TASK',
+      title: 'Task activity',
+      detail: [kind ? humaniseActivityToken(kind) : 'Task', completed ? 'Completed' : statusDetail(item.status)].join(' · '),
+      tone: item.status,
+    };
+  }
+
+  if (item.source === 'ops.transaction') {
+    const action = parts.find((part) => /^action\s+/i.test(part));
+    const status = parts.find((part) => /^status\s+/i.test(part));
+    return {
+      badge: 'TXN',
+      title: item.status === 'error' ? 'Transaction issue' : 'Transaction update',
+      detail: [action ? humaniseActivityToken(action) : 'Workflow', status ? statusDetail(status.replace(/^status\s+/i, '')) : statusDetail(item.status)].join(' · '),
+      tone: item.status,
+    };
+  }
+
+  if (item.source.includes('teams')) {
+    return {
+      badge: 'TEAM',
+      title: 'Teams activity',
+      detail: humaniseActivityToken(parts[0] || item.sourceLabel || 'Teams'),
+      tone: item.status,
+    };
+  }
+
+  return {
+    badge: 'OPS',
+    title: humaniseActivityToken(item.sourceLabel || item.title || 'Operational activity'),
+    detail: humaniseActivityToken(parts[0] || 'Updated'),
+    tone: item.status,
+  };
+}
+
+function activityToStreamEvent(item: ActivityFeedItem): SystemEntryStreamEvent {
+  const presentation = activityPresentation(item);
+  return {
+    id: `activity:${item.id}`,
+    group: activityGroup(item),
+    ts: safeTimestamp(item.timestamp),
+    ...presentation,
+  };
+}
+
+function formToStreamEvent(item: ProcessStreamItem): SystemEntryStreamEvent {
+  const tone: FeedStatus = item.status === 'failed'
+    ? 'error'
+    : item.status === 'complete'
+      ? 'success'
+      : item.status === 'processing'
+        ? 'active'
+        : 'info';
+  return {
+    id: `forms:${item.id}`,
+    group: 'forms',
+    badge: 'FORM',
+    title: item.processTitle || 'Form submission',
+    detail: [item.lane, statusDetail(item.status)].filter(Boolean).join(' · '),
+    tone,
+    ts: safeTimestamp(item.startedAt),
+  };
+}
+
+function buildSystemPulseEvents(opsPulse: OpsPulseState): SystemEntryStreamEvent[] {
+  const events: SystemEntryStreamEvent[] = [];
+  for (const user of (opsPulse.presence?.list ?? []).slice(0, 8)) {
+    events.push({
+      id: `system:presence:${user.email}:${user.tab}`,
+      group: 'system',
+      badge: 'USER',
+      title: 'User active',
+      detail: [user.initials || 'User', systemTabLabel(user.tab)].join(' · '),
+      tone: Date.now() - user.lastSeen > 180_000 ? 'info' : 'active',
+      ts: user.lastSeen,
+    });
+  }
+
+  for (const trace of (opsPulse.sessionTraces?.list ?? []).slice(0, 8)) {
+    if (trace.health === 'healthy' && !trace.lastEventLabel) continue;
+    events.push({
+      id: `system:trace:${trace.sessionId}`,
+      group: 'system',
+      badge: 'SESS',
+      title: trace.health === 'healthy' ? 'Session activity' : `Session ${statusDetail(trace.health)}`,
+      detail: [systemTabLabel(trace.tab), trace.lastEventLabel ? humaniseActivityToken(trace.lastEventLabel) : statusDetail(trace.health)].filter(Boolean).join(' · '),
+      tone: trace.health === 'error' ? 'error' : trace.health === 'warning' || trace.health === 'busy' ? 'active' : 'info',
+      ts: trace.lastSeen,
+    });
+  }
+
+  for (const error of (opsPulse.errors ?? []).slice(0, 8)) {
+    events.push({
+      id: `system:error:${error.ts}:${error.status}:${error.path || 'route'}`,
+      group: 'system',
+      badge: 'ERR',
+      title: 'Route error',
+      detail: [`${error.status || 'Error'}`, safeRouteArea(error.path)].join(' · '),
+      tone: 'error',
+      ts: error.ts,
+    });
+  }
+
+  for (const request of (opsPulse.requests ?? []).filter((entry) => entry.status >= 400 || entry.durationMs >= 1500).slice(0, 10)) {
+    events.push({
+      id: `system:request:${request.ts}:${request.method}:${request.path}`,
+      group: 'system',
+      badge: request.status >= 400 ? 'ERR' : 'SLOW',
+      title: request.status >= 400 ? 'Request issue' : 'Slow route',
+      detail: [safeRouteArea(request.path), request.method, `${request.status}`, formatDurationShort(request.durationMs)].filter(Boolean).join(' · '),
+      tone: request.status >= 500 ? 'error' : 'active',
+      ts: request.ts,
+    });
+  }
+
+  const scheduler = opsPulse.scheduler;
+  if (scheduler?.mutex?.locked) {
+    events.push({
+      id: `system:scheduler:locked:${scheduler.mutex.holder?.startedAt || Date.now()}`,
+      group: 'system',
+      badge: 'JOB',
+      title: 'Scheduler busy',
+      detail: [scheduler.mutex.holder?.name ? humaniseActivityToken(scheduler.mutex.holder.name) : 'Queue active', scheduler.mutex.queueDepth ? `${scheduler.mutex.queueDepth} queued` : null].filter(Boolean).join(' · '),
+      tone: 'active',
+      ts: scheduler.mutex.holder?.startedAt || Date.now(),
+    });
+  }
+  for (const job of (scheduler?.mutex?.recentHistory ?? []).slice(0, 4)) {
+    events.push({
+      id: `system:scheduler:${job.name}:${job.completedAt}`,
+      group: 'system',
+      badge: 'JOB',
+      title: 'Scheduler completed',
+      detail: [humaniseActivityToken(job.name), formatDurationShort(job.durationMs)].filter(Boolean).join(' · '),
+      tone: 'success',
+      ts: job.completedAt,
+    });
+  }
+
+  return events;
+}
+
+const SystemEntryActiveUsers: React.FC<{
+  opsPulse: OpsPulseState;
+}> = ({ opsPulse }) => {
+  const now = Date.now();
+  const activeUsers = [...(opsPulse.presence?.list ?? [])]
+    .sort((a: PresenceEntry, b: PresenceEntry) => b.lastSeen - a.lastSeen)
+    .slice(0, 4);
+  const activeTabs = Object.entries(opsPulse.presence?.tabs ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
+  const onlineCount = opsPulse.presence?.online ?? activeUsers.length;
+
+  const renderUser = (user: PresenceEntry) => {
+    const idle = now - user.lastSeen > 180_000;
+    return (
+      <div key={`${user.email}-${user.tab}`} className="system-entry-user-row" title={`${user.name || user.email} - ${systemTabLabel(user.tab)}`}>
+        <span className={`system-entry-presence-dot ${idle ? 'system-entry-presence-dot--idle' : ''}`} />
+        <span className="system-entry-user-initials">{user.initials || '?'}</span>
+        <span className="system-entry-user-name">{user.name || user.email}</span>
+        <span className="system-entry-user-tab">{systemTabLabel(user.tab)}</span>
+        <span className="system-entry-user-seen">{idle ? 'Idle' : 'Active'} {compactSeenLabel(user.lastSeen)}</span>
+      </div>
+    );
+  };
+
+  return (
+    <section className="system-entry-panel system-entry-panel--users" data-helix-region="system/entry/live-users">
+      <div className="system-entry-panel-head">
+        <div>
+          <h3>Active Users</h3>
+        </div>
+        <span className="system-entry-panel-count">{onlineCount} live</span>
+      </div>
+      {activeUsers.length > 0 ? (
+        <div className="system-entry-user-list">
+          {activeUsers.map(renderUser)}
+        </div>
+      ) : (
+        <div className="system-entry-empty">No active users reported yet.</div>
+      )}
+      {activeTabs.length > 0 ? (
+        <div className="system-entry-tab-row">
+          {activeTabs.map(([tab, count]) => (
+            <span key={tab}>{systemTabLabel(tab)} {count}</span>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+};
+
+const SystemEntryOperationsStream: React.FC<{
   opsPulse: OpsPulseState;
   activityItems: ActivityFeedItem[];
   activityFeedRefreshing: boolean;
   activityError: string | null;
-  canOpenTools: boolean;
-  onOpenDashboard: () => void;
+  canOpenLedger: boolean;
+  heightPx?: number | null;
   onOpenActivity: () => void;
-  onOpenErrors: () => void;
-}> = ({
-  opsPulse,
-  activityItems,
-  activityFeedRefreshing,
-  activityError,
-  canOpenTools,
-  onOpenDashboard,
-  onOpenActivity,
-  onOpenErrors,
-}) => {
-  const presenceCount = Math.max(opsPulse.presence?.online ?? 0, opsPulse.sessionTraces?.active ?? 0);
-  const degradedCount = opsPulse.sessionTraces?.degraded ?? 0;
-  const importantErrors = (opsPulse.errors ?? []).filter((entry) => entry.status >= 500 || entry.status === 0).length;
-  const slowRoutes = (opsPulse.requests ?? []).filter((request) => request.durationMs >= 1500 && request.status < 500).length;
-  const latestActivity = activityItems[0] ?? null;
-  const routeCheckLabel = opsPulse.opsChecks?.totalTracked
-    ? `${opsPulse.opsChecks.passCount}/${opsPulse.opsChecks.totalTracked} checks`
-    : 'checks idle';
-  const activityLabel = activityError
-    ? 'activity warning'
+}> = ({ opsPulse, activityItems, activityFeedRefreshing, activityError, canOpenLedger, heightPx, onOpenActivity }) => {
+  const [streamFilter, setStreamFilter] = useState<SystemStreamFilter>('all');
+  const [forms, setForms] = useState<ProcessStreamItem[]>(() => readStoredStream());
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const refreshForms = () => setForms(readStoredStream());
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === PROCESS_STREAM_KEY) refreshForms();
+    };
+    refreshForms();
+    window.addEventListener(PROCESS_STREAM_UPDATED_EVENT, refreshForms);
+    window.addEventListener('storage', handleStorage);
+    const tick = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => {
+      window.removeEventListener(PROCESS_STREAM_UPDATED_EVENT, refreshForms);
+      window.removeEventListener('storage', handleStorage);
+      window.clearInterval(tick);
+    };
+  }, []);
+
+  const allEvents = useMemo(() => {
+    return [
+      ...buildSystemPulseEvents(opsPulse),
+      ...forms.map(formToStreamEvent),
+      ...activityItems.map(activityToStreamEvent),
+    ]
+      .filter((event) => event.ts > 0)
+      .sort((left, right) => right.ts - left.ts);
+  }, [activityItems, forms, opsPulse]);
+
+  const counts = useMemo(() => {
+    const next: Record<SystemStreamFilter, number> = { all: allEvents.length, system: 0, cards: 0, forms: 0, ops: 0 };
+    allEvents.forEach((event) => { next[event.group] += 1; });
+    return next;
+  }, [allEvents]);
+
+  const visibleEvents = useMemo(() => {
+    return allEvents
+      .filter((event) => streamFilter === 'all' || event.group === streamFilter)
+      .slice(0, 40);
+  }, [allEvents, streamFilter]);
+
+  const activityStatus = activityError
+    ? 'Refresh warning'
     : activityFeedRefreshing
-      ? 'activity refreshing'
-      : latestActivity
-        ? `${latestActivity.title} ${compactSeenLabel(Date.parse(latestActivity.timestamp))}`
-        : 'activity idle';
+      ? 'Refreshing'
+      : visibleEvents.length > 0
+        ? 'Live feed'
+        : 'Waiting for events';
 
   return (
-    <div className="system-entry-status-strip" data-helix-region="system/entry/status-strip">
-      <button type="button" className="system-entry-status-chip" onClick={onOpenActivity} disabled={!canOpenTools}>
-        <span>Live</span>
-        <strong>{presenceCount}</strong>
-        <small>{degradedCount > 0 ? `${degradedCount} degraded` : 'sessions'}</small>
-      </button>
-      <button type="button" className="system-entry-status-chip" onClick={onOpenErrors} disabled={!canOpenTools}>
-        <span>Errors</span>
-        <strong>{importantErrors}</strong>
-        <small>{slowRoutes > 0 ? `${slowRoutes} slow` : 'quiet'}</small>
-      </button>
-      <button type="button" className="system-entry-status-chip" onClick={onOpenDashboard} disabled={!canOpenTools}>
-        <span>Routes</span>
-        <strong>{routeCheckLabel}</strong>
-        <small>{opsPulse.scheduler?.mutex?.locked ? 'scheduler busy' : 'scheduler open'}</small>
-      </button>
-      <button type="button" className="system-entry-status-chip system-entry-status-chip--wide" onClick={onOpenActivity} disabled={!canOpenTools}>
-        <span>Latest</span>
-        <strong>{activityLabel}</strong>
-      </button>
-    </div>
+      <section className="system-entry-panel system-entry-panel--activity" data-helix-region="system/entry/recent-operations" style={heightPx ? { height: heightPx } : undefined}>
+        <div className="system-entry-panel-head">
+          <div>
+            <h3>Activity Stream</h3>
+          </div>
+          <button type="button" className="system-entry-link-button" onClick={onOpenActivity} disabled={!canOpenLedger}>Open ledger</button>
+        </div>
+        <div className="system-entry-stream-toolbar">
+          <div className="system-entry-stream-filters" aria-label="Activity stream filter">
+            {SYSTEM_STREAM_FILTERS.map((filter) => (
+              <button key={filter.key} type="button" className={streamFilter === filter.key ? 'is-active' : ''} onClick={() => setStreamFilter(filter.key)}>
+                {filter.label}
+                <span>{counts[filter.key]}</span>
+              </button>
+            ))}
+          </div>
+          <span className="system-entry-feed-status">{activityStatus} · {visibleEvents.length} items</span>
+        </div>
+        {visibleEvents.length > 0 ? (
+          <div className="system-entry-feed-list">
+            {visibleEvents.map((event) => (
+              <div key={event.id} className={`system-entry-feed-row system-entry-feed-row--${event.tone}`}>
+                <span className={`system-entry-feed-badge system-entry-feed-badge--${event.tone}`}>{event.badge}</span>
+                <span className="system-entry-feed-main">
+                  <strong>{event.title}</strong>
+                  <small>{event.detail}</small>
+                </span>
+                <time>{compactSeenLabel(event.ts, now)}</time>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="system-entry-empty">No recent operational activity loaded yet.</div>
+        )}
+      </section>
   );
 };
 
@@ -245,6 +639,10 @@ const SystemEntry: React.FC<{
   onOpenAuditPack: () => void;
   onOpenDashboard: () => void;
   canOpenTools: boolean;
+  canOpenLedger: boolean;
+  accessPreview: SystemEntryAccessPreview;
+  canToggleAccessPreview: boolean;
+  onAccessPreviewChange: (next: SystemEntryAccessPreview) => void;
 }> = ({
   isDarkMode,
   opsPulse,
@@ -260,8 +658,32 @@ const SystemEntry: React.FC<{
   onOpenAuditPack,
   onOpenDashboard,
   canOpenTools,
+  canOpenLedger,
+  accessPreview,
+  canToggleAccessPreview,
+  onAccessPreviewChange,
 }) => {
   const textColour = isDarkMode ? colours.dark.text : colours.light.text;
+  const leftRailRef = useRef<HTMLDivElement | null>(null);
+  const [leftRailHeight, setLeftRailHeight] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const element = leftRailRef.current;
+    if (!element) return;
+
+    const updateHeight = () => {
+      const nextHeight = Math.ceil(element.getBoundingClientRect().height);
+      setLeftRailHeight((current) => (current === nextHeight ? current : nextHeight));
+    };
+
+    updateHeight();
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   const systemActions = [
     {
       label: 'Dashboard',
@@ -337,33 +759,47 @@ const SystemEntry: React.FC<{
             System
           </h1>
         </div>
-        <SystemEntryStatusStrip
-          opsPulse={opsPulse}
-          activityItems={activityItems}
-          activityFeedRefreshing={activityFeedRefreshing}
-          activityError={activityError}
-          canOpenTools={canOpenTools}
-          onOpenDashboard={onOpenDashboard}
-          onOpenActivity={onOpenActivity}
-          onOpenErrors={onOpenErrors}
-        />
-        <div className="system-entry-section-head">
-          <span>Tools</span>
-        </div>
-        <div className="system-entry-tool-grid">
-          {systemActions.map((action) => (
-            <SystemLandingTile
-              key={action.label}
-              label={action.label}
-              description={action.description}
-              isDarkMode={isDarkMode}
-              accent={action.accent}
-              onClick={action.onClick}
-              disabled={!canOpenTools}
-              variant="info"
-              dataRegion={action.dataRegion}
-            />
-          ))}
+        <div className="system-entry-main-grid">
+          <div className="system-entry-left-rail" ref={leftRailRef}>
+            <SystemEntryActiveUsers opsPulse={opsPulse} />
+            <div className="system-entry-tools-header">
+              <div className="system-entry-section-head">
+                <span>Tools</span>
+              </div>
+              <div className="system-entry-access-note" data-helix-region="system/entry/tools-access">
+                {canToggleAccessPreview ? (
+                  <span className="system-entry-view-toggle" aria-label="System tools view preview">
+                    <button type="button" className={accessPreview === 'dev-owner' ? 'is-active' : ''} onClick={() => onAccessPreviewChange('dev-owner')}>My view</button>
+                    <button type="button" className={accessPreview === 'restricted' ? 'is-active' : ''} onClick={() => onAccessPreviewChange('restricted')}>Restricted</button>
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className="system-entry-tool-grid">
+              {systemActions.map((action) => (
+                <SystemLandingTile
+                  key={action.label}
+                  label={action.label}
+                  description={action.description}
+                  isDarkMode={isDarkMode}
+                  accent={action.accent}
+                  onClick={action.onClick}
+                  disabled={!canOpenTools}
+                  variant="info"
+                  dataRegion={action.dataRegion}
+                />
+              ))}
+            </div>
+          </div>
+          <SystemEntryOperationsStream
+            opsPulse={opsPulse}
+            activityItems={activityItems}
+            activityFeedRefreshing={activityFeedRefreshing}
+            activityError={activityError}
+            canOpenLedger={canOpenLedger}
+            heightPx={leftRailHeight}
+            onOpenActivity={onOpenActivity}
+          />
         </div>
         <div className="system-entry-section-head system-entry-section-head--access">
           <span>Access</span>
@@ -467,6 +903,8 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
   const isDevOwner = userInitials === 'LZ';
   const isProductionLike = !isLocalDev || Boolean(featureToggles?.viewAsProd);
   const canOpenSystemTools = isDevOwner || !isProductionLike;
+  const [systemEntryAccessPreview, setSystemEntryAccessPreview] = useState<SystemEntryAccessPreview>('dev-owner');
+  const effectiveCanOpenSystemTools = canOpenSystemTools && (!isDevOwner || systemEntryAccessPreview === 'dev-owner');
   const isAC = userInitials === 'AC';
   const canSeeForge = isDevOwner || isAC;
   const FORGE_VIEW_MODE_KEY = 'helix.forge.viewMode';
@@ -874,7 +1312,11 @@ const Activity: React.FC<ActivityProps> = ({ userData, showBootMonitor = false, 
             onOpenProjects={handleOpenProjects}
             onOpenAuditPack={handleOpenAuditPack}
             onOpenDashboard={handleOpenDashboard}
-            canOpenTools={canOpenSystemTools}
+            canOpenTools={effectiveCanOpenSystemTools}
+            canOpenLedger={canOpenSystemTools}
+            accessPreview={systemEntryAccessPreview}
+            canToggleAccessPreview={isDevOwner}
+            onAccessPreviewChange={setSystemEntryAccessPreview}
           />
         </div>
       </ActivityProvider>

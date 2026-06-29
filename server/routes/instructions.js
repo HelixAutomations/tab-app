@@ -68,6 +68,33 @@ const buildTransientFallback = (requestId, detail) => ({
 const runQuery = (builder, retries) =>
   instructionsQuery((request, s) => builder(request, s), retries);
 
+// SQL Server caps a single request at 2100 parameters. When includeAll returns
+// thousands of instruction refs, a single IN (...) clause blows past that limit
+// and the whole fetch 500s. Chunk the IN values so each query stays well under
+// the cap. Chunking by the IN value keeps every row for a given key inside one
+// batch, so per-key ORDER BY (e.g. latest payment first) is preserved.
+const IN_CLAUSE_BATCH_SIZE = 1000;
+
+const runInClauseQuery = async (values, prefix, sqlTypeKey, buildQuery) => {
+  if (!values || values.length === 0) {
+    return { recordset: [] };
+  }
+  const recordset = [];
+  for (let i = 0; i < values.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const chunk = values.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+    // eslint-disable-next-line no-await-in-loop
+    const result = await runQuery((request, s) => {
+      const { clause, bind } = createInClause(chunk, prefix);
+      bind(request, s[sqlTypeKey]);
+      return request.query(buildQuery(clause));
+    });
+    if (result?.recordset?.length) {
+      recordset.push(...result.recordset);
+    }
+  }
+  return { recordset };
+};
+
 // Generate unique request ID for logging
 function generateRequestId() {
   return Math.random().toString(36).substring(2, 10);
@@ -281,7 +308,6 @@ router.get('/', async (req, res) => {
 
     const instructionRefs = Array.from(instructionRefsSet);
     const dealIds = Array.from(dealIdsSet);
-    const emptyRecordset = { recordset: [] };
 
     const [
       documentsResult,
@@ -293,62 +319,22 @@ router.get('/', async (req, res) => {
       jointClientsResult,
       pitchContentResult
     ] = await Promise.all([
-      instructionRefs.length
-        ? runQuery((request, s) => {
-            const { clause, bind } = createInClause(instructionRefs, 'docRef');
-            bind(request, s.NVarChar);
-            return request.query(`SELECT * FROM Documents WHERE InstructionRef IN (${clause}) ORDER BY DocumentId`);
-          })
-        : Promise.resolve(emptyRecordset),
-      instructionRefs.length
-        ? runQuery((request, s) => {
-            const { clause, bind } = createInClause(instructionRefs, 'idRef');
-            bind(request, s.NVarChar);
-            return request.query(`SELECT * FROM IDVerifications WHERE InstructionRef IN (${clause}) ORDER BY InternalId DESC`);
-          })
-        : Promise.resolve(emptyRecordset),
-      instructionRefs.length
-        ? runQuery((request, s) => {
-            const { clause, bind } = createInClause(instructionRefs, 'riskRef');
-            bind(request, s.NVarChar);
-            return request.query(`SELECT * FROM RiskAssessment WHERE InstructionRef IN (${clause}) ORDER BY ComplianceDate DESC`);
-          })
-        : Promise.resolve(emptyRecordset),
-      instructionRefs.length
-        ? runQuery((request, s) => {
-            const { clause, bind } = createInClause(instructionRefs, 'payRef');
-            bind(request, s.NVarChar);
-            return request.query(`SELECT * FROM Payments WHERE instruction_ref IN (${clause}) ORDER BY created_at DESC`);
-          })
-        : Promise.resolve(emptyRecordset),
-      instructionRefs.length
-        ? runQuery((request, s) => {
-            const { clause, bind } = createInClause(instructionRefs, 'matterRef');
-            bind(request, s.NVarChar);
-            return request.query(`SELECT * FROM Matters WHERE InstructionRef IN (${clause}) ORDER BY OpenDate DESC`);
-          })
-        : Promise.resolve(emptyRecordset),
-      instructionRefs.length
-        ? runQuery((request, s) => {
-            const { clause, bind } = createInClause(instructionRefs, 'dealRef');
-            bind(request, s.NVarChar);
-            return request.query(`SELECT * FROM Deals WHERE InstructionRef IN (${clause})`);
-          })
-        : Promise.resolve(emptyRecordset),
-      dealIds.length
-        ? runQuery((request, s) => {
-            const { clause, bind } = createInClause(dealIds, 'jointDeal');
-            bind(request, s.Int);
-            return request.query(`SELECT * FROM DealJointClients WHERE DealId IN (${clause}) ORDER BY DealJointClientId`);
-          })
-        : Promise.resolve(emptyRecordset),
-      dealIds.length
-        ? runQuery((request, s) => {
-            const { clause, bind } = createInClause(dealIds, 'pitchDeal');
-            bind(request, s.Int);
-            return request.query(`SELECT * FROM PitchContent WHERE DealId IN (${clause}) ORDER BY CreatedAt DESC`);
-          })
-        : Promise.resolve(emptyRecordset)
+      runInClauseQuery(instructionRefs, 'docRef', 'NVarChar', (clause) =>
+        `SELECT * FROM Documents WHERE InstructionRef IN (${clause}) ORDER BY DocumentId`),
+      runInClauseQuery(instructionRefs, 'idRef', 'NVarChar', (clause) =>
+        `SELECT * FROM IDVerifications WHERE InstructionRef IN (${clause}) ORDER BY InternalId DESC`),
+      runInClauseQuery(instructionRefs, 'riskRef', 'NVarChar', (clause) =>
+        `SELECT * FROM RiskAssessment WHERE InstructionRef IN (${clause}) ORDER BY ComplianceDate DESC`),
+      runInClauseQuery(instructionRefs, 'payRef', 'NVarChar', (clause) =>
+        `SELECT * FROM Payments WHERE instruction_ref IN (${clause}) ORDER BY created_at DESC`),
+      runInClauseQuery(instructionRefs, 'matterRef', 'NVarChar', (clause) =>
+        `SELECT * FROM Matters WHERE InstructionRef IN (${clause}) ORDER BY OpenDate DESC`),
+      runInClauseQuery(instructionRefs, 'dealRef', 'NVarChar', (clause) =>
+        `SELECT * FROM Deals WHERE InstructionRef IN (${clause})`),
+      runInClauseQuery(dealIds, 'jointDeal', 'Int', (clause) =>
+        `SELECT * FROM DealJointClients WHERE DealId IN (${clause}) ORDER BY DealJointClientId`),
+      runInClauseQuery(dealIds, 'pitchDeal', 'Int', (clause) =>
+        `SELECT * FROM PitchContent WHERE DealId IN (${clause}) ORDER BY CreatedAt DESC`)
     ]);
 
     const documentsByRef = groupByKey(documentsResult.recordset, 'InstructionRef');
@@ -487,15 +473,23 @@ router.get('/', async (req, res) => {
     });
     
     standaloneDeals.forEach(deal => {
+      const dealInstructionRef = deal.InstructionRef;
+      const standaloneDocuments = dealInstructionRef ? (documentsByRef.get(dealInstructionRef) || []) : [];
+      const standaloneIdVerifications = dealInstructionRef ? (idVerificationsByRef.get(dealInstructionRef) || []) : [];
+      const standaloneRiskAssessments = dealInstructionRef ? (riskAssessmentsByRef.get(dealInstructionRef) || []) : [];
+      const standalonePayments = dealInstructionRef ? (paymentsByRef.get(dealInstructionRef) || []) : [];
+      const standaloneMatters = dealInstructionRef ? (mattersByRef.get(dealInstructionRef) || []) : [];
+
       transformedInstructions.push({
         // Preserve original InstructionRef if present, fallback to deal ID pattern
         InstructionRef: deal.InstructionRef || `deal-${deal.DealId}`,
         isRealInstruction: false,
         deal: deal,
-        documents: [],
-        idVerifications: [],
-        riskAssessments: [],
-        payments: []
+        documents: standaloneDocuments,
+        idVerifications: standaloneIdVerifications,
+        riskAssessments: standaloneRiskAssessments,
+        payments: standalonePayments,
+        matters: standaloneMatters
       });
     });
 

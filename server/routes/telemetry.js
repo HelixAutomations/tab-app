@@ -71,6 +71,7 @@ router.post('/', (req, res) => {
       error: sanitizedError,
       durationMs: Number.isFinite(durationNumber) ? durationNumber : undefined,
       clientTimestamp: timestamp,
+      userInitials: req.user?.initials || req.user?.Initials || null,
     });
 
     // Log structured data for Application Insights

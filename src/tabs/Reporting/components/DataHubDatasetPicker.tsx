@@ -1,5 +1,6 @@
 import React from 'react';
 import { colours, withAlpha } from '../../../app/styles/colours';
+import { trackClientEvent } from '../../../utils/telemetry';
 import {
   reportingPanelShadow,
 } from '../styles/reportingFoundation';
@@ -118,6 +119,16 @@ const DataHubDatasetPicker: React.FC<DataHubDatasetPickerProps> = ({
   }, []);
   const refreshSelectedDatasets = React.useCallback(() => {
     if (selectedRefreshKeys.length === 0 || isRefreshing) return;
+    const selectedDefinitions = selectedRefreshKeys
+      .map((key) => allDatasetDefinitions.find((definition) => definition.key === key))
+      .filter((definition): definition is ReportingDatasetRegistryEntry => Boolean(definition));
+    trackClientEvent('DataHub', 'refreshQueued', {
+      surface: 'datasets',
+      datasets: selectedRefreshKeys,
+      datasetLabels: selectedDefinitions.map(datasetCardLabel),
+      datasetSummary: selectedDefinitions.map(datasetCardLabel).join(', '),
+      datasetCount: selectedRefreshKeys.length,
+    }, { throttleKey: `datahub-refresh-${selectedRefreshKeys.join('|')}`, cooldownMs: 3000 });
     void Promise.resolve(onRefreshDatasets(selectedRefreshKeys)).finally(() => setSelectedRefreshKeys([]));
   }, [isRefreshing, onRefreshDatasets, selectedRefreshKeys]);
 

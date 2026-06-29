@@ -38,7 +38,7 @@ const SOURCE_COLUMN_CANDIDATES = {
   email: ['email', 'Email', 'Email_Address', 'email_address'],
   areaOfWork: ['aow', 'AOW', 'Area_of_Work', 'area_of_work', 'AreaOfWork', 'areaOfWork', 'Area'],
   tags: ['tags', 'Tags', 'tag', 'Tag'],
-  datetime: ['datetime', 'DateTime', 'date_time', 'Date_Created', 'created_at', 'CreatedAt'],
+  datetime: ['touchpoint_date', 'Touchpoint_Date', 'datetime', 'DateTime', 'date_time', 'Date_Created', 'created_at', 'CreatedAt'],
 };
 
 function trim(value) {
@@ -66,6 +66,17 @@ function pickColumn(columns, candidates) {
 
 function trimSqlTextExpr(columnName, length = 320) {
   return `NULLIF(LTRIM(RTRIM(TRY_CONVERT(nvarchar(${length}), e.${safeColumnRef(columnName)}))), '')`;
+}
+
+function streamKeyCaseSql(areaSqlExpr) {
+  const areaLower = `LOWER(COALESCE(${areaSqlExpr}, N''))`;
+  return `CASE
+    WHEN ${areaLower} LIKE N'%commercial%' OR ${areaLower} LIKE N'%corporate%' OR ${areaLower} LIKE N'%company%' OR ${areaLower} LIKE N'%business%' OR ${areaLower} LIKE N'%contract%' OR ${areaLower} LIKE N'%shareholder%' OR ${areaLower} LIKE N'%debt%' OR ${areaLower} LIKE N'%insolvency%' THEN N'commercial'
+    WHEN ${areaLower} LIKE N'%construction%' OR ${areaLower} LIKE N'%builder%' OR ${areaLower} LIKE N'%building%' OR ${areaLower} LIKE N'%architect%' OR ${areaLower} LIKE N'%adjudication%' THEN N'construction'
+    WHEN ${areaLower} LIKE N'%property%' OR ${areaLower} LIKE N'%convey%' OR ${areaLower} LIKE N'%real estate%' OR ${areaLower} LIKE N'%lease%' OR ${areaLower} LIKE N'%landlord%' OR ${areaLower} LIKE N'%tenant%' OR ${areaLower} LIKE N'%boundary%' OR ${areaLower} LIKE N'%development%' THEN N'property'
+    WHEN ${areaLower} LIKE N'%employment%' OR ${areaLower} LIKE N'%employee%' OR ${areaLower} LIKE N'%employer%' OR ${areaLower} LIKE N'%dismissal%' OR ${areaLower} LIKE N'%redundancy%' OR ${areaLower} LIKE N'%tribunal%' THEN N'employment'
+    ELSE N'other'
+  END`;
 }
 
 function getActor(req) {
@@ -357,6 +368,113 @@ async function readSourceCandidates(limit) {
   });
 }
 
+function createListCountMap() {
+  return new Map(STREAMS.map((stream) => [stream.streamKey, {
+    legacyCount: 0,
+    newSpaceCount: 0,
+    sourceWithEmail: 0,
+    lastSourceSeenAt: null,
+  }]));
+}
+
+function mergeListCountRows(counts, rows, sourceKey) {
+  for (const row of rows || []) {
+    const streamKey = normaliseStreamKey(row.stream_key) || 'other';
+    const current = counts.get(streamKey) || { legacyCount: 0, newSpaceCount: 0, sourceWithEmail: 0, lastSourceSeenAt: null };
+    const count = Number(row.list_count || 0);
+    current[sourceKey] += count;
+    current.sourceWithEmail += Number(row.with_email_count || 0);
+
+    const nextStamp = row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null;
+    if (nextStamp && (!current.lastSourceSeenAt || Date.parse(nextStamp) > Date.parse(current.lastSourceSeenAt))) {
+      current.lastSourceSeenAt = nextStamp;
+    }
+
+    counts.set(streamKey, current);
+  }
+}
+
+async function readNewSpaceListCountRows() {
+  const instructionsConn = trim(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING);
+  if (!instructionsConn) return [];
+  const columns = await getSourceColumns(instructionsConn);
+  const picked = {
+    email: pickColumn(columns, SOURCE_COLUMN_CANDIDATES.email),
+    areaOfWork: pickColumn(columns, SOURCE_COLUMN_CANDIDATES.areaOfWork),
+    datetime: pickColumn(columns, SOURCE_COLUMN_CANDIDATES.datetime),
+  };
+  const emailExpr = picked.email ? trimSqlTextExpr(picked.email, 320) : 'NULL';
+  const areaExpr = picked.areaOfWork ? trimSqlTextExpr(picked.areaOfWork, 320) : 'NULL';
+  const datetimeExpr = picked.datetime ? `TRY_CONVERT(datetime2, e.${safeColumnRef(picked.datetime)})` : 'NULL';
+  return withRequest(instructionsConn, async (request) => {
+    const result = await request.query(`
+      WITH source_rows AS (
+        SELECT
+          ${streamKeyCaseSql(areaExpr)} AS stream_key,
+          ${emailExpr} AS email_value,
+          ${datetimeExpr} AS seen_at
+        FROM dbo.enquiries AS e WITH (NOLOCK)
+      )
+      SELECT
+        stream_key,
+        COUNT_BIG(*) AS list_count,
+        SUM(CASE WHEN email_value IS NOT NULL AND CHARINDEX(N'@', email_value) > 1 THEN 1 ELSE 0 END) AS with_email_count,
+        MAX(seen_at) AS last_seen_at
+      FROM source_rows
+      GROUP BY stream_key;
+    `);
+    return result.recordset || [];
+  });
+}
+
+async function readLegacyListCountRows() {
+  const legacyConn = trim(process.env.SQL_CONNECTION_STRING);
+  if (!legacyConn) return [];
+  const areaExpr = `NULLIF(LTRIM(RTRIM(TRY_CONVERT(nvarchar(320), e.${safeColumnRef('Area_of_Work')}))), '')`;
+  const emailExpr = `NULLIF(LTRIM(RTRIM(TRY_CONVERT(nvarchar(320), e.${safeColumnRef('Email')}))), '')`;
+  return withRequest(legacyConn, async (request) => {
+    const result = await request.query(`
+      WITH source_rows AS (
+        SELECT
+          ${streamKeyCaseSql(areaExpr)} AS stream_key,
+          ${emailExpr} AS email_value,
+          TRY_CONVERT(datetime2, e.${safeColumnRef('Date_Created')}) AS seen_at
+        FROM dbo.enquiries AS e WITH (NOLOCK)
+      )
+      SELECT
+        stream_key,
+        COUNT_BIG(*) AS list_count,
+        SUM(CASE WHEN email_value IS NOT NULL AND CHARINDEX(N'@', email_value) > 1 THEN 1 ELSE 0 END) AS with_email_count,
+        MAX(seen_at) AS last_seen_at
+      FROM source_rows
+      GROUP BY stream_key;
+    `);
+    return result.recordset || [];
+  });
+}
+
+async function readListCounts({ demoOnly = false } = {}) {
+  const counts = createListCountMap();
+  if (demoOnly) return counts;
+
+  const [newSpaceRows, legacyRows] = await Promise.all([
+    readNewSpaceListCountRows().catch((error) => {
+      trackException(error, { operation: 'marketing-email-list-counts', source: 'instructions' });
+      trackEvent('MarketingEmail.Streams.ListCounts.Warning', { source: 'instructions', error: error?.message || 'Unknown error' });
+      return [];
+    }),
+    readLegacyListCountRows().catch((error) => {
+      trackException(error, { operation: 'marketing-email-list-counts', source: 'legacy' });
+      trackEvent('MarketingEmail.Streams.ListCounts.Warning', { source: 'legacy', error: error?.message || 'Unknown error' });
+      return [];
+    }),
+  ]);
+
+  mergeListCountRows(counts, newSpaceRows, 'newSpaceCount');
+  mergeListCountRows(counts, legacyRows, 'legacyCount');
+  return counts;
+}
+
 function toMemberRecord(row) {
   const tags = splitTags(row.tags_text);
   const rank = extractRank(tags);
@@ -381,6 +499,7 @@ function toMemberRecord(row) {
     qualificationStatus: qualification.status,
     qualificationReason: qualification.reason,
     sendable: qualification.sendable,
+    touchpointAt: row.enquiry_at ? new Date(row.enquiry_at).toISOString() : null,
   };
 }
 
@@ -411,6 +530,7 @@ async function upsertMembers(projectConn, members, actor) {
     qualificationStatus: member.qualificationStatus,
     qualificationReason: member.qualificationReason,
     sendable: member.sendable,
+    touchpointAt: member.touchpointAt || null,
   }));
   const result = await withRequest(projectConn, async (request) => {
     request.input('membersJson', sql.NVarChar(sql.MAX), JSON.stringify(payload));
@@ -432,7 +552,8 @@ async function upsertMembers(projectConn, members, actor) {
           client_status NVARCHAR(40) '$.clientStatus',
           qualification_status NVARCHAR(40) '$.qualificationStatus',
           qualification_reason NVARCHAR(300) '$.qualificationReason',
-          sendable BIT '$.sendable'
+          sendable BIT '$.sendable',
+          touchpoint_at NVARCHAR(40) '$.touchpointAt'
         )
       )
         MERGE dbo.marketing_email_audience_members AS target
@@ -451,7 +572,7 @@ async function upsertMembers(projectConn, members, actor) {
           client = source.client,
           matter_id = source.matter_id,
           client_status = source.client_status,
-          last_seen_at = SYSUTCDATETIME(),
+          last_seen_at = COALESCE(TRY_CONVERT(datetime2, source.touchpoint_at), target.last_seen_at, SYSUTCDATETIME()),
           updated_at = SYSUTCDATETIME(),
           updated_by = @actor
         WHEN NOT MATCHED THEN INSERT (
@@ -461,7 +582,7 @@ async function upsertMembers(projectConn, members, actor) {
         ) VALUES (
           source.stream_key, source.acid, source.source_enquiry_id, source.email_hash, source.email_domain, source.area_of_work, source.[rank], source.tags_json,
           source.client, source.matter_id, source.client_status, source.qualification_status, source.qualification_reason, source.sendable,
-          SYSUTCDATETIME(), SYSUTCDATETIME(), @actor
+          COALESCE(TRY_CONVERT(datetime2, source.touchpoint_at), SYSUTCDATETIME()), SYSUTCDATETIME(), @actor
         );
     `);
   }, 1);
@@ -488,9 +609,31 @@ function mapStreamRow(row) {
   };
 }
 
+function enrichStreamWithListCounts(stream, listCounts) {
+  const counts = listCounts.get(stream.streamKey) || { legacyCount: 0, newSpaceCount: 0, sourceWithEmail: 0, lastSourceSeenAt: null };
+  const sourceListSize = counts.legacyCount + counts.newSpaceCount;
+  const listSize = Math.max(sourceListSize, stream.total);
+  const migrationBacklog = Math.max(0, listSize - stream.total);
+  const migrationCoverage = listSize > 0 ? Math.round((stream.total / listSize) * 1000) / 10 : 0;
+  return {
+    ...stream,
+    listSize,
+    sourceListSize,
+    legacyCount: counts.legacyCount,
+    newSpaceCount: counts.newSpaceCount,
+    sourceWithEmail: counts.sourceWithEmail,
+    membershipCount: stream.total,
+    migrationBacklog,
+    migrationCoverage,
+    lastSourceSeenAt: counts.lastSourceSeenAt,
+    listCountBasis: 'aggregate_source_rows',
+  };
+}
+
 async function readStreams(projectConn, { demoOnly = false, schema = null } = {}) {
   await ensureSeedStreams(projectConn);
   const state = schema || await readSchemaState(projectConn);
+  const listCounts = await readListCounts({ demoOnly });
   const memberJoinPredicate = demoOnly
     ? (state.hasMemberDemoSeed ? 'm.stream_key = s.stream_key AND m.demo_seed = 1' : '1 = 0')
     : 'm.stream_key = s.stream_key';
@@ -527,7 +670,7 @@ async function readStreams(projectConn, { demoOnly = false, schema = null } = {}
   `));
   const streams = (result.recordset || []).map(mapStreamRow).filter((stream) => !demoOnly || stream.total > 0);
   return streams.map((stream) => ({
-    ...stream,
+    ...enrichStreamWithListCounts(stream, listCounts),
     glyph: STREAMS.find((entry) => entry.streamKey === stream.streamKey)?.glyph || 'Other/Unsure',
   }));
 }
@@ -775,6 +918,44 @@ router.post('/streams/refresh', async (req, res) => {
     trackException(error, { operation, phase: 'refresh' });
     trackEvent('MarketingEmail.Streams.Refresh.Failed', { operation, actor, durationMs: String(durationMs), error: error?.message || 'Unknown error' });
     return res.status(500).json({ ok: false, error: 'Failed to refresh marketing email audience streams' });
+  }
+});
+
+router.get('/streams/:streamKey/growth', async (req, res) => {
+  const operation = 'marketing-email-stream-growth';
+  const startedAt = Date.now();
+  const actor = getActor(req);
+  const streamKey = normaliseStreamKey(req.params.streamKey);
+  const demoOnly = isDemoRequest(req);
+  if (!streamKey) return res.status(400).json({ ok: false, error: 'Unsupported stream key' });
+  trackEvent('MarketingEmail.StreamGrowth.Started', { operation, actor, streamKey, demoOnly: String(demoOnly) });
+  try {
+    const projectConn = deriveProjectDataConnectionString();
+    const schema = await readSchemaState(projectConn);
+    const rows = (demoOnly && !schema.hasMemberDemoSeed) ? [] : await withRequest(projectConn, async (request) => {
+      request.input('streamKey', sql.NVarChar(40), streamKey);
+      const result = await request.query(`
+        SELECT CONVERT(date, last_seen_at) AS day, COUNT_BIG(*) AS member_count
+        FROM dbo.marketing_email_audience_members
+        WHERE stream_key = @streamKey AND last_seen_at IS NOT NULL
+          ${demoOnly ? 'AND demo_seed = 1' : ''}
+        GROUP BY CONVERT(date, last_seen_at)
+        ORDER BY day ASC;
+      `);
+      return result.recordset || [];
+    });
+    const growth = rows
+      .map((row) => ({ day: row.day ? new Date(row.day).toISOString().slice(0, 10) : null, count: Number(row.member_count || 0) }))
+      .filter((entry) => entry.day);
+    const durationMs = Date.now() - startedAt;
+    trackEvent('MarketingEmail.StreamGrowth.Completed', { operation, actor, streamKey, demoOnly: String(demoOnly), durationMs: String(durationMs), bucketCount: String(growth.length) });
+    trackMetric('MarketingEmail.StreamGrowth.Duration', durationMs, { operation, streamKey });
+    return res.json({ ok: true, mode: demoOnly ? 'demo' : 'live', streamKey, basis: 'touchpoint_date', growth, generatedAt: new Date().toISOString() });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'stream-growth', streamKey });
+    trackEvent('MarketingEmail.StreamGrowth.Failed', { operation, actor, streamKey, durationMs: String(durationMs), error: error?.message || 'Unknown error' });
+    return res.status(500).json({ ok: false, error: 'Failed to load list growth' });
   }
 });
 
@@ -1314,6 +1495,15 @@ router.get('/sendgrid/activity-summary', async (req, res) => {
   try {
     const activity = await fetchSendGridJson('/v3/messages?limit=10');
     const summary = activity.ok ? summariseSendGridMessages(activity.body) : { sampleSize: 0, byStatus: {}, lastActivityAt: null };
+    const reason = activity.ok
+      ? null
+      : !activity.configured
+        ? 'not_configured'
+        : activity.statusCode === 403
+          ? 'activity_addon_required'
+          : activity.statusCode === 401
+            ? 'unauthorised'
+            : 'provider_error';
     const durationMs = Date.now() - startedAt;
     trackEvent('MarketingEmail.SendGrid.ActivitySummary.Completed', {
       operation,
@@ -1322,6 +1512,7 @@ router.get('/sendgrid/activity-summary', async (req, res) => {
       configured: String(activity.configured),
       providerOk: String(activity.ok),
       statusCode: String(activity.statusCode || ''),
+      reason: reason || 'ok',
       sampleSize: String(summary.sampleSize),
     });
     trackMetric('MarketingEmail.SendGrid.ActivitySummary.Duration', durationMs, { operation });
@@ -1332,6 +1523,7 @@ router.get('/sendgrid/activity-summary', async (req, res) => {
       providerOk: activity.ok,
       statusCode: activity.statusCode,
       activityAvailable: activity.ok,
+      reason,
       summary,
     });
   } catch (error) {

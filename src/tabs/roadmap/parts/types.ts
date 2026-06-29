@@ -15,7 +15,9 @@ export interface ActivityFeedItem {
     | 'hub.todo'
     | 'activity.email.search'
     | 'activity.email.forward'
-    | 'activity.matter-opening';
+    | 'activity.matter-opening'
+    | 'ops.transaction'
+    | 'data.activity';
   sourceLabel: string;
   status: FeedStatus;
   title: string;

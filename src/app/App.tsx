@@ -1691,17 +1691,36 @@ const App: React.FC<AppProps> = ({
         const lukeTest = data.instructions?.find((i: any) => i.InstructionRef?.includes('27367-94842'));
 
         
+        const extractProspectIdFromInstructionRef = (ref: unknown): string | null => {
+          const match = String(ref ?? '').trim().match(/^HLX-(\d+)-\d+$/i);
+          return match ? match[1] : null;
+        };
+
         // Backend now returns all items (instructions + deals) in the instructions array
         // Transform each item into our frontend format
         const transformedData: InstructionData[] = data.instructions.map((item: any) => {
           // Check if this is a real instruction or a standalone deal
           const isRealInstruction = item.isRealInstruction !== false;
+          const instructionRef = String(item.InstructionRef || item.instructionRef || item.deal?.InstructionRef || item.deal?.instructionRef || '').trim();
+          const resolvedProspectId = String(
+            item.deal?.ProspectId ||
+            item.deal?.prospectId ||
+            item.ProspectId ||
+            item.prospectId ||
+            extractProspectIdFromInstructionRef(instructionRef) ||
+            instructionRef
+          ).trim();
           
           if (isRealInstruction) {
+            const instruction = {
+              ...item,
+              ...(resolvedProspectId ? { ProspectId: item.ProspectId || item.prospectId || resolvedProspectId } : {}),
+            };
             // This is a real instruction with embedded deal data
             return {
-              prospectId: item.InstructionRef, // Use instruction ref as prospect ID
-              instructions: [item], // Single instruction
+              prospectId: resolvedProspectId || instructionRef, // ActiveCampaign prospect bridge
+              ProspectId: resolvedProspectId || instructionRef,
+              instructions: [instruction], // Single instruction
               deals: item.deal ? [item.deal] : [], // Nested deal if exists
               documents: item.documents || [], // Nested documents
               idVerifications: item.idVerifications || [], // Nested ID verifications
@@ -1723,25 +1742,69 @@ const App: React.FC<AppProps> = ({
           } else {
             // This is a standalone deal (pitched deal without instruction)
             const deal = item.deal || item; // Deal data might be nested or at root level
+            const dealStatus = String(deal?.Status || deal?.status || '').toUpperCase();
+            const instructionRef = String(item.InstructionRef || deal?.InstructionRef || '').trim();
+            const dealProspectId = String(deal?.ProspectId || deal?.prospectId || item.ProspectId || item.prospectId || extractProspectIdFromInstructionRef(instructionRef) || instructionRef || '').trim();
+            const shouldPromoteIdOnly = instructionRef.length > 0 && dealStatus === 'ID_ONLY';
+
+            if (shouldPromoteIdOnly) {
+              const syntheticInstruction = {
+                InstructionRef: instructionRef,
+                ...(dealProspectId ? { ProspectId: dealProspectId } : {}),
+                Stage: deal?.Stage || deal?.stage || dealStatus,
+                HelixContact: deal?.PitchedBy || deal?.FeeEarner || deal?.feeEarner || '',
+                SubmittedDate: deal?.PitchedDate || deal?.CreatedAt || deal?.createdAt || '',
+                ClientEmail: deal?.LeadClientEmail || deal?.Email || deal?.email || '',
+                FirstName: deal?.firstName || deal?.FirstName || '',
+                LastName: deal?.lastName || deal?.LastName || '',
+                CompanyName: deal?.companyName || deal?.CompanyName || '',
+                AreaOfWork: deal?.AreaOfWork || deal?.areaOfWork || '',
+                ClientType: deal?.ClientType || deal?.clientType || 'Individual',
+              };
+
+              return {
+                prospectId: dealProspectId || instructionRef,
+                ProspectId: dealProspectId || instructionRef,
+                instructions: [syntheticInstruction],
+                deals: [deal],
+                documents: item.documents || deal.documents || [],
+                idVerifications: item.idVerifications || [],
+                electronicIDChecks: item.idVerifications || [],
+                riskAssessments: item.riskAssessments || [],
+                compliance: item.riskAssessments || [],
+                jointClients: deal.jointClients || [],
+                matters: item.matters || [],
+                payments: item.payments || [],
+
+                verificationStatus: (item.idVerifications?.length || 0) > 0 ? 'completed' : 'pending',
+                riskStatus: (item.riskAssessments?.length || 0) > 0 ? 'assessed' : 'pending',
+                nextAction: syntheticInstruction.Stage || 'review',
+                matterLinked: false,
+                paymentCompleted: false,
+                documentCount: (item.documents || deal.documents || []).length || 0,
+              };
+            }
+
             return {
-              prospectId: item.InstructionRef || `deal-${deal.DealId}`, // Use instruction ref or deal ID
+              prospectId: instructionRef || `deal-${deal.DealId}`, // Use instruction ref or deal ID
               instructions: [], // No instruction yet for pitched deals
               deals: [deal], // Single deal
-              documents: deal.documents || [],
-              idVerifications: [],
+              documents: item.documents || deal.documents || [],
+              idVerifications: item.idVerifications || [],
               electronicIDChecks: [],
-              riskAssessments: [],
+              riskAssessments: item.riskAssessments || [],
               compliance: [],
               jointClients: deal.jointClients || [],
-              matters: [],
+              matters: item.matters || [],
+              payments: item.payments || [],
               
               // Add computed properties for UI
-              verificationStatus: 'pending',
-              riskStatus: 'pending',
+              verificationStatus: (item.idVerifications?.length || 0) > 0 ? 'completed' : 'pending',
+              riskStatus: (item.riskAssessments?.length || 0) > 0 ? 'assessed' : 'pending',
               nextAction: deal.Status || 'pitched',
               matterLinked: false,
               paymentCompleted: false,
-              documentCount: deal.documents?.length || 0
+              documentCount: (item.documents || deal.documents || []).length || 0
             };
           }
         });

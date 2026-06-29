@@ -2066,7 +2066,7 @@ const MarketingPerformanceWorkspace: React.FC<MarketingPerformanceWorkspaceProps
           const canOpen = channelKey !== null || opensEmailWorkspace;
           const dimmed = !canOpen;
           const statusValue = opensEmailWorkspace ? 'Email page' : 'Channel page';
-          const statusDetail = opensEmailWorkspace ? 'List and draft workspace' : 'Report and campaign workspace';
+          const statusDetail = opensEmailWorkspace ? 'Sends, proofing and results' : 'Report and campaign workspace';
           return (
             <button
               key={banner.key}

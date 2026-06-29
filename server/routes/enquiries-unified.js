@@ -2001,6 +2001,154 @@ router.post('/source/row-update', async (req, res) => {
   }
 });
 
+// Route: POST /api/enquiries-unified/source/delete-rows
+// Permanently deletes enquiry rows from the Instructions database and, where a
+// matching ActiveCampaign contact exists, removes it too.
+// Body: { ids: number[] }
+router.post('/source/delete-rows', async (req, res) => {
+  const startedAt = Date.now();
+  const operation = 'source-ledger-delete-rows';
+  const instructionsConnectionString = process.env.INSTRUCTIONS_SQL_CONNECTION_STRING;
+
+  if (!canAccessSourceLedger(req)) {
+    return denySourceLedger(req, res, operation);
+  }
+
+  const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const ids = rawIds
+    .map((entry) => Number.parseInt(String(entry || ''), 10))
+    .filter((entry) => Number.isFinite(entry) && entry > 0);
+
+  if (!ids.length) {
+    return res.status(400).json({ error: 'At least one valid enquiry id is required' });
+  }
+
+  if (ids.length > 100) {
+    return res.status(400).json({ error: 'Maximum 100 rows per delete operation' });
+  }
+
+  if (!instructionsConnectionString) {
+    return res.status(500).json({ error: 'Instructions database configuration missing' });
+  }
+
+  trackEvent('Enquiry.Source.DeleteRows.Started', {
+    operation,
+    triggeredBy: 'api',
+    count: String(ids.length),
+  });
+
+  const deleted = [];
+  const failed = [];
+  let acDeleted = 0;
+  let acAttempted = 0;
+
+  try {
+    // Attempt to get AC config once — non-blocking if unavailable
+    const acConfig = await getEmailListActiveCampaignConfig().catch(() => null);
+
+    for (const id of ids) {
+      try {
+        // Read email before deleting so we can attempt AC removal
+        let emailForAc = null;
+        try {
+          const emailResult = await withRequest(instructionsConnectionString, async (request) => {
+            request.input('id', sql.Int, id);
+            return request.query(`SELECT TOP 1 email FROM dbo.enquiries WHERE id = @id`);
+          });
+          emailForAc = emailResult?.recordset?.[0]?.email
+            ? String(emailResult.recordset[0].email).trim().toLowerCase()
+            : null;
+        } catch {
+          // Non-blocking — proceed with SQL delete even if email lookup fails
+        }
+
+        // Delete from Instructions SQL
+        const deleteResult = await withRequest(instructionsConnectionString, async (request) => {
+          request.input('id', sql.Int, id);
+          return request.query(`DELETE FROM dbo.enquiries WHERE id = @id; SELECT @@ROWCOUNT AS rowsAffected;`);
+        });
+        const rowsAffected = Number(deleteResult?.recordset?.[0]?.rowsAffected || 0);
+        if (rowsAffected > 0) {
+          deleted.push(id);
+        } else {
+          failed.push({ id, reason: 'not_found' });
+          continue;
+        }
+
+        // Attempt AC contact deletion by email
+        if (acConfig?.ok && emailForAc) {
+          acAttempted += 1;
+          try {
+            const acUrl = new URL(`${acConfig.baseUrl}/contacts`);
+            acUrl.searchParams.set('email', emailForAc);
+            const lookupResponse = await fetch(acUrl.toString(), {
+              method: 'GET',
+              headers: { 'Api-Token': acConfig.apiToken, Accept: 'application/json' },
+            });
+            if (lookupResponse.ok) {
+              const lookupPayload = await lookupResponse.json().catch(() => ({}));
+              const contacts = Array.isArray(lookupPayload?.contacts) ? lookupPayload.contacts : [];
+              const acContactId = contacts.length > 0 && contacts[0]?.id ? String(contacts[0].id) : null;
+              if (acContactId) {
+                const deleteAcUrl = `${acConfig.baseUrl}/contacts/${encodeURIComponent(acContactId)}`;
+                const deleteAcResponse = await fetch(deleteAcUrl, {
+                  method: 'DELETE',
+                  headers: { 'Api-Token': acConfig.apiToken },
+                });
+                if (deleteAcResponse.ok || deleteAcResponse.status === 404) {
+                  acDeleted += 1;
+                }
+              }
+            }
+          } catch {
+            // Non-blocking — SQL delete already succeeded
+          }
+        }
+      } catch (rowError) {
+        log.warn(`Failed to delete enquiry row ${id}:`, rowError?.message);
+        failed.push({ id, reason: rowError?.message || 'unknown' });
+      }
+    }
+
+    await invalidateSourceLedgerCaches(operation, {
+      changeType: 'source-ledger-delete-rows',
+      count: String(deleted.length),
+    }).catch(() => { /* non-blocking */ });
+
+    try { clearUnifiedMemoryCache(); } catch { /* non-blocking */ }
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('Enquiry.Source.DeleteRows.Completed', {
+      operation,
+      triggeredBy: 'api',
+      deleted: String(deleted.length),
+      failed: String(failed.length),
+      acDeleted: String(acDeleted),
+      acAttempted: String(acAttempted),
+      durationMs: String(durationMs),
+    });
+    trackMetric('Enquiry.Source.DeleteRows.Duration', durationMs, { operation });
+
+    return res.json({
+      success: true,
+      deleted,
+      failed,
+      acDeleted,
+    });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'delete-rows' });
+    trackEvent('Enquiry.Source.DeleteRows.Failed', {
+      operation,
+      triggeredBy: 'api',
+      durationMs: String(durationMs),
+      error: error?.message || 'Unknown error',
+    });
+    log.error('Error deleting enquiry source ledger rows:', error?.message || error);
+    return res.status(500).json({ error: 'Failed to delete enquiry rows' });
+  }
+});
+
 // Route: GET /api/enquiries-unified/source/ledger
 // Returns a lean non-PII ledger for source management.
 router.get('/source/ledger', async (req, res) => {

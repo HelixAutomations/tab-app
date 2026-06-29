@@ -208,27 +208,27 @@ type TaskingLegacyTaskRow = {
 };
 
 const EMAIL_SENDGRID_INVOCATION_STEPS = [
-  { step: '1', label: 'Pick segment', detail: 'Operations choose a live segment such as Commercial, Construction, Property, Employment, or Other.' },
-  { step: '2', label: 'Proof recipients', detail: 'Data Hub shows the count and rows to review before anyone asks SendGrid to send.' },
-  { step: '3', label: 'Invoke SendGrid', detail: 'Marketing supplies subject/body and Data Hub invokes SendGrid for the reviewed segment.' },
-  { step: '4', label: 'Keep tags alongside', detail: 'Tag clean-up scripts can run in parallel and update the same proofing view before send.' },
+  { step: '1', label: 'Pick silo', detail: 'Operations choose a data silo such as Commercial, Construction, Property, Employment, or Other.' },
+  { step: '2', label: 'Inspect recipients', detail: 'Data Hub shows counts, bridge state, tags, dates and the rows behind the list.' },
+  { step: '3', label: 'Hand to Marketing', detail: 'Marketing owns campaign copy, proofing, locking, test sends and drip planning.' },
+  { step: '4', label: 'Read results in SendGrid', detail: 'SendGrid keeps provider delivery, suppressions and delivery reporting.' },
 ] as const;
 
 const EMAIL_SENDGRID_SPACE_BOUNDARIES = [
-  { space: 'Data Hub Email dataset', owns: 'Segment counts, recipient proofing, tags readiness, and guarded SendGrid invocation.' },
-  { space: 'Marketing Email page', owns: 'Campaign copy, list-management decisions, send review, and operator workflow.' },
-  { space: 'SendGrid', owns: 'The provider UI, delivery API, templates if used, suppressions, and delivery reporting.' },
+  { space: 'Data Hub Email dataset', owns: 'Silo counts, list data quality, tags readiness, bridge state, and recipient evidence.' },
+  { space: 'Marketing Email page', owns: 'Campaign copy, proofing, locks, test sends, drip planning, and operator workflow.' },
+  { space: 'SendGrid', owns: 'Provider delivery, suppressions, delivery reporting, and message activity.' },
 ] as const;
 
 const EMAIL_TAG_WORK_TRACK = [
   { label: 'Audit tags', detail: 'Script current tag values and detect one-digit or ambiguous tags.' },
   { label: 'Normalise tags', detail: 'Write a guarded dry-run/apply script that maps old tags to useful marketing tags.' },
-  { label: 'Refresh proofing', detail: 'Re-open the segment view and confirm the tags now make sense before sending.' },
+  { label: 'Refresh proofing', detail: 'Re-open the silo view and confirm the tags now make sense before Marketing sends.' },
 ] as const;
 
 const EMAIL_SENDGRID_PROOF_FIELDS = [
-  { field: 'Email', source: 'Loaded segment row', note: 'Reviewed in the visible recipient table before send.' },
-  { field: 'Area of work', source: 'enquiries area field', note: 'Drives the Commercial, Construction, Property, Employment, and Other segment filters.' },
+  { field: 'Email', source: 'Loaded silo row', note: 'Reviewed in the visible recipient table before Marketing sends.' },
+  { field: 'Area of work', source: 'enquiries area field', note: 'Drives the Commercial, Construction, Property, Employment, and Other silo filters.' },
   { field: 'Tags', source: 'tag scripts plus enquiry rows', note: 'Clean-up can happen in parallel and then refresh the same table.' },
   { field: 'Bridge', source: 'AC id when present', note: 'Used as provider metadata, not shown as a new CRM identity spine.' },
 ] as const;
@@ -1540,11 +1540,11 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
         signal,
       });
       const payload = await response.json() as EmailListStreamPayload;
-      if (!response.ok) throw new Error(payload.error || `Email list stream failed (${response.status})`);
+      if (!response.ok) throw new Error(payload.error || `Email list load failed (${response.status})`);
       setEmailListStream(payload);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
-      setEmailListsError(error instanceof Error ? error.message : 'Email list stream failed');
+      setEmailListsError(error instanceof Error ? error.message : 'Email list load failed');
     } finally {
       if (!signal?.aborted) setEmailListsLoading(false);
     }
@@ -2115,7 +2115,7 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             {emailListsLoading && emailListStream && (
               <span className="email-lists-processing-pill" role="status" aria-live="polite">
                 <span aria-hidden="true" />
-                Processing stream
+                Processing list
               </span>
             )}
           </div>
@@ -2139,10 +2139,10 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
                 <div style={{ display: 'grid', gap: 3 }}>
-                  <span className="email-lists-eyebrow">SendGrid invocation</span>
-                  <strong style={{ fontSize: 15, color: text }}>Pick a segment, proof recipients, send via SendGrid</strong>
+                  <span className="email-lists-eyebrow">List readiness</span>
+                  <strong style={{ fontSize: 15, color: text }}>Silo counts and recipient evidence</strong>
                   <small style={{ fontSize: 11, color: body, lineHeight: 1.5 }}>
-                    Data Hub is the operational proofing surface. SendGrid remains the provider and Marketing remains the campaign workspace.
+                    Data Hub proves the list is real. Marketing handles proofing and SendGrid handles provider delivery and results.
                   </small>
                 </div>
                 <span style={{ border: `1px solid ${edge}`, background: dataHubHomeControlSurface, color: tone, padding: '4px 7px', fontSize: 10, fontWeight: 800 }}>
@@ -2170,9 +2170,9 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             >
               <div style={{ display: 'grid', gap: 3 }}>
                 <span className="email-lists-eyebrow">Process</span>
-                <strong style={{ fontSize: 15, color: text }}>Small path to mass email without reinventing SendGrid</strong>
+                <strong style={{ fontSize: 15, color: text }}>Data path before Marketing sends</strong>
                 <small style={{ fontSize: 11, color: body, lineHeight: 1.5 }}>
-                  Use the current segment stream for proofing, then invoke SendGrid only after the row set has been reviewed.
+                  Use this dataset for list truth, then move to Marketing for campaign locks, tests, drips and SendGrid checks.
                 </small>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 7 }}>
@@ -2207,7 +2207,7 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             >
               <span className="email-lists-model-proof__toggle-copy">
                 <span className="email-lists-eyebrow">Implementation notes</span>
-                <strong>Use SendGrid for mass send, Data Hub for proofing</strong>
+                <strong>Use SendGrid for delivery, Data Hub for data proof</strong>
               </span>
               <span className="email-lists-model-proof__toggle-meta">
                 <span>no new CRM</span>
@@ -2216,9 +2216,9 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
             </button>
             {emailListModelOpen && (
               <div className="email-lists-model-proof__body">
-                <div className="email-lists-model-proof__flow" aria-label="Email Outreach SendGrid invocation proof">
+                <div className="email-lists-model-proof__flow" aria-label="Email list readiness proof">
                   <div className="email-lists-model-proof__node">
-                    <span className="email-lists-eyebrow">Segment</span>
+                    <span className="email-lists-eyebrow">Silo</span>
                     <strong>{activeEmailListAreaFilters.length > 0 ? activeEmailListAreaFilters.join(', ') : 'All selected'}</strong>
                     <small>{emailListRows.length.toLocaleString('en-GB')} proof rows loaded</small>
                     <small>{formatEmailListWindowLabel(committedEmailListDateRange)}</small>
@@ -2233,16 +2233,16 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
                     <small>Tag scripts can refresh this same table.</small>
                   </div>
                   <div className="email-lists-model-proof__connector">
-                    <span>invoke</span>
+                    <span>handoff</span>
                   </div>
                   <div className="email-lists-model-proof__node">
-                    <span className="email-lists-eyebrow">SendGrid</span>
-                    <strong>Provider send</strong>
-                    <small>Subject/body/sender go to SendGrid.</small>
-                    <small>SendGrid keeps its UI and delivery reporting.</small>
+                    <span className="email-lists-eyebrow">Marketing</span>
+                    <strong>Campaign send path</strong>
+                    <small>Subject, body, lock, test send and drip plan live in Marketing.</small>
+                    <small>SendGrid keeps suppressions and delivery reporting.</small>
                   </div>
                 </div>
-                <div className="email-lists-model-proof__ledger-map" aria-label="Fields reviewed before SendGrid invocation">
+                <div className="email-lists-model-proof__ledger-map" aria-label="Fields reviewed before Marketing proofing">
                   {EMAIL_SENDGRID_PROOF_FIELDS.map((item) => (
                     <span key={item.field}>
                       <strong>{item.field}</strong>
@@ -2259,7 +2259,7 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
               <div className="email-lists-composer__header">
                 <div className="email-lists-composer__title">
                   <span className="email-lists-demo-send__label">Composer</span>
-                  <strong>{demoModeEnabled ? 'Demo test send' : 'SendGrid segment send'}</strong>
+                  <strong>{demoModeEnabled ? 'Demo test send' : 'Marketing send path'}</strong>
                 </div>
                 <span className="email-lists-demo-send__target" title={emailListDemoTarget?.email || ''}>
                   <span>{demoModeEnabled ? EMAIL_LIST_DEMO_ENQUIRY_ID : `${emailListRows.length.toLocaleString('en-GB')} recipients`}</span>
@@ -2427,7 +2427,7 @@ const DataHubDatasetDetail: React.FC<DataHubDatasetDetailProps> = ({
                 </div>
               )}
               {emailListsLoading && emailListRows.length === 0 && (
-                <div className="email-lists-skeleton-stack" aria-label="Loading email list stream">
+                <div className="email-lists-skeleton-stack" aria-label="Loading email list rows">
                   {[0, 1, 2, 3].map((item) => (
                     <span key={item} className="email-lists-skeleton-row" style={{ gridTemplateColumns: emailListLedgerGridTemplate }}>
                       {visibleEmailListLedgerColumns.map((column) => <span key={column.key} />)}

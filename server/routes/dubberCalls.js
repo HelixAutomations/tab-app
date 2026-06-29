@@ -1914,6 +1914,130 @@ router.get('/dubberCalls/:recordingId/transcript', async (req, res) => {
 });
 
 /**
+ * GET /api/dubberCalls/ledger
+ * Paginated, date-filtered calls ledger for the Data Hub Calls dataset.
+ * Query: dateFrom, dateTo, sort (date|duration|type|initials), direction (asc|desc),
+ *        limit, offset, search, callType (all|inbound|outbound|internal)
+ */
+router.get('/dubberCalls/ledger', async (req, res) => {
+  const startedAt = Date.now();
+  const operation = 'calls-ledger';
+  try {
+    const pageSize = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+    const fetchLimit = pageSize + 1;
+    const startDate = parseDateOnly(req.query.dateFrom);
+    const endDate = parseDateOnly(req.query.dateTo);
+    const search = String(req.query.search || '').trim();
+    const callType = String(req.query.callType || 'all').toLowerCase();
+
+    const sortKey = ['date', 'duration', 'type', 'initials'].includes(req.query.sort)
+      ? req.query.sort
+      : 'date';
+    const direction = req.query.direction === 'asc' ? 'ASC' : 'DESC';
+    const orderClause = {
+      date: `r.start_time_utc ${direction}`,
+      duration: `r.duration_seconds ${direction}`,
+      type: `r.call_type ${direction}, r.start_time_utc DESC`,
+      initials: `r.matched_team_initials ${direction}, r.start_time_utc DESC`,
+    }[sortKey] || `r.start_time_utc ${direction}`;
+
+    trackEvent('DubberCalls.Ledger.Started', {
+      operation,
+      triggeredBy: 'api',
+      sort: sortKey,
+      direction,
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+
+    const pool = await instrPool();
+    const request = pool.request();
+    request.input('fetchLimit', sql.Int, fetchLimit);
+    request.input('offset', sql.Int, offset);
+
+    const conditions = [];
+    if (startDate) {
+      request.input('dateFrom', sql.DateTime2, startDate);
+      conditions.push('r.start_time_utc >= @dateFrom');
+    }
+    if (endDate) {
+      request.input('dateTo', sql.DateTime2, new Date(endDate.getTime() + 86400000));
+      conditions.push('r.start_time_utc < @dateTo');
+    }
+    if (callType === 'inbound') conditions.push("r.call_type = 'inbound'");
+    if (callType === 'outbound') conditions.push("r.call_type = 'outbound'");
+    if (search) {
+      request.input('search', sql.NVarChar, `%${search}%`);
+      conditions.push('(r.from_label LIKE @search OR r.from_party LIKE @search OR r.to_label LIKE @search OR r.to_party LIKE @search OR r.matched_team_initials LIKE @search)');
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const result = await request.query(`
+      SELECT TOP (@fetchLimit)
+        r.recording_id,
+        r.from_party,
+        r.from_label,
+        r.to_party,
+        r.to_label,
+        r.call_type,
+        r.duration_seconds,
+        r.start_time_utc,
+        r.matched_team_initials,
+        r.ai_document_sentiment,
+        r.status,
+        r.channel
+      FROM dbo.dubber_recordings r
+      ${whereClause}
+      ORDER BY ${orderClause}
+      OFFSET @offset ROWS
+    `);
+
+    const rawRows = result?.recordset || [];
+    const pageRows = rawRows.slice(0, pageSize);
+    const hasMore = rawRows.length > pageSize;
+
+    const rows = pageRows.map((r) => ({
+      id: r.recording_id == null ? null : String(r.recording_id),
+      fromParty: r.from_party == null ? '' : String(r.from_party),
+      fromLabel: r.from_label == null ? '' : String(r.from_label),
+      toParty: r.to_party == null ? '' : String(r.to_party),
+      toLabel: r.to_label == null ? '' : String(r.to_label),
+      callType: r.call_type == null ? '' : String(r.call_type),
+      durationSeconds: r.duration_seconds == null ? null : Number(r.duration_seconds),
+      startTime: r.start_time_utc ? new Date(r.start_time_utc).toISOString() : null,
+      teamInitials: r.matched_team_initials == null ? '' : String(r.matched_team_initials),
+      sentiment: r.ai_document_sentiment == null ? '' : String(r.ai_document_sentiment),
+      status: r.status == null ? '' : String(r.status),
+      channel: r.channel == null ? '' : String(r.channel),
+    }));
+
+    const durationMs = Date.now() - startedAt;
+    trackEvent('DubberCalls.Ledger.Completed', {
+      operation,
+      triggeredBy: 'api',
+      rowCount: String(rows.length),
+      hasMore: String(hasMore),
+      durationMs: String(durationMs),
+    });
+    trackMetric('DubberCalls.Ledger.Duration', durationMs, { operation });
+
+    return res.json({ rows, hasMore, nextOffset: hasMore ? offset + pageSize : null, count: rows.length });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'query' });
+    trackEvent('DubberCalls.Ledger.Failed', {
+      operation,
+      triggeredBy: 'api',
+      durationMs: String(durationMs),
+      error: error?.message || 'Unknown error',
+    });
+    return res.status(500).json({ error: 'Failed to load calls ledger' });
+  }
+});
+
+/**
  * GET /api/dubberCalls/recent?limit=20
  * Returns the most recent Dubber recordings across all team members.
  * Each recording includes is_internal flag (true if both parties are mapped team members).

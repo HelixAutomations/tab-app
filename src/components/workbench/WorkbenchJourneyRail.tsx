@@ -3,7 +3,7 @@ import { FaCheck } from 'react-icons/fa';
 import { colours } from '../../app/styles/colours';
 import '../../tabs/enquiries/styles/ProspectOverview.css';
 
-export type WorkbenchJourneyStageStatus = 'complete' | 'current' | 'review' | 'warning' | 'pending' | 'processing' | 'neutral' | 'disabled';
+export type WorkbenchJourneyStageStatus = 'complete' | 'current' | 'review' | 'warning' | 'blocked' | 'pending' | 'processing' | 'neutral' | 'disabled';
 
 export interface WorkbenchJourneyStage {
   key: string;
@@ -60,6 +60,8 @@ export const WorkbenchJourneyRail: React.FC<WorkbenchJourneyRailProps> = ({
             ? colours.cta
             : stage.status === 'warning'
               ? colours.orange
+              : stage.status === 'blocked'
+                ? colours.orange
             : stage.status === 'current' || stage.status === 'processing'
               ? (isDarkMode ? colours.accent : colours.highlight)
               : stage.status === 'disabled'

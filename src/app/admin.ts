@@ -5,7 +5,7 @@ export const ADMIN_USERS = ['LZ', 'AC', 'KW', 'JW', 'LA', 'LD', 'EA', 'WH'] as c
 
 // Admins who can access the Reports tab (LA is admin but no reports access)
 export const REPORTS_USERS = ['LZ', 'AC', 'KW', 'JW', 'EA', 'WH'] as const;
-export const EXTRA_TOP_NAV_USERS = ['LZ', 'AC', 'KW', 'EA'] as const;
+export const EXTRA_TOP_NAV_USERS = ['LZ', 'AC', 'KW', 'JW', 'EA'] as const;
 export const DATA_HUB_USERS = ['LZ', 'AC', 'KW', 'EA', 'LD', 'WH'] as const;
 const REPORTS_USER_EMAILS = ['lz@helix-law.com', 'ac@helix-law.com', 'kw@helix-law.com', 'jw@helix-law.com', 'ea@helix-law.com', 'wh@helix-law.com'] as const;
 

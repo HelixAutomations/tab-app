@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { CAPABILITIES } from '../../../app/capabilities';
 import {
   ACTIVITY_TAB_USERS,
   ADMIN_USERS,
@@ -26,13 +25,6 @@ interface RawGrant {
   GrantedAt: string;
   ExpiresAt: string | null;
   Reason: string | null;
-}
-
-interface CapabilityDef {
-  key: string;
-  kind: 'tier' | 'feature' | 'action';
-  label: string;
-  description: string;
 }
 
 type AccessTone = 'allow' | 'local' | 'deny';
@@ -205,7 +197,6 @@ function accessForSurface(surface: SurfaceRule, subject: SubjectRow): { tone: Ac
 
 const SystemAccessMatrix: React.FC<{ region?: string }> = ({ region = 'system/access-matrix' }) => {
   const [grants, setGrants] = React.useState<RawGrant[]>([]);
-  const [capabilities, setCapabilities] = React.useState<CapabilityDef[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [showLiveGrants, setShowLiveGrants] = React.useState<boolean>(false);
@@ -213,25 +204,17 @@ const SystemAccessMatrix: React.FC<{ region?: string }> = ({ region = 'system/ac
   React.useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([
-      fetch('/api/access/grants', { credentials: 'include' }).then((response) =>
-        response.ok ? response.json() : Promise.reject(new Error(`grants ${response.status}`)),
-      ),
-      fetch('/api/access/capabilities', { credentials: 'include' }).then((response) =>
-        response.ok ? response.json() : Promise.reject(new Error(`capabilities ${response.status}`)),
-      ),
-    ])
-      .then(([grantsResponse, capabilitiesResponse]) => {
+    fetch('/api/access/grants', { credentials: 'include' })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error(`grants ${response.status}`)))
+      .then((grantsResponse) => {
         if (cancelled) return;
         setGrants(Array.isArray(grantsResponse?.grants) ? grantsResponse.grants : []);
-        setCapabilities(Array.isArray(capabilitiesResponse?.capabilities) ? capabilitiesResponse.capabilities : []);
         setError(null);
       })
       .catch((err) => {
         if (cancelled) return;
         setError(err?.message || 'fetch-failed');
         setGrants([]);
-        setCapabilities([]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -240,26 +223,6 @@ const SystemAccessMatrix: React.FC<{ region?: string }> = ({ region = 'system/ac
       cancelled = true;
     };
   }, []);
-
-  const registryCapabilities = React.useMemo<CapabilityDef[]>(() => {
-    if (capabilities.length > 0) return capabilities;
-    return Object.values(CAPABILITIES).map((capability) => ({
-      key: capability.key,
-      kind: capability.kind,
-      label: capability.label,
-      description: capability.description,
-    }));
-  }, [capabilities]);
-
-  const allowCount = grants.filter((grant) => grant.Effect === 'allow').length;
-  const denyCount = grants.filter((grant) => grant.Effect === 'deny').length;
-  const liveBadge = grants.length > 0
-    ? `${grants.length} grants live`
-    : error
-      ? `static fallback / ${error}`
-      : loading
-        ? 'loading access grants'
-        : 'static fallback';
 
   const dotGridStyle = React.useMemo<React.CSSProperties>(() => ({
     gridTemplateColumns: `minmax(118px, 0.95fr) repeat(${SURFACE_RULES.length}, minmax(66px, 1fr))`,
@@ -270,16 +233,8 @@ const SystemAccessMatrix: React.FC<{ region?: string }> = ({ region = 'system/ac
       <div className="system-access-matrix-head">
         <div className="system-access-matrix-brand">
           <div>
-            <div className="system-access-eyebrow">Access model</div>
-            <h2 className="system-access-title">Who sees what</h2>
-            <p className="system-access-copy">
-              Tabs, support views, and Home firm-wide scope.
-            </p>
+            <h2 className="system-access-title">Access Matrix</h2>
           </div>
-        </div>
-        <div className="system-access-live-stack">
-          <span className={`system-access-live-badge ${error ? 'system-access-live-badge--warn' : ''}`}>{liveBadge}</span>
-          <span>{allowCount} allow / {denyCount} deny / {registryCapabilities.length} capabilities</span>
         </div>
       </div>
 

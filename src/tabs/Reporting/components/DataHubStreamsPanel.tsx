@@ -23,6 +23,13 @@ type OperationLogEntry = {
   changedRows?: number;
   durationMs?: number;
   message?: string;
+  dataset?: string;
+  datasetLabel?: string;
+  datasetSummary?: string;
+  datasets?: string[];
+  datasetLabels?: string[];
+  datasetCount?: number;
+  target?: string;
 };
 
 type SchedulerRecentRun = {
@@ -206,8 +213,15 @@ function isDataOperationEntry(entry: OperationLogEntry): boolean {
     || text.includes('wip')
     || text.includes('collected')
     || text.includes('matter')
+    || text.includes('datahub')
     || text.includes('dataops')
     || text.includes('data operations');
+}
+
+function compactDataHubDatasetLabel(entry: OperationLogEntry): string {
+  if (entry.datasetSummary) return entry.datasetSummary;
+  if (entry.datasetCount && entry.datasetCount > 1) return `${entry.datasetCount.toLocaleString('en-GB')} datasets`;
+  return entry.datasetLabel || entry.datasetLabels?.[0] || entry.dataset || entry.datasets?.[0] || 'Datasets';
 }
 
 function syncOutcomeLabel(run: Pick<SchedulerRecentRun, 'deletedRows' | 'insertedRows' | 'durationMs' | 'message' | 'resultLabel' | 'status'>): string {
@@ -422,7 +436,7 @@ const DataHubStreamsPanel: React.FC<DataHubStreamsPanelProps> = ({
           window: compactSyncWindowLabel(run.operation, run.modeLabel, run.windowLabel),
           outcome: compactSyncOutcomeLabel(run),
           tone: schedulerStatusColour(run.status),
-          dedupeKey: `${scope}|${compactSyncWindowLabel(run.operation, run.modeLabel, run.windowLabel)}`,
+          dedupeKey: `scheduler|${run.id}`,
         };
       });
     const operationRows = opsLog
@@ -434,6 +448,26 @@ const DataHubStreamsPanel: React.FC<DataHubStreamsPanelProps> = ({
         const systemRun = source === 'system' || source === 'scheduler' || source === 'timer' || source === 'auto' || operation.includes('scheduler');
         const scope = operationScopeFromText(`${entry.entity || ''} ${entry.operation || ''} ${entry.message || ''}`);
         const tone = schedulerStatusColour(entry.status) || muted;
+        if (entry.sourceSystem === 'DataHub' || operation.startsWith('datahub')) {
+          const actor = entry.invokedBy || entry.triggeredBy || 'User';
+          const datasetLabel = compactDataHubDatasetLabel(entry);
+          const isRefresh = operation === 'datahubrefreshqueued';
+          const isDatasetOpen = operation === 'datahubdatasetentered';
+          return {
+            id: `ops-${entry.id}`,
+            ts: entry.ts,
+            scope: 'Data' as const,
+            status: entry.status,
+            actor,
+            detail: entry.message || 'Data Hub activity',
+            result: isRefresh ? 'Refresh queued' : 'Data space opened',
+            summary: isRefresh ? `${actor} queued refresh` : isDatasetOpen ? `${actor} opened dataset` : `${actor} opened Data Hub`,
+            window: datasetLabel,
+            outcome: isRefresh ? 'queued' : (entry.target || 'viewed'),
+            tone,
+            dedupeKey: `datahub|${entry.id}`,
+          };
+        }
         return {
           id: `ops-${entry.id}`,
           ts: entry.ts,
@@ -446,12 +480,12 @@ const DataHubStreamsPanel: React.FC<DataHubStreamsPanelProps> = ({
           window: compactSyncWindowLabel(entry.operation, null, operationWindowLabel(entry)),
           outcome: compactSyncOutcomeLabel({ ...entry, resultLabel: null }),
           tone,
-          dedupeKey: `${scope}|${compactSyncWindowLabel(entry.operation, null, operationWindowLabel(entry))}`,
+          dedupeKey: `ops|${entry.id}`,
         };
       });
     return dedupeStreamRows([...schedulerRows, ...operationRows]
       .sort((a, b) => b.ts - a.ts)
-    ).slice(0, 8);
+    ).slice(0, 16);
   }, [muted, opsLog, schedulerStatus]);
   const activeStreamCount = datasets.filter((dataset) => dataset.status === 'ready' || dataset.status === 'loading' || dataset.count > 0).length;
   const loadingDatasetCount = datasets.filter((dataset) => dataset.status === 'loading').length;
@@ -580,7 +614,7 @@ const DataHubStreamsPanel: React.FC<DataHubStreamsPanelProps> = ({
             </div>
           ) : (
             <div className="data-hub-mini-ledger__empty" style={{ color: muted, background: neutralSurfaceRaised }}>
-              No recent operations.
+              {opsLogLoading ? 'Loading activity.' : 'No recent operations.'}
             </div>
           )}
         </aside>

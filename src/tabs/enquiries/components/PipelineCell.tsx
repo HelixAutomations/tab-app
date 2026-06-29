@@ -5,7 +5,7 @@
  * Handles POC/claim, pitch, instruction, EID, payment, risk, matter chips.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Icon } from '@fluentui/react/lib/Icon';
 import { format } from 'date-fns';
 import { colours } from '../../../app/styles/colours';
@@ -14,6 +14,7 @@ import type { Enquiry } from '../../../app/functionality/types';
 import type { EnquiryEnrichmentData } from '../../../app/functionality/enquiryEnrichment';
 import type { ContactVisibilityEntry } from '../../../app/functionality/pipelineContactData';
 import type { WorkbenchItem } from '../../../utils/workbenchTypes';
+import { deriveProspectJourneyState } from '../../../utils/workbenchJourneyState';
 import type { RowPipelineHandlers, RowDataDeps } from './rowTypes';
 
 export interface PipelineCellProps {
@@ -79,6 +80,11 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   } = handlers;
   const { claimerMap, isUnclaimedPoc, combineDateAndTime } = dataDeps;
   const [showReassignChevron, setShowReassignChevron] = useState(false);
+  const journeyState = useMemo(() => deriveProspectJourneyState({
+    workbenchItem: inlineWorkbenchItem,
+    enquiry: item as any,
+    enrichmentData: enrichmentData as any,
+  }), [enrichmentData, inlineWorkbenchItem, item]);
 
   const isV2Enquiry = (item as any).__sourceType === 'new' || (item as any).source === 'instructions';
   const teamsData = enrichmentData?.teamsData as any;
@@ -95,7 +101,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const inst = inlineWorkbenchItem?.instruction;
   const deal = inlineWorkbenchItem?.deal;
   const dealStatus = (deal?.Status ?? deal?.status ?? '').toLowerCase();
-  const inferredPitchFromWorkbench = Boolean(deal || inst);
+  const inferredPitchFromWorkbench = journeyState.hasPitchEvidence;
   const pitchChipLabel = pitchedDateParsed
     ? `${format(pitchedDateParsed, 'd MMM')} ${format(pitchedDateParsed, 'HH:mm')}`
     : inferredPitchFromWorkbench
@@ -149,7 +155,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const showClaimer = hasClaimerStage && activeState !== 'Triaged' && !isTeamInboxPoc;
   const claimerInfo = claimerMap[pocLower];
   const claimerLabel = claimerInfo?.Initials || getPocInitialsLocal(pocDisplayName, claimerMap);
-  const showPitch = !!enrichmentData?.pitchData || inferredPitchFromWorkbench;
+  const showPitch = journeyState.hasPitchEvidence;
   const pitchColor = getScenarioColor(enrichmentData?.pitchData?.scenarioId);
   const showPitchCTA = showClaimer && !isTeamInboxPoc && enrichmentWasProcessed && !showPitch;
   const isPitchNextAction = (showTeamsStage || showClaimer) && !showPitch;
@@ -287,22 +293,22 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
   const instructionChipLabel = instructionDateParsed
     ? `${format(instructionDateParsed, 'd MMM')} ${format(instructionDateParsed, 'HH:mm')}`
     : '--';
-  const instructionStage = inst?.Stage ?? inst?.stage ?? deal?.Stage ?? deal?.Status ?? deal?.status ?? '';
+  const instructionStage = journeyState.instructionStage || (inst?.Stage ?? inst?.stage ?? deal?.Stage ?? deal?.Status ?? deal?.status ?? '');
   const instructionServiceDesc = deal?.ServiceDescription ?? deal?.serviceDescription ?? inst?.ServiceDescription ?? '';
   const instructionAmount = deal?.Amount ?? deal?.amount ?? inst?.Amount;
   const instructionAmountText = instructionAmount && !isNaN(Number(instructionAmount))
     ? `£${Number(instructionAmount).toLocaleString('en-GB', { maximumFractionDigits: 2 })}`
     : '';
-  const stageLower = instructionStage.toLowerCase();
-  const isShellEntry = Boolean(instructionRef) && (stageLower === 'initialised' || stageLower === 'pitched' || stageLower === 'opened' || stageLower === '');
-  const hasInstruction = Boolean(instructionRef) && (Boolean(instructionDateParsed) || !isShellEntry);
+  const isShellEntry = journeyState.isInstructionShell;
+  const hasInstruction = journeyState.isInstructionSubmitted;
 
   // EID
-  const hasEid = Boolean(inlineWorkbenchItem?.eid);
+  const identityStage = journeyState.stages.identity;
+  const hasEid = journeyState.hasIdentityResult;
   const eidResult = (inlineWorkbenchItem?.eid as any)?.EIDOverallResult?.toLowerCase() ?? '';
-  const eidPassed = eidResult === 'passed' || eidResult === 'pass' || eidResult === 'verified' || eidResult === 'approved';
-  const eidColor = eidPassed ? colours.green : eidResult === 'refer' ? colours.orange : eidResult === 'review' ? colours.red : colours.highlight;
-  const eidLabel = eidPassed ? 'Pass' : eidResult === 'refer' ? 'Refer' : eidResult === 'review' ? 'Review' : eidResult || 'ID';
+  const eidPassed = identityStage.status === 'complete';
+  const eidColor = eidPassed ? colours.green : identityStage.status === 'blocked' ? colours.orange : eidResult === 'refer' ? colours.orange : eidResult === 'review' ? colours.red : colours.highlight;
+  const eidLabel = eidPassed ? 'Pass' : identityStage.status === 'blocked' ? 'Wait' : eidResult === 'refer' ? 'Refer' : eidResult === 'review' ? 'Review' : eidResult || 'ID';
 
   // Payment
   const payments = workbenchPayments;
@@ -354,7 +360,7 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
     { done: showTeamsStage || showClaimer, index: 0, inPlay: showTeamsStage || showClaimer || showLegacyPlaceholder },
     { done: showPitch, index: 1, inPlay: true },
     { done: hasInstruction, index: 2, inPlay: shouldShowPostPitch },
-    { done: eidPassed, index: 3, inPlay: shouldShowPostPitch },
+    { done: eidPassed, index: 3, inPlay: shouldShowPostPitch && hasInstruction },
     { done: hasConfirmedPayment, index: 4, inPlay: shouldShowPostPitch },
     { done: hasRisk, index: 5, inPlay: shouldShowPostPitch },
     { done: hasMatter, index: 6, inPlay: shouldShowPostPitch },
@@ -697,9 +703,9 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
               iconName: 'CheckMark',
               showConnector: true,
               prevDone: showPitch,
-              statusText: hasInstruction ? `Instructed ${instructionStamp}` : (isShellEntry && instructionRef ? 'Checkout opened - awaiting submission' : 'Not instructed'),
+              statusText: hasInstruction ? `Instructed ${instructionStamp}` : (isShellEntry && instructionRef ? 'Checkout opened - awaiting client submission' : 'Not instructed'),
               subtitle: contactName,
-              title: hasInstruction ? `Instructed (${instructionRef})` : (isShellEntry && instructionRef ? `Checkout opened (${instructionRef})` : 'Not instructed yet'),
+              title: hasInstruction ? `Instructed (${instructionRef})` : (isShellEntry && instructionRef ? `Checkout opened, waiting for client submission (${instructionRef})` : 'Not instructed yet'),
               isNextAction: !isShellEntry && nextIncompleteIndex === 2,
               details: hasInstruction ? [
                 { label: 'Ref', value: instructionRef || '' },
@@ -721,15 +727,16 @@ const PipelineCell: React.FC<PipelineCellProps> = ({
             {renderMiniChip({
               shortLabel: hasEid ? eidLabel : 'ID',
               fullLabel: hasEid ? eidLabel : 'ID Check',
-              done: shouldShowPostPitch && hasEid,
-              isNextAction: nextIncompleteIndex === 3,
+              done: shouldShowPostPitch && eidPassed,
+              inProgress: shouldShowPostPitch && identityStage.status === 'blocked',
+              isNextAction: nextIncompleteIndex === 3 && identityStage.status !== 'blocked',
               color: hasEid ? eidColor : colours.highlight,
               iconName: 'ContactCard',
               showConnector: true,
               prevDone: hasInstruction,
-              statusText: hasEid ? `EID ${eidLabel}` : 'EID not started',
+              statusText: identityStage.status === 'blocked' ? identityStage.statusText : hasEid ? `EID ${eidLabel}` : 'EID not started',
               subtitle: contactName,
-              title: hasEid ? `ID: ${eidLabel}` : 'ID not started',
+              title: identityStage.status === 'blocked' ? identityStage.title : hasEid ? `ID: ${eidLabel}` : 'ID not started',
               onClick: (e: React.MouseEvent) => {
                 e.stopPropagation();
                 openEnquiryWorkbench(item, 'Timeline', { filter: 'pitch' });

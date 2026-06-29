@@ -42,6 +42,13 @@ export interface TodoExpansionSummaryField {
   value: string;
 }
 
+export interface TodoExpansionPrompt {
+  label: string;
+  body: string;
+  meta?: string;
+  tone?: 'default' | 'check' | 'blocked';
+}
+
 /**
  * One row inside a list-kind expansion (e.g. "Transfer Documents" listing
  * every instruction with pending transfers). Designed to be reusable for any
@@ -78,6 +85,8 @@ export interface TodoExpansion {
   description?: string;
   /** 0–4 labelled key/value fields rendered as a compact grid. */
   fields?: TodoExpansionSummaryField[];
+  /** Compact prompt cards for internal chat / operator next-action surfaces. */
+  prompts?: TodoExpansionPrompt[];
   /**
    * Inline list rows (only used when kind === 'list'). Each row is clickable
    * and represents one entity in the queue. Rendered above the action

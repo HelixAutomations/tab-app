@@ -63,6 +63,7 @@ import CompactMatterWizard from './MatterOpening/CompactMatterWizard';
 import DemoModeStripe from './MatterOpening/DemoModeStripe';
 import type { POID } from '../../app/functionality/types';
 import { deriveWorkbenchStageStatuses } from '../../utils/workbenchStatusDerivation';
+import { deriveProspectJourneyState } from '../../utils/workbenchJourneyState';
 import { derivePitchLinkMetadata, hasPitchEmailContent } from '../enquiries/pitch-builder/pitchLinkMetadata';
 import { SCENARIOS } from '../enquiries/pitch-builder/scenarios';
 import { scenarioTone, scenarioIcon } from '../../components/pitchScenarioPresentation';
@@ -919,6 +920,25 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   // Derive values
   // NOTE: keep instructionRef sourced from instruction/deal (used for actions like ID/EID)
   const instructionRef = resolvedInstruction?.InstructionRef || resolvedInstruction?.instructionRef || deal?.InstructionRef || deal?.instructionRef || '';
+  const journeyState = useMemo(() => deriveProspectJourneyState({
+    workbenchItem: {
+      ...item,
+      instruction: resolvedInstruction || inst,
+      deal,
+      payments,
+      risk,
+      eid,
+      eids,
+      matters,
+      documents,
+      stageStatuses,
+      pitchData: effectivePitch,
+      enrichmentTeamsData,
+    },
+    enquiry,
+    enrichmentPitchData: effectivePitch,
+    enrichmentTeamsData,
+  }), [deal, documents, effectivePitch, eid, eids, enrichmentTeamsData, enquiry, inst, item, matters, payments, resolvedInstruction, risk, stageStatuses]);
   // Motion key: use only enquiry ID (stable from mount). instructionRef resolves
   // async and would cause the animation to fire twice if included.
   const enquiryIdForMotion = String((item as any)?.enquiry?.ID || (item as any)?.enquiry?.id || (item as any)?.prospectId || '');
@@ -1715,14 +1735,23 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   }, [instructionRef, isDemoInstruction, item, eidResult, eidStatusValue, pepResult, addressVerification, eidDate, DEMO_EID_RAW_RESPONSE_SAMPLE]);
 
   const openTriggerEidConfirm = React.useCallback(() => {
+    if (!journeyState.canRunIdCheck) {
+      showToast({ type: 'warning', message: journeyState.idBlockedReason || 'ID verification is not ready for this instruction.' });
+      return;
+    }
     if (isDemoInstruction) {
       setDemoEidSimConfig(readDemoEidSimConfig());
     }
     setShowTriggerEidConfirmModal(true);
-  }, [isDemoInstruction, readDemoEidSimConfig]);
+  }, [isDemoInstruction, journeyState.canRunIdCheck, journeyState.idBlockedReason, readDemoEidSimConfig, showToast]);
 
   const handleTriggerEid = React.useCallback(async () => {
     if (!onTriggerEID || !instructionRef) return;
+    if (!journeyState.canRunIdCheck) {
+      setShowTriggerEidConfirmModal(false);
+      showToast({ type: 'warning', message: journeyState.idBlockedReason || 'ID verification is not ready for this instruction.' });
+      return;
+    }
     setShowTriggerEidConfirmModal(false);
     setIsTriggerEidLoading(true);
     setEidProcessingState('processing');
@@ -1759,7 +1788,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       setIsTriggerEidLoading(false);
       eidProcessingToastRef.current = null;
     }
-  }, [onTriggerEID, instructionRef, showToast, updateToast, onRefreshData]);
+  }, [onTriggerEID, instructionRef, journeyState.canRunIdCheck, journeyState.idBlockedReason, showToast, updateToast, onRefreshData]);
 
   useEffect(() => {
     if (activeTab !== 'identity') return;
@@ -3103,16 +3132,17 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
 
   const identityStatus: WorkbenchStageStatus = eidProcessingState === 'processing'
     ? 'processing'
-    : derivedStageStatuses.id;
-  const isInstructedComplete = Boolean(instructionSubmittedRaw && instructionSubmittedRaw !== '—')
-    || Boolean(instructionStage && !isInstructionInitialised);
-  const instructedStatus: WorkbenchStageStatus = isInstructedComplete
-    ? 'complete'
-    : (Boolean(inst || instructionStage) ? 'processing' : 'pending');
-  const paymentStatus: WorkbenchStageStatus = derivedStageStatuses.payment;
-  const riskStatus: WorkbenchStageStatus = riskEditMode ? 'processing' : derivedStageStatuses.risk;
-  const matterStageStatus: WorkbenchStageStatus = showLocalMatterModal ? 'processing' : derivedStageStatuses.matter;
-  const documentStatus: WorkbenchStageStatus = derivedStageStatuses.documents;
+    : journeyState.stages.identity.status;
+  const isInstructedComplete = journeyState.isInstructionSubmitted;
+  const instructedStatus: WorkbenchStageStatus = journeyState.stages.instruction.status;
+  const paymentStatus: WorkbenchStageStatus = journeyState.stages.payment.status;
+  const riskStatus: WorkbenchStageStatus = riskEditMode ? 'processing' : journeyState.stages.risk.status;
+  const matterStageStatus: WorkbenchStageStatus = showLocalMatterModal ? 'processing' : journeyState.stages.matter.status;
+  const documentStatus: WorkbenchStageStatus = journeyState.stages.documents.status;
+  const canTriggerEid = Boolean(onTriggerEID && journeyState.canRunIdCheck && !isTriggerEidLoading);
+  const triggerEidUnavailableText = !onTriggerEID
+    ? 'Verification is not available for this record.'
+    : journeyState.idBlockedReason;
 
   // Banner status safety: only show complete/blue when we have concrete evidence in this record.
   const identityBannerStatus: WorkbenchStageStatus =
@@ -3531,6 +3561,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const hasClaimedStageProgress = Boolean(
     hasClaimedStage ||
     pitchDateRaw ||
+    hasExistingPitchRecord ||
     isInstructedComplete ||
     hasSuccessfulPayment ||
     hasId ||
@@ -3576,9 +3607,9 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         icon: <FaUser size={10} />,
         date: pitchDate !== '—' ? pitchDate : null,
         dateRaw: pitchDateRaw,
-        isComplete: !!pitchDateRaw,
+        isComplete: Boolean(pitchDateRaw || hasExistingPitchRecord),
         hasIssue: false,
-        status: (pitchDateRaw ? 'complete' : 'pending') as WorkbenchStageStatus,
+        status: ((pitchDateRaw || hasExistingPitchRecord) ? 'complete' : 'pending') as WorkbenchStageStatus,
         navigatesTo: 'pitch' as WorkbenchTab,
       },
       {
@@ -3605,12 +3636,12 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
       },
       {
         key: 'identity' as const,
-        label: 'ID Check',
+        label: identityStatus === 'blocked' ? 'ID Waiting' : 'ID Check',
         icon: <FaIdCard size={10} />,
         date: null,
         dateRaw: null,
         isComplete: hasId || eidStatus === 'verified',
-        hasIssue: eidStatus === 'failed' || eidStatus === 'review',
+        hasIssue: identityStatus === 'blocked' || eidStatus === 'failed' || eidStatus === 'review',
         status: identityStatus,
         navigatesTo: 'identity' as WorkbenchTab,
       },
@@ -3649,7 +3680,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         navigatesTo: 'documents' as WorkbenchTab,
       },
     ];
-  }, [claimStageDate, claimStageDateRaw, documentStatus, documents.length, eidStatus, firstDocUploadDate, firstDocUploadDateRaw, hasClaimTracking, hasClaimedStageProgress, hasFailedPayment, hasId, hasMatter, hasSuccessfulPayment, identityStatus, instructedStatus, instructionSubmittedDate, instructionSubmittedRaw, isHighRisk, isInstructedComplete, isMediumRisk, matterOpenDate, matterOpenDateRaw, matterStageStatus, paymentDate, paymentDateRaw, paymentStatus, pitchDate, pitchDateRaw, prospectId, riskComplete, riskStatus, submissionDate, submissionDateRaw]);
+  }, [claimStageDate, claimStageDateRaw, documentStatus, documents.length, eidStatus, firstDocUploadDate, firstDocUploadDateRaw, hasClaimTracking, hasClaimedStageProgress, hasExistingPitchRecord, hasFailedPayment, hasId, hasMatter, hasSuccessfulPayment, identityStatus, instructedStatus, instructionSubmittedDate, instructionSubmittedRaw, isHighRisk, isInstructedComplete, isMediumRisk, matterOpenDate, matterOpenDateRaw, matterStageStatus, paymentDate, paymentDateRaw, paymentStatus, pitchDate, pitchDateRaw, prospectId, riskComplete, riskStatus, submissionDate, submissionDateRaw]);
 
   const contextStageKeyList = useMemo(() => {
     // If context stage chips disabled, don't show any context stages
@@ -3703,6 +3734,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
         : ((stage as any).count === 1 ? 'item' : 'items');
       return `${(stage as any).count} ${unit}`;
     }
+    if (stage.status === 'blocked') return 'Waiting';
     if (stage.hasIssue) return stage.status === 'warning' ? 'Check' : 'Review';
     if (stage.status === 'processing') return 'In progress';
     if (stage.isComplete) return stage.date ? `Done · ${stage.date}` : 'Done';
@@ -3730,7 +3762,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
   const getJourneyStageTone = (stage: (typeof pipelineStages)[number], isActive: boolean) => {
     const lateGreenStage = ['payment', 'identity', 'risk', 'matter', 'documents'].includes(stage.key);
     if (stage.hasIssue) {
-      const alert = stage.status === 'warning' ? colours.orange : colours.cta;
+      const alert = stage.status === 'warning' || stage.status === 'blocked' ? colours.orange : colours.cta;
       return {
         dot: alert,
         text: isDarkMode ? colours.dark.text : colours.light.text,
@@ -8307,7 +8339,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                       </div>
                       <button
                         type="button"
-                        disabled={!onTriggerEID || isTriggerEidLoading}
+                        disabled={!canTriggerEid}
                         onClick={(e) => { e.stopPropagation(); openTriggerEidConfirm(); }}
                         style={{
                           display: 'inline-flex',
@@ -8316,13 +8348,13 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                           gap: 6,
                           padding: '8px 12px',
                           borderRadius: 0,
-                          border: `1px solid ${onTriggerEID ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.22)') : (isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(107, 107, 107, 0.18)')}`,
-                          background: onTriggerEID
+                          border: `1px solid ${canTriggerEid ? (isDarkMode ? 'rgba(54, 144, 206, 0.28)' : 'rgba(54, 144, 206, 0.22)') : (isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(107, 107, 107, 0.18)')}`,
+                          background: canTriggerEid
                             ? (isDarkMode ? 'rgba(54, 144, 206, 0.08)' : 'rgba(54, 144, 206, 0.08)')
                             : 'transparent',
-                          color: onTriggerEID ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? colours.subtleGrey : colours.greyText),
-                          cursor: onTriggerEID && !isTriggerEidLoading ? 'pointer' : 'default',
-                          opacity: isTriggerEidLoading ? 0.72 : 1,
+                          color: canTriggerEid ? (isDarkMode ? colours.accent : colours.highlight) : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                          cursor: canTriggerEid ? 'pointer' : 'default',
+                          opacity: isTriggerEidLoading ? 0.72 : canTriggerEid ? 1 : 0.76,
                           whiteSpace: 'nowrap',
                           fontSize: 10,
                           fontWeight: 800,
@@ -8337,6 +8369,11 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     {!onTriggerEID && (
                       <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
                         Verification is not available for this record.
+                      </div>
+                    )}
+                    {onTriggerEID && !journeyState.canRunIdCheck && triggerEidUnavailableText && (
+                      <div style={{ fontSize: 10, color: isDarkMode ? colours.subtleGrey : colours.greyText }}>
+                        {triggerEidUnavailableText}
                       </div>
                     )}
                   </>
@@ -8570,18 +8607,18 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                     </button>
                     <button
                       type="button"
-                      disabled={isTriggerEidLoading}
+                      disabled={!canTriggerEid}
                       onClick={() => void handleTriggerEid()}
                       style={{
                         padding: '8px 16px',
-                        background: colours.highlight,
-                        color: '#ffffff',
-                        border: 'none',
+                        background: canTriggerEid ? colours.highlight : 'transparent',
+                        color: canTriggerEid ? '#ffffff' : (isDarkMode ? colours.subtleGrey : colours.greyText),
+                        border: canTriggerEid ? 'none' : `1px solid ${isDarkMode ? 'rgba(160, 160, 160, 0.18)' : 'rgba(107, 107, 107, 0.18)'}`,
                         borderRadius: 0,
                         fontSize: 11,
                         fontWeight: 600,
-                        cursor: isTriggerEidLoading ? 'default' : 'pointer',
-                        opacity: isTriggerEidLoading ? 0.7 : 1,
+                        cursor: canTriggerEid ? 'pointer' : 'default',
+                        opacity: isTriggerEidLoading ? 0.7 : canTriggerEid ? 1 : 0.75,
                         display: 'flex',
                         alignItems: 'center',
                         gap: 6,
@@ -11360,7 +11397,7 @@ const InlineWorkbench: React.FC<InlineWorkbenchProps> = ({
                   message: `Matter ${matterId} created successfully`,
                 });
               }}
-              onRunIdCheck={onTriggerEID ? () => {
+              onRunIdCheck={canTriggerEid ? () => {
                 setShowLocalMatterModal(false);
                 openTriggerEidConfirm();
               } : undefined}

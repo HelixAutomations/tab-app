@@ -1,4 +1,4 @@
-export type WorkbenchStageStatus = 'pending' | 'processing' | 'warning' | 'review' | 'complete' | 'neutral';
+export type WorkbenchStageStatus = 'pending' | 'processing' | 'blocked' | 'warning' | 'review' | 'complete' | 'neutral';
 
 export type WorkbenchJourneyStatus = WorkbenchStageStatus | 'current' | 'disabled';
 
