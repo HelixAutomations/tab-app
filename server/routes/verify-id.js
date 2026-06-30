@@ -37,6 +37,21 @@ const runLegacyQuery = createEnvBasedQueryRunner('SQL_CONNECTION_STRING', {
   defaultRetries: Number(process.env.SQL_CORE_MAX_RETRIES || DEFAULT_SQL_RETRIES)
 });
 
+function buildVerificationActivityPayload({ body, instructionRef, legacySource }) {
+  return {
+    method: 'POST',
+    pathname: '/api/verify-id/adhoc',
+    body: {
+      linkedInstruction: Boolean(instructionRef),
+      legacyPoidSource: Boolean(legacySource && legacySource.acid),
+      hasExternalReference: Boolean(body?.externalReferenceId),
+      hasPassportNumber: Boolean(body?.passportNumber),
+      hasDriversLicenseNumber: Boolean(body?.driversLicenseNumber),
+      hasClientSubmissionId: Boolean(body?.clientSubmissionId),
+    },
+  };
+}
+
 /**
  * Convert Helix contact name or initials to email address
  * @param {string} contactName - Contact name or initials (e.g., "Al", "AC", "Alex")
@@ -1388,17 +1403,17 @@ router.post('/adhoc', async (req, res) => {
     legacyAcid: (legacySource && legacySource.acid) || '',
   });
 
-  // Forms-stream-persistence: every adhoc check now joins the unified rail.
+  // System Activity records the audit shape only; never store raw identity data in the rail.
   let submissionId = null;
   try {
-    const legacyTag = legacySource && legacySource.acid ? ` [legacy poid acid:${legacySource.acid}]` : '';
     submissionId = await recordSubmission({
       formKey: 'verification',
       submittedBy: String(triggeredBy || 'UNK').slice(0, 10),
       lane: 'Verification',
-      payload: body,
-      summary: `EID: ${firstName} ${lastName}${instructionRef ? ` (${instructionRef})` : ''}${legacyTag}`.slice(0, 400),
+      payload: buildVerificationActivityPayload({ body, instructionRef, legacySource }),
+      summary: instructionRef ? 'Verify ID ad-hoc check linked to instruction' : 'Verify ID ad-hoc check',
       clientSubmissionId: body?.clientSubmissionId || req.body?.clientSubmissionId || null,
+      kind: 'activity',
     });
   } catch (logErr) {
     trackException(logErr, { phase: 'verifyAdhoc.recordSubmission' });

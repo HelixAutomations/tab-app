@@ -1000,7 +1000,7 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
       const wasAlreadySeen = marketingReadySeen;
       storeMarketingReadySeen(activeRange);
       setMarketingReadySeen(true);
-      setMarketingReadyCueVisible(true);
+      setMarketingReadyCueVisible(!wasAlreadySeen);
       setMarketingUnlockToastVisible(!wasAlreadySeen);
       if (wasAlreadySeen) return undefined;
       const timeout = window.setTimeout(() => setMarketingUnlockToastVisible(false), 3200);
@@ -1009,6 +1009,12 @@ const MarketingHome: React.FC<MarketingHomeProps> = ({ userData = [], instructio
 
     return undefined;
   }, [activeRange, hasSelectedRange, isReportingWindowSettled, marketingHydrationPending, marketingReadySeen]);
+
+  useEffect(() => {
+    if (!marketingReadyCueVisible || !isReportingWindowSettled || marketingHasHydrationAttention) return undefined;
+    const timeout = window.setTimeout(() => setMarketingReadyCueVisible(false), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [isReportingWindowSettled, marketingHasHydrationAttention, marketingReadyCueVisible]);
 
   // Marketing rides the shared .app-scroll-region. Hide scrollbar chrome by
   // default and let UserBubble's show-scrollbars toggle reveal it on demand.

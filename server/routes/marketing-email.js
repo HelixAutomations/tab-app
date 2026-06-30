@@ -1,10 +1,13 @@
 'use strict';
 
+
 const crypto = require('crypto');
 const express = require('express');
 const { withRequest, sql } = require('../utils/db');
 const { getSecret } = require('../utils/getSecret');
 const { trackEvent, trackException, trackMetric } = require('../utils/appInsights');
+const { loadPersonalSignatureHtml, maybeWrapSignature, normalizeEmails } = require('../utils/helixEmail');
+const { recordSubmission, recordStep, markComplete, markFailed } = require('../utils/formSubmissionLog');
 
 const router = express.Router();
 
@@ -20,13 +23,24 @@ const LIVE_STREAM_KEYS = new Set(STREAMS.filter((stream) => stream.isSendable).m
 const EMAIL_SENDGRID_ALLOWED_SENDERS = new Set([
   'automations@helix-law.com',
   'team@helix-law.com',
+  'careers@helix-law.com',
+  'support@helix-law.com',
+  'operations@helix-law.com',
   'lz@helix-law.com',
 ]);
 const EMAIL_SENDGRID_SECRET_NAMES = [
   'sendgrid-helix-email',
   'sendgrid-api-key',
+  'sendgrid-apikey',
+  'sendgrid-api-token',
+  'sendgrid-mail-api-key',
+  'sendgrid-outreach-api-key',
+  'email-outreach-sendgrid-api-key',
   'SendGridApiKey',
 ];
+const EMAIL_SENDGRID_SIGNATURE_MODES = new Set(['data-hub-v2', 'legacy']);
+const EMAIL_SENDGRID_BATCH_LIMIT = 200;
+const EMAIL_SENDGRID_REPLY_TO_EMAIL = 'team@helix-law.com';
 const TAG_BLOCK_PATTERN = /\b(do\s*not\s*(send|email|market)|unsubscribe|unsubscribed|opt[\s-]*out|no\s*(email|marketing)|suppress|suppression|gdpr|privacy|spam|complaint|bounce|invalid\s*email)\b/i;
 const DEMO_SOURCE_ENQUIRY_ID = 'DEMO-ENQ-0003';
 const DEMO_CAMPAIGN_KEY = 'demo-marketing-email-setup';
@@ -35,11 +49,15 @@ let cachedSendGridApiKey = null;
 const SOURCE_COLUMN_CANDIDATES = {
   id: ['id', 'ID'],
   acid: ['acid', 'ACID', 'ActiveCampaignId', 'activeCampaignId', 'active_campaign_id'],
+  name: ['name', 'Name', 'full_name', 'Full_Name', 'FullName', 'contact_name', 'Contact_Name', 'ContactName'],
+  firstName: ['first_name', 'First_Name', 'FirstName', 'first', 'First', 'forename', 'Forename'],
+  lastName: ['last_name', 'Last_Name', 'LastName', 'last', 'Last', 'surname', 'Surname'],
   email: ['email', 'Email', 'Email_Address', 'email_address'],
   areaOfWork: ['aow', 'AOW', 'Area_of_Work', 'area_of_work', 'AreaOfWork', 'areaOfWork', 'Area'],
   tags: ['tags', 'Tags', 'tag', 'Tag'],
-  datetime: ['touchpoint_date', 'Touchpoint_Date', 'datetime', 'DateTime', 'date_time', 'Date_Created', 'created_at', 'CreatedAt'],
+  datetime: ['datetime', 'DateTime', 'date_time', 'touchpoint_date', 'Touchpoint_Date', 'Date_Created', 'date_created', 'created_at', 'CreatedAt'],
 };
+const SOURCE_GROWTH_DATETIME_CANDIDATES = ['datetime', 'DateTime', 'date_time', 'Touchpoint_Date', 'touchpoint_date', 'Date_Created', 'date_created'];
 
 function trim(value) {
   return String(value ?? '').trim();
@@ -68,6 +86,18 @@ function trimSqlTextExpr(columnName, length = 320) {
   return `NULLIF(LTRIM(RTRIM(TRY_CONVERT(nvarchar(${length}), e.${safeColumnRef(columnName)}))), '')`;
 }
 
+function sourceNameSqlExpr(columns) {
+  const nameColumn = pickColumn(columns, SOURCE_COLUMN_CANDIDATES.name);
+  const firstNameColumn = pickColumn(columns, SOURCE_COLUMN_CANDIDATES.firstName);
+  const lastNameColumn = pickColumn(columns, SOURCE_COLUMN_CANDIDATES.lastName);
+  if (!nameColumn && !firstNameColumn && !lastNameColumn) return 'NULL';
+  const directExpr = nameColumn ? trimSqlTextExpr(nameColumn, 180) : 'NULL';
+  const firstExpr = firstNameColumn ? `TRY_CONVERT(nvarchar(90), e.${safeColumnRef(firstNameColumn)})` : `N''`;
+  const lastExpr = lastNameColumn ? `TRY_CONVERT(nvarchar(90), e.${safeColumnRef(lastNameColumn)})` : `N''`;
+  const combinedExpr = `NULLIF(LTRIM(RTRIM(CONCAT(COALESCE(${firstExpr}, N''), N' ', COALESCE(${lastExpr}, N'')))), N'')`;
+  return `COALESCE(${directExpr}, ${combinedExpr})`;
+}
+
 function streamKeyCaseSql(areaSqlExpr) {
   const areaLower = `LOWER(COALESCE(${areaSqlExpr}, N''))`;
   return `CASE
@@ -81,6 +111,111 @@ function streamKeyCaseSql(areaSqlExpr) {
 
 function getActor(req) {
   return trim(req.user?.initials || req.headers?.['x-helix-initials'] || req.user?.email || req.headers?.['x-user-email'] || 'api').slice(0, 160);
+}
+
+function getActivityActor(actor) {
+  return nullable(actor, 16) || 'api';
+}
+
+function textPresence(value) {
+  const text = trim(value);
+  return { present: Boolean(text), length: text.length };
+}
+
+function emailDomainOnly(value) {
+  const email = normalizeEmails(value)[0] || '';
+  return emailDomain(email) || null;
+}
+
+function buildCampaignActivityPayload(req, {
+  lifecycle,
+  campaignId = null,
+  campaign = null,
+  streamKey = null,
+  demoOnly = false,
+  dryRun = null,
+  limit = null,
+  requestId = null,
+  counts = null,
+  snapshot = null,
+  provider = null,
+  bodyText = null,
+  requestSubject = null,
+  bodyHashMatches = null,
+  durationMs = null,
+} = {}) {
+  const effectiveCampaignId = campaignId || campaign?.campaign_id || campaign?.campaignId || null;
+  const effectiveStreamKey = streamKey || campaign?.stream_key || campaign?.streamKey || null;
+  const senderDomain = emailDomainOnly(campaign?.sender_email || campaign?.senderEmail || req.body?.senderEmail || req.body?.sender_email);
+  return {
+    method: req.method,
+    path: trim(req.originalUrl || req.path).split('?')[0],
+    lifecycle,
+    requestId,
+    campaignId: effectiveCampaignId,
+    streamKey: effectiveStreamKey,
+    status: campaign?.status || null,
+    mode: demoOnly ? 'demo' : 'live',
+    dryRun,
+    limit,
+    settings: {
+      excludeClients: campaign?.exclude_clients == null && campaign?.excludeClients == null ? null : Boolean(campaign.exclude_clients ?? campaign.excludeClients),
+      rankMin: campaign?.rank_min == null && campaign?.rankMin == null ? null : Number(campaign.rank_min ?? campaign.rankMin),
+      rankMax: campaign?.rank_max == null && campaign?.rankMax == null ? null : Number(campaign.rank_max ?? campaign.rankMax),
+      signatureMode: nullable(campaign?.signature_mode || campaign?.signatureMode || req.body?.signatureMode || req.body?.signature_mode, 60),
+      senderDomain,
+      senderAllowed: senderDomain ? EMAIL_SENDGRID_ALLOWED_SENDERS.has(`team@${senderDomain}`) || Array.from(EMAIL_SENDGRID_ALLOWED_SENDERS).some((sender) => sender.endsWith(`@${senderDomain}`)) : null,
+    },
+    content: {
+      subject: textPresence(campaign?.subject || requestSubject || req.body?.subject),
+      preheader: textPresence(campaign?.preheader || req.body?.preheader),
+      body: textPresence(bodyText || req.body?.body || req.body?.bodyText),
+      bodyHashMatches: bodyHashMatches == null ? null : Boolean(bodyHashMatches),
+    },
+    counts,
+    snapshot,
+    provider,
+    durationMs,
+  };
+}
+
+async function recordMarketingCampaignActivity(req, {
+  actor,
+  lifecycle,
+  summary,
+  payload,
+  status = 'complete',
+  stepName = 'marketing-email.campaign',
+  error = null,
+}) {
+  const submissionId = await recordSubmission({
+    formKey: 'activity.marketing-email-campaign',
+    submittedBy: getActivityActor(actor),
+    lane: 'Marketing',
+    payload,
+    summary,
+    kind: 'activity',
+  });
+  await recordStep(submissionId, {
+    name: stepName,
+    status: status === 'failed' ? 'failed' : 'complete',
+    error: error ? 'Marketing campaign activity failed' : null,
+    output: {
+      lifecycle,
+      campaignId: payload?.campaignId || null,
+      streamKey: payload?.streamKey || null,
+      mode: payload?.mode || null,
+      dryRun: payload?.dryRun ?? null,
+      counts: payload?.counts || null,
+      provider: payload?.provider || null,
+    },
+  });
+  if (status === 'failed') {
+    await markFailed(submissionId, { lastEvent: `${lifecycle}:failed`, error: error || 'Marketing campaign activity failed' });
+  } else {
+    await markComplete(submissionId, { lastEvent: `${lifecycle}:complete` });
+  }
+  return submissionId;
 }
 
 function isTruthyFlag(value) {
@@ -108,10 +243,24 @@ function deriveProjectDataConnectionString() {
   throw new Error('Unable to derive Helix Projects database connection string from SQL_CONNECTION_STRING');
 }
 
-function getInstructionsConnectionString() {
+function connectionStringLooksRedacted(value) {
+  const clean = trim(value);
+  return !/\b(Server|Data Source)\s*=/i.test(clean) || /\*{3,}|<[^>]+>|redacted|required/i.test(clean);
+}
+
+async function getInstructionsConnectionString() {
   const conn = trim(process.env.INSTRUCTIONS_SQL_CONNECTION_STRING);
-  if (!conn) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING is not configured');
-  return conn;
+  if (conn && !connectionStringLooksRedacted(conn)) return conn;
+
+  const server = trim(process.env.INSTRUCTIONS_SQL_SERVER) || 'instructions.database.windows.net';
+  const database = trim(process.env.INSTRUCTIONS_SQL_DATABASE) || 'instructions';
+  const user = trim(process.env.INSTRUCTIONS_SQL_USER) || 'instructionsadmin';
+  const secretName = trim(process.env.INSTRUCTIONS_SQL_PASSWORD_SECRET_NAME) || 'instructions-sql-password';
+  const password = trim(await getSecret(secretName));
+  if (!password) throw new Error('INSTRUCTIONS_SQL_CONNECTION_STRING is not configured');
+  const resolved = `Server=tcp:${server},1433;Initial Catalog=${database};Persist Security Info=False;User ID=${user};Password=${password};Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;`;
+  process.env.INSTRUCTIONS_SQL_CONNECTION_STRING = resolved;
+  return resolved;
 }
 
 function hashEmail(email) {
@@ -145,6 +294,21 @@ function extractRank(tags) {
   return null;
 }
 
+function isNoSendRank(rank) {
+  return rank === 5 || rank === 6 || rank === 7;
+}
+
+function isClientRank(rank) {
+  return rank != null && rank < 4;
+}
+
+function noSendRankReason(rank) {
+  if (rank === 5) return 'Rank 5 no marketing preference';
+  if (rank === 6) return 'Rank 6 unsubscribe or dead contact';
+  if (rank === 7) return 'Rank 7 bad apple';
+  return 'No-send rank';
+}
+
 function classifyStream(areaOfWork) {
   const value = trim(areaOfWork).toLowerCase();
   if (/commercial|corporate|company|business|contract|shareholder|debt|insolvency/.test(value)) return 'commercial';
@@ -158,8 +322,8 @@ function qualifyMember({ streamKey, acid, email, rank, tags, client }) {
   if (!isUsableEmail(email)) return { status: 'missing_email', reason: 'Missing or invalid email', sendable: false };
   if (!acid) return { status: 'missing_acid', reason: 'Missing ACID campaign key', sendable: false };
   if (tags.some((tag) => TAG_BLOCK_PATTERN.test(tag))) return { status: 'blocked', reason: 'Blocking tag present', sendable: false };
+  if (isNoSendRank(rank)) return { status: 'suppressed', reason: noSendRankReason(rank), sendable: false };
   if (!LIVE_STREAM_KEYS.has(streamKey)) return { status: 'inspect', reason: 'Inspection stream only', sendable: false };
-  // Rank refines a campaign segment (rank_min/rank_max); it is not a sendability gate.
   const reason = client
     ? 'Qualified (client; exclusion is campaign-controlled)'
     : rank == null
@@ -172,6 +336,7 @@ function qualifyStoredMember({ streamKey, acid, emailHash, emailDomain, rank, ta
   if (!emailHash || !emailDomain) return { status: 'missing_email', reason: 'Missing or invalid email hash/domain', sendable: false };
   if (!acid) return { status: 'missing_acid', reason: 'Missing ACID campaign key', sendable: false };
   if ((tags || []).some((tag) => TAG_BLOCK_PATTERN.test(tag))) return { status: 'blocked', reason: 'Blocking tag present', sendable: false };
+  if (isNoSendRank(rank)) return { status: 'suppressed', reason: noSendRankReason(rank), sendable: false };
   if (!LIVE_STREAM_KEYS.has(streamKey)) return { status: 'inspect', reason: 'Inspection stream only', sendable: false };
   const reason = client
     ? 'Qualified (client; exclusion is campaign-controlled)'
@@ -244,6 +409,87 @@ function resolveSender(value) {
   return EMAIL_SENDGRID_ALLOWED_SENDERS.has(email) ? email : null;
 }
 
+function normaliseSignatureMode(value) {
+  const mode = trim(value).toLowerCase();
+  return EMAIL_SENDGRID_SIGNATURE_MODES.has(mode) ? mode : 'data-hub-v2';
+}
+
+function escapeEmailHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function plainTextToEmailHtml(value) {
+  const blocks = String(value || '')
+    .trim()
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  return blocks.length > 0
+    ? blocks.map((block) => `<p style="font-family:Raleway,Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.4;color:rgb(0,0,0);margin:0 0 12px 0;">${escapeEmailHtml(block).replace(/\n/g, '<br />')}</p>`).join('')
+    : '';
+}
+
+function buildSendGridPreheaderHtml(value) {
+  const preheader = trim(value);
+  if (!preheader) return '';
+  return `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;line-height:1px;font-size:1px;">${escapeEmailHtml(preheader)}</div>`;
+}
+
+function stripEmailDocumentShell(html, bodyMarker) {
+  const markerWrapper = `<div style="margin-bottom:12px;">${bodyMarker}</div>`;
+  return String(html || '')
+    .replace(/^\s*<!DOCTYPE[^>]*>/i, '')
+    .replace(/^\s*<html\b[^>]*>/i, '')
+    .replace(/^\s*<head\b[^>]*>[\s\S]*?<\/head>/i, '')
+    .replace(/^\s*<body\b[^>]*>/i, '')
+    .replace(/<\/body>\s*<\/html>\s*$/i, '')
+    .replace(markerWrapper, '')
+    .trim();
+}
+
+function buildSystemSignatureHtml() {
+  const bodyMarker = '<span data-marketing-email-body-marker="1"></span>';
+  return stripEmailDocumentShell(maybeWrapSignature(bodyMarker), bodyMarker);
+}
+
+function buildOutreachSignatureV2({ operatorEmail, signatureInitials }) {
+  const signatureEmail = normalizeEmails(operatorEmail)[0] || '';
+  const personalSignature = loadPersonalSignatureHtml({ signatureInitials, fromEmail: signatureEmail });
+  return personalSignature || buildSystemSignatureHtml();
+}
+
+function buildSendGridEmailHtml({ bodyText, preheaderText, fromEmail, signatureInitials, signatureMode, operatorName, operatorEmail }) {
+  const bodyHtml = `<div style="font-family:Raleway,Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.4;color:rgb(0,0,0);">${plainTextToEmailHtml(bodyText)}</div>`;
+  const preheaderHtml = buildSendGridPreheaderHtml(preheaderText);
+  const resolvedSignatureMode = normaliseSignatureMode(signatureMode);
+  if (resolvedSignatureMode === 'data-hub-v2') {
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><title>Helix Email</title></head><body style="margin:0;padding:0;font-family:Raleway,Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.4;color:rgb(0,0,0);">${preheaderHtml}${bodyHtml}${buildOutreachSignatureV2({ operatorName, operatorEmail, signatureInitials })}</body></html>`;
+  }
+
+  const personalSignature = loadPersonalSignatureHtml({ signatureInitials, fromEmail });
+  return personalSignature && personalSignature.trim()
+    ? `${preheaderHtml}${bodyHtml}<br />${personalSignature}`
+    : maybeWrapSignature(`${preheaderHtml}${bodyHtml}`);
+}
+
+function normaliseSendLimit(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return EMAIL_SENDGRID_BATCH_LIMIT;
+  return Math.max(1, Math.min(parsed, EMAIL_SENDGRID_BATCH_LIMIT));
+}
+
+function safeProviderError(value) {
+  const message = trim(value);
+  if (!message) return 'SendGrid rejected request without body';
+  return message.slice(0, 500).replace(/[\r\n]+/g, ' ');
+}
+
 function hashBody(value) {
   const body = trim(value);
   if (!body) return null;
@@ -283,7 +529,10 @@ async function readSchemaState(projectConn) {
       CASE WHEN OBJECT_ID(N'dbo.marketing_email_campaigns', N'U') IS NULL THEN 0 ELSE 1 END AS has_campaigns,
       CASE WHEN OBJECT_ID(N'dbo.marketing_email_campaign_recipients', N'U') IS NULL THEN 0 ELSE 1 END AS has_campaign_recipients,
       CASE WHEN COL_LENGTH(N'dbo.marketing_email_audience_members', N'demo_seed') IS NULL THEN 0 ELSE 1 END AS has_member_demo_seed,
-      CASE WHEN COL_LENGTH(N'dbo.marketing_email_campaigns', N'demo_seed') IS NULL THEN 0 ELSE 1 END AS has_campaign_demo_seed;
+        CASE WHEN COL_LENGTH(N'dbo.marketing_email_campaigns', N'demo_seed') IS NULL THEN 0 ELSE 1 END AS has_campaign_demo_seed,
+        CASE WHEN COL_LENGTH(N'dbo.marketing_email_campaign_recipients', N'provider_status') IS NULL THEN 0 ELSE 1 END AS has_campaign_recipient_provider_status,
+        CASE WHEN COL_LENGTH(N'dbo.marketing_email_campaign_recipients', N'provider_error') IS NULL THEN 0 ELSE 1 END AS has_campaign_recipient_provider_error,
+        CASE WHEN COL_LENGTH(N'dbo.marketing_email_campaign_recipients', N'sendgrid_message_id') IS NULL THEN 0 ELSE 1 END AS has_campaign_recipient_sendgrid_message_id;
   `));
   const row = result.recordset?.[0] || {};
   return {
@@ -293,6 +542,7 @@ async function readSchemaState(projectConn) {
     hasCampaignRecipients: Boolean(row.has_campaign_recipients),
     hasMemberDemoSeed: Boolean(row.has_member_demo_seed),
     hasCampaignDemoSeed: Boolean(row.has_campaign_demo_seed),
+    hasCampaignRecipientProviderColumns: Boolean(row.has_campaign_recipient_provider_status && row.has_campaign_recipient_provider_error && row.has_campaign_recipient_sendgrid_message_id),
   };
 }
 
@@ -306,7 +556,7 @@ async function getSourceColumns(instructionsConn) {
 }
 
 async function readSourceCandidates(limit) {
-  const instructionsConn = getInstructionsConnectionString();
+  const instructionsConn = await getInstructionsConnectionString();
   const cappedLimit = Math.max(1, Math.min(Number(limit) || 2000, 10000));
   const columns = await getSourceColumns(instructionsConn);
   const picked = {
@@ -453,6 +703,133 @@ async function readLegacyListCountRows() {
   });
 }
 
+async function readMemberStatusWeeklyGrowthRows(projectConn, streamKey) {
+  return withRequest(projectConn, async (request) => {
+    request.input('streamKey', sql.NVarChar(40), streamKey);
+    const result = await request.query(`
+      WITH weekly_rows AS (
+        SELECT
+          DATEADD(day, (DATEDIFF(day, 0, CONVERT(date, last_seen_at)) / 7) * 7, 0) AS week_start,
+          SUM(CASE WHEN sendable = 1 THEN 1 ELSE 0 END) AS sendable_count,
+          SUM(CASE WHEN sendable = 0 AND qualification_status IN (N'suppressed', N'blocked') THEN 1 ELSE 0 END) AS suppression_count,
+          SUM(CASE WHEN sendable = 0 AND (qualification_status NOT IN (N'suppressed', N'blocked') OR qualification_status IS NULL) THEN 1 ELSE 0 END) AS held_count,
+          COUNT_BIG(*) AS total_count
+        FROM dbo.marketing_email_audience_members WITH (NOLOCK)
+        WHERE stream_key = @streamKey
+          AND last_seen_at IS NOT NULL
+        GROUP BY DATEADD(day, (DATEDIFF(day, 0, CONVERT(date, last_seen_at)) / 7) * 7, 0)
+      )
+      SELECT
+        week_start,
+        sendable_count,
+        suppression_count,
+        held_count,
+        total_count
+      FROM weekly_rows
+      ORDER BY week_start ASC;
+    `);
+    return result.recordset || [];
+  });
+}
+
+function startOfIsoWeekIso(day) {
+  const date = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const weekday = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() - weekday + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function getFinancialYearStartIso(date = new Date()) {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  return `${month >= 3 ? year : year - 1}-04-01`;
+}
+
+function addDaysIso(day, days) {
+  const date = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+async function readSourceWeeklyGrowthRows(streamKey, { startIso, endExclusiveIso } = {}) {
+  const instructionsConn = await getInstructionsConnectionString();
+  const columns = await getSourceColumns(instructionsConn);
+  const picked = {
+    id: pickColumn(columns, SOURCE_COLUMN_CANDIDATES.id),
+    acid: pickColumn(columns, SOURCE_COLUMN_CANDIDATES.acid),
+    email: pickColumn(columns, SOURCE_COLUMN_CANDIDATES.email),
+    areaOfWork: pickColumn(columns, SOURCE_COLUMN_CANDIDATES.areaOfWork),
+    tags: pickColumn(columns, SOURCE_COLUMN_CANDIDATES.tags),
+    datetime: pickColumn(columns, SOURCE_GROWTH_DATETIME_CANDIDATES),
+  };
+  if (!picked.email) throw new Error('No email column found on dbo.enquiries');
+  if (!picked.datetime) throw new Error('No enquiry datetime column found on dbo.enquiries');
+
+  const idExpr = picked.id ? `TRY_CONVERT(nvarchar(120), e.${safeColumnRef(picked.id)})` : 'NULL';
+  const acidExpr = picked.acid ? trimSqlTextExpr(picked.acid, 120) : 'NULL';
+  const emailExpr = trimSqlTextExpr(picked.email, 320);
+  const areaExpr = picked.areaOfWork ? trimSqlTextExpr(picked.areaOfWork, 160) : 'NULL';
+  const tagsExpr = picked.tags ? `TRY_CONVERT(nvarchar(max), e.${safeColumnRef(picked.tags)})` : 'NULL';
+  const datetimeExpr = `TRY_CONVERT(datetime2, e.${safeColumnRef(picked.datetime)})`;
+  const rows = await withRequest(instructionsConn, async (request) => {
+    const dateFilters = [];
+    if (startIso) {
+      request.input('dateFrom', sql.DateTime2, new Date(`${startIso}T00:00:00Z`));
+      dateFilters.push(`${datetimeExpr} >= @dateFrom`);
+    }
+    if (endExclusiveIso) {
+      request.input('dateToExclusive', sql.DateTime2, new Date(`${endExclusiveIso}T00:00:00Z`));
+      dateFilters.push(`${datetimeExpr} < @dateToExclusive`);
+    }
+    const dateWhere = dateFilters.length ? `\n        AND ${dateFilters.join('\n        AND ')}` : '';
+    const result = await request.query(`
+      SELECT
+        ${idExpr} AS source_enquiry_id,
+        ${acidExpr} AS acid,
+        ${emailExpr} AS email,
+        ${areaExpr} AS area_of_work,
+        ${tagsExpr} AS tags_text,
+        ${datetimeExpr} AS enquiry_at,
+        NULL AS matter_id
+      FROM dbo.enquiries AS e WITH (NOLOCK)
+      WHERE ${emailExpr} IS NOT NULL
+        AND ${datetimeExpr} IS NOT NULL
+        ${dateWhere}
+      ORDER BY ${datetimeExpr} DESC${picked.id ? `, e.${safeColumnRef(picked.id)} DESC` : ''};
+    `);
+    return result.recordset || [];
+  });
+  const weekly = new Map();
+
+  for (const row of rows) {
+    const member = toMemberRecord(row);
+    if (member.streamKey !== streamKey) continue;
+    if (!member.touchpointAt) continue;
+    const day = member.touchpointAt.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    const weekStart = startOfIsoWeekIso(day);
+    if (!weekStart) continue;
+
+    const bucket = weekly.get(weekStart) || { week_start: weekStart, sendable_count: 0, suppression_count: 0, held_count: 0, total_count: 0 };
+    if (member.sendable) {
+      bucket.sendable_count += 1;
+    } else if (member.qualificationStatus === 'suppressed' || member.qualificationStatus === 'blocked') {
+      bucket.suppression_count += 1;
+    } else {
+      bucket.held_count += 1;
+    }
+    bucket.total_count += 1;
+    weekly.set(weekStart, bucket);
+  }
+
+  return {
+    rows: Array.from(weekly.values()).sort((left, right) => (left.week_start < right.week_start ? -1 : 1)),
+    dateColumn: picked.datetime,
+  };
+}
+
 async function readListCounts({ demoOnly = false } = {}) {
   const counts = createListCountMap();
   if (demoOnly) return counts;
@@ -482,7 +859,7 @@ function toMemberRecord(row) {
   const acid = nullable(row.acid, 120);
   const email = trim(row.email);
   const matterId = nullable(row.matter_id, 120);
-  const client = Boolean(matterId);
+  const client = Boolean(matterId) || isClientRank(rank);
   const qualification = qualifyMember({ streamKey, acid, email, rank, tags, client });
   return {
     streamKey,
@@ -569,10 +946,16 @@ async function upsertMembers(projectConn, members, actor) {
           email_hash = source.email_hash,
           email_domain = source.email_domain,
           area_of_work = source.area_of_work,
+          [rank] = source.[rank],
+          tags_json = source.tags_json,
           client = source.client,
           matter_id = source.matter_id,
           client_status = source.client_status,
+          qualification_status = source.qualification_status,
+          qualification_reason = source.qualification_reason,
+          sendable = source.sendable,
           last_seen_at = COALESCE(TRY_CONVERT(datetime2, source.touchpoint_at), target.last_seen_at, SYSUTCDATETIME()),
+          last_qualified_at = SYSUTCDATETIME(),
           updated_at = SYSUTCDATETIME(),
           updated_by = @actor
         WHEN NOT MATCHED THEN INSERT (
@@ -700,6 +1083,7 @@ function mapMemberRow(row) {
     qualificationReason: trim(row.qualification_reason),
     sendable: Boolean(row.sendable),
     lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
     lastQualifiedAt: row.last_qualified_at ? new Date(row.last_qualified_at).toISOString() : null,
   };
 }
@@ -729,6 +1113,7 @@ async function readMembers(projectConn, streamKey, limit, { demoOnly = false, sc
         qualification_reason,
         sendable,
         last_seen_at,
+        created_at,
         last_qualified_at
       FROM dbo.marketing_email_audience_members
       WHERE stream_key = @streamKey
@@ -774,7 +1159,7 @@ async function countCampaignSelection(projectConn, { streamKey, excludeClients, 
 function parseRank(value) {
   if (value == null || value === '') return null;
   const number = Number(value);
-  return Number.isInteger(number) && number >= 0 && number <= 7 ? number : null;
+  return Number.isInteger(number) && number >= 0 && number <= 4 ? number : null;
 }
 
 function mapCampaignRow(row) {
@@ -803,6 +1188,384 @@ function mapCampaignRow(row) {
     sentAt: row.sent_at ? new Date(row.sent_at).toISOString() : null,
     sentBy: trim(row.sent_by),
   };
+}
+
+function mapMemberCampaignHistoryRow(row) {
+  return {
+    recipientId: trim(row.recipient_id),
+    campaignId: trim(row.campaign_id),
+    campaignKey: trim(row.campaign_key),
+    streamKey: trim(row.stream_key),
+    campaignName: trim(row.campaign_name),
+    subject: trim(row.subject),
+    senderEmail: trim(row.sender_email),
+    campaignStatus: trim(row.campaign_status),
+    selectionStatus: trim(row.selection_status),
+    selectionReason: trim(row.selection_reason),
+    sendStatus: trim(row.send_status),
+    providerStatus: trim(row.provider_status),
+    sendgridMessageId: trim(row.sendgrid_message_id),
+    snapshotAt: row.snapshot_at ? new Date(row.snapshot_at).toISOString() : null,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+    lockedAt: row.locked_at ? new Date(row.locked_at).toISOString() : null,
+    sentAt: row.recipient_sent_at ? new Date(row.recipient_sent_at).toISOString() : null,
+    campaignSentAt: row.campaign_sent_at ? new Date(row.campaign_sent_at).toISOString() : null,
+    sentBy: trim(row.sent_by),
+  };
+}
+
+async function readCampaignForSend(projectConn, campaignId, schema) {
+  const result = await withRequest(projectConn, async (request) => {
+    request.input('campaignId', sql.UniqueIdentifier, campaignId);
+    return request.query(`
+      SELECT TOP 1
+        CONVERT(nvarchar(36), campaign_id) AS campaign_id,
+        campaign_key,
+        stream_key,
+        status,
+        campaign_name,
+        subject,
+        preheader,
+        body_hash,
+        sender_email,
+        signature_mode,
+        exclude_clients,
+        rank_min,
+        rank_max,
+        selected_count,
+        blocked_count,
+        sent_count,
+        sendgrid_batch_id,
+        sendgrid_message_id,
+        created_at,
+        created_by,
+        locked_at,
+        locked_by,
+        sent_at,
+        sent_by${schema.hasCampaignDemoSeed ? ', demo_seed' : ''}
+      FROM dbo.marketing_email_campaigns
+      WHERE campaign_id = @campaignId;
+    `);
+  });
+  return result.recordset?.[0] || null;
+}
+
+async function readCampaignRecipientStatusCounts(projectConn, campaignId) {
+  const result = await withRequest(projectConn, async (request) => {
+    request.input('campaignId', sql.UniqueIdentifier, campaignId);
+    return request.query(`
+      SELECT
+        SUM(CASE WHEN selection_status = N'selected' THEN 1 ELSE 0 END) AS selected_count,
+        SUM(CASE WHEN selection_status = N'selected' AND send_status = N'not_sent' THEN 1 ELSE 0 END) AS not_sent_count,
+        SUM(CASE WHEN selection_status = N'selected' AND send_status = N'sending' THEN 1 ELSE 0 END) AS sending_count,
+        SUM(CASE WHEN selection_status = N'selected' AND send_status = N'sent' THEN 1 ELSE 0 END) AS sent_count,
+        SUM(CASE WHEN selection_status = N'selected' AND send_status = N'skipped' THEN 1 ELSE 0 END) AS skipped_count,
+        SUM(CASE WHEN selection_status = N'selected' AND send_status = N'failed' THEN 1 ELSE 0 END) AS failed_count
+      FROM dbo.marketing_email_campaign_recipients
+      WHERE campaign_id = @campaignId;
+    `);
+  });
+  const row = result.recordset?.[0] || {};
+  return {
+    selectedCount: Number(row.selected_count || 0),
+    notSentCount: Number(row.not_sent_count || 0),
+    sendingCount: Number(row.sending_count || 0),
+    sentCount: Number(row.sent_count || 0),
+    skippedCount: Number(row.skipped_count || 0),
+    failedCount: Number(row.failed_count || 0),
+  };
+}
+
+async function readCampaignSendRows(projectConn, { campaignId, limit, demoOnly = false, schema }) {
+  if (!schema.hasCampaignRecipients) return [];
+  if (demoOnly && !schema.hasCampaignDemoSeed) return [];
+  const result = await withRequest(projectConn, async (request) => {
+    request.input('campaignId', sql.UniqueIdentifier, campaignId);
+    request.input('limit', sql.Int, normaliseSendLimit(limit));
+    return request.query(`
+      SELECT TOP (@limit)
+        CONVERT(nvarchar(36), recipient_id) AS recipient_id,
+        CONVERT(nvarchar(36), member_id) AS member_id,
+        stream_key,
+        acid,
+        source_enquiry_id,
+        email_hash,
+        email_domain,
+        area_of_work,
+        [rank]
+      FROM dbo.marketing_email_campaign_recipients
+      WHERE campaign_id = @campaignId
+        AND selection_status = N'selected'
+        AND send_status = N'not_sent'
+        ${demoOnly ? 'AND demo_seed = 1' : ''}
+      ORDER BY snapshot_at ASC, created_at ASC, recipient_id ASC;
+    `);
+  });
+  return result.recordset || [];
+}
+
+async function readMemberCampaignHistory(projectConn, { streamKey, memberId, demoOnly = false, schema }) {
+  if (!schema.hasCampaigns || !schema.hasCampaignRecipients) return [];
+  if (demoOnly && !schema.hasCampaignDemoSeed) return [];
+  const providerStatusExpr = schema.hasCampaignRecipientProviderColumns ? 'r.provider_status' : 'CAST(NULL AS nvarchar(80))';
+  const sendGridMessageExpr = schema.hasCampaignRecipientProviderColumns ? 'r.sendgrid_message_id' : 'CAST(NULL AS nvarchar(180))';
+  const result = await withRequest(projectConn, async (request) => {
+    request.input('streamKey', sql.NVarChar(40), streamKey);
+    request.input('memberId', sql.UniqueIdentifier, memberId);
+    return request.query(`
+      SELECT TOP 24
+        CONVERT(nvarchar(36), r.recipient_id) AS recipient_id,
+        CONVERT(nvarchar(36), c.campaign_id) AS campaign_id,
+        c.campaign_key,
+        c.stream_key,
+        c.campaign_name,
+        c.subject,
+        c.sender_email,
+        c.status AS campaign_status,
+        r.selection_status,
+        r.selection_reason,
+        r.send_status,
+        ${providerStatusExpr} AS provider_status,
+        ${sendGridMessageExpr} AS sendgrid_message_id,
+        r.snapshot_at,
+        r.created_at,
+        c.locked_at,
+        r.sent_at AS recipient_sent_at,
+        c.sent_at AS campaign_sent_at,
+        c.sent_by
+      FROM dbo.marketing_email_campaign_recipients AS r
+      INNER JOIN dbo.marketing_email_campaigns AS c ON c.campaign_id = r.campaign_id
+      WHERE r.member_id = @memberId
+        AND r.stream_key = @streamKey
+        ${demoOnly ? 'AND r.demo_seed = 1 AND c.demo_seed = 1' : ''}
+      ORDER BY COALESCE(r.sent_at, c.sent_at, c.locked_at, r.snapshot_at, c.created_at, r.created_at) DESC;
+    `);
+  });
+  return result.recordset || [];
+}
+
+async function resolveRecipientEmailHashes(sourceIds = []) {
+  const uniqueIds = [...new Set((sourceIds || []).map((id) => nullable(id, 120)).filter(Boolean))];
+  if (!uniqueIds.length) return new Map();
+  const instructionsConn = await getInstructionsConnectionString();
+  const columns = await getSourceColumns(instructionsConn);
+  const idColumn = pickColumn(columns, SOURCE_COLUMN_CANDIDATES.id);
+  const emailColumn = pickColumn(columns, SOURCE_COLUMN_CANDIDATES.email);
+  if (!idColumn || !emailColumn) throw new Error('Unable to resolve campaign recipient emails from dbo.enquiries');
+
+  const idExpr = `TRY_CONVERT(nvarchar(120), e.${safeColumnRef(idColumn)})`;
+  const emailExpr = trimSqlTextExpr(emailColumn, 320);
+  const payload = uniqueIds.map((sourceEnquiryId) => ({ sourceEnquiryId }));
+  const result = await withRequest(instructionsConn, async (request) => {
+    request.input('sourceJson', sql.NVarChar(sql.MAX), JSON.stringify(payload));
+    return request.query(`
+      WITH wanted AS (
+        SELECT source_enquiry_id
+        FROM OPENJSON(@sourceJson) WITH (source_enquiry_id NVARCHAR(120) '$.sourceEnquiryId')
+      )
+      SELECT
+        w.source_enquiry_id,
+        ${emailExpr} AS email
+      FROM wanted AS w
+      INNER JOIN dbo.enquiries AS e WITH (NOLOCK)
+        ON ${idExpr} = w.source_enquiry_id
+      WHERE ${emailExpr} IS NOT NULL;
+    `);
+  });
+  const emails = new Map();
+  for (const row of result.recordset || []) {
+    const email = normalizeEmails(row.email)[0] || '';
+    if (email) emails.set(trim(row.source_enquiry_id), email);
+  }
+  return emails;
+}
+
+async function resolveSourceNames(members) {
+  const wantedMembers = (members || [])
+    .map((member) => ({
+      sourceEnquiryId: nullable(member.source_enquiry_id || member.sourceEnquiryId, 120),
+      acid: nullable(member.acid, 120),
+    }))
+    .filter((member) => member.sourceEnquiryId || member.acid);
+  if (!wantedMembers.length) return new Map();
+  const instructionsConn = await getInstructionsConnectionString();
+  const columns = await getSourceColumns(instructionsConn);
+  const idColumn = pickColumn(columns, SOURCE_COLUMN_CANDIDATES.id);
+  const acidColumn = pickColumn(columns, SOURCE_COLUMN_CANDIDATES.acid);
+  const nameExpr = sourceNameSqlExpr(columns);
+  if ((!idColumn && !acidColumn) || nameExpr === 'NULL') return new Map();
+
+  const idExpr = idColumn ? `TRY_CONVERT(nvarchar(120), e.${safeColumnRef(idColumn)})` : 'NULL';
+  const acidExpr = acidColumn ? `TRY_CONVERT(nvarchar(120), e.${safeColumnRef(acidColumn)})` : 'NULL';
+  const payload = wantedMembers;
+  const result = await withRequest(instructionsConn, async (request) => {
+    request.input('sourceJson', sql.NVarChar(sql.MAX), JSON.stringify(payload));
+    return request.query(`
+      WITH wanted AS (
+        SELECT source_enquiry_id, acid
+        FROM OPENJSON(@sourceJson) WITH (
+          source_enquiry_id NVARCHAR(120) '$.sourceEnquiryId',
+          acid NVARCHAR(120) '$.acid'
+        )
+      ), matched AS (
+        SELECT
+          w.source_enquiry_id,
+          w.acid,
+          ${nameExpr} AS contact_name
+        FROM wanted AS w
+        INNER JOIN dbo.enquiries AS e WITH (NOLOCK)
+          ON (${idExpr} = w.source_enquiry_id)
+          OR (w.acid IS NOT NULL AND ${acidExpr} = w.acid)
+        WHERE ${nameExpr} IS NOT NULL
+      )
+      SELECT
+        COALESCE(source_enquiry_id, acid) AS lookup_key,
+        MAX(contact_name) AS contact_name
+      FROM matched
+      GROUP BY COALESCE(source_enquiry_id, acid);
+    `);
+  });
+  const names = new Map();
+  for (const row of result.recordset || []) {
+    const contactName = nullable(row.contact_name, 180);
+    if (contactName) names.set(trim(row.lookup_key), contactName);
+  }
+  return names;
+}
+
+async function buildCampaignSendPlan(projectConn, { campaignId, limit, demoOnly = false, schema }) {
+  const campaign = await readCampaignForSend(projectConn, campaignId, schema);
+  if (!campaign) return { campaign: null, effectiveDemoOnly: demoOnly, rows: [], ready: [], skipped: [] };
+  const effectiveDemoOnly = demoOnly || Boolean(campaign.demo_seed);
+  const rows = await readCampaignSendRows(projectConn, { campaignId, limit, demoOnly: effectiveDemoOnly, schema });
+  const sourceEmails = effectiveDemoOnly ? new Map() : await resolveSourceEmails(rows.map((row) => row.source_enquiry_id));
+  const seenEmails = new Set();
+  const ready = [];
+  const skipped = [];
+
+  for (const row of rows) {
+    const recipientId = trim(row.recipient_id);
+    const sourceEnquiryId = trim(row.source_enquiry_id);
+    const resolvedEmail = normalizeEmails(sourceEmails.get(sourceEnquiryId))[0] || '';
+    if (!resolvedEmail) {
+      skipped.push({ recipientId, providerError: 'Recipient email unavailable from source enquiry' });
+      continue;
+    }
+    const resolvedHash = hashEmail(resolvedEmail);
+    const resolvedDomain = emailDomain(resolvedEmail);
+    if (row.email_hash && resolvedHash !== trim(row.email_hash).toLowerCase()) {
+      skipped.push({ recipientId, providerError: 'Recipient email hash mismatch' });
+      continue;
+    }
+    if (row.email_domain && resolvedDomain !== trim(row.email_domain).toLowerCase()) {
+      skipped.push({ recipientId, providerError: 'Recipient email domain mismatch' });
+      continue;
+    }
+    const emailKey = resolvedEmail.toLowerCase();
+    if (seenEmails.has(emailKey)) {
+      skipped.push({ recipientId, providerError: 'Duplicate recipient email in batch' });
+      continue;
+    }
+    seenEmails.add(emailKey);
+    ready.push({
+      recipientId,
+      email: resolvedEmail,
+      sourceEnquiryId,
+      acid: trim(row.acid),
+      streamKey: trim(row.stream_key),
+      areaOfWork: trim(row.area_of_work),
+    });
+  }
+
+  return { campaign, effectiveDemoOnly, rows, ready, skipped };
+}
+
+async function updateCampaignRecipientStatuses(projectConn, recipients, { sendStatus, providerStatus, providerError = null, sendGridMessageId = null, actor, sent = false }) {
+  if (!recipients.length) return 0;
+  const payload = recipients.map((recipient) => ({
+    recipientId: recipient.recipientId,
+    providerError: safeProviderError(recipient.providerError || providerError || ''),
+  }));
+  const result = await withRequest(projectConn, async (request) => {
+    request.input('recipientsJson', sql.NVarChar(sql.MAX), JSON.stringify(payload));
+    request.input('sendStatus', sql.NVarChar(40), sendStatus);
+    request.input('providerStatus', sql.NVarChar(80), providerStatus);
+    request.input('sendGridMessageId', sql.NVarChar(180), nullable(sendGridMessageId, 180));
+    request.input('sent', sql.Bit, Boolean(sent));
+    request.input('actor', sql.NVarChar(160), actor || 'api');
+    return request.query(`
+      WITH source_rows AS (
+        SELECT *
+        FROM OPENJSON(@recipientsJson) WITH (
+          recipient_id UNIQUEIDENTIFIER '$.recipientId',
+          provider_error NVARCHAR(500) '$.providerError'
+        )
+      )
+      UPDATE target
+      SET send_status = @sendStatus,
+          sendgrid_message_id = COALESCE(@sendGridMessageId, target.sendgrid_message_id),
+          provider_status = @providerStatus,
+          provider_error = NULLIF(source.provider_error, N''),
+          sent_at = CASE WHEN @sent = 1 THEN SYSUTCDATETIME() ELSE target.sent_at END,
+          updated_at = SYSUTCDATETIME(),
+          updated_by = @actor
+      FROM dbo.marketing_email_campaign_recipients AS target
+      INNER JOIN source_rows AS source ON source.recipient_id = target.recipient_id;
+    `);
+  });
+  return Number(result.rowsAffected?.reduce((sum, count) => sum + count, 0) || 0);
+}
+
+async function updateCampaignSendSummary(projectConn, { campaignId, actor, sendGridMessageId }) {
+  const result = await withRequest(projectConn, async (request) => {
+    request.input('campaignId', sql.UniqueIdentifier, campaignId);
+    request.input('actor', sql.NVarChar(160), actor || 'api');
+    request.input('sendGridMessageId', sql.NVarChar(180), nullable(sendGridMessageId, 180));
+    return request.query(`
+      UPDATE campaign
+        SET sent_count = COALESCE(status_counts.sent_count, 0),
+          status = CASE WHEN COALESCE(status_counts.remaining_count, 0) = 0 AND COALESCE(status_counts.sent_count, 0) > 0 THEN N'sent' ELSE N'locked' END,
+          sendgrid_message_id = COALESCE(@sendGridMessageId, campaign.sendgrid_message_id),
+          sent_at = CASE WHEN COALESCE(status_counts.remaining_count, 0) = 0 AND COALESCE(status_counts.sent_count, 0) > 0 THEN COALESCE(campaign.sent_at, SYSUTCDATETIME()) ELSE campaign.sent_at END,
+          sent_by = CASE WHEN COALESCE(status_counts.remaining_count, 0) = 0 AND COALESCE(status_counts.sent_count, 0) > 0 THEN COALESCE(campaign.sent_by, @actor) ELSE campaign.sent_by END,
+          updated_at = SYSUTCDATETIME(),
+          updated_by = @actor
+      OUTPUT
+        CONVERT(nvarchar(36), INSERTED.campaign_id) AS campaign_id,
+        INSERTED.campaign_key,
+        INSERTED.stream_key,
+        INSERTED.status,
+        INSERTED.campaign_name,
+        INSERTED.subject,
+        INSERTED.preheader,
+        INSERTED.sender_email,
+        INSERTED.signature_mode,
+        INSERTED.exclude_clients,
+        INSERTED.rank_min,
+        INSERTED.rank_max,
+        INSERTED.selected_count,
+        INSERTED.blocked_count,
+        INSERTED.sent_count,
+        INSERTED.sendgrid_batch_id,
+        INSERTED.sendgrid_message_id,
+        INSERTED.created_at,
+        INSERTED.created_by,
+        INSERTED.locked_at,
+        INSERTED.locked_by,
+        INSERTED.sent_at,
+        INSERTED.sent_by
+      FROM dbo.marketing_email_campaigns AS campaign
+      CROSS APPLY (
+        SELECT
+          SUM(CASE WHEN selection_status = N'selected' AND send_status = N'sent' THEN 1 ELSE 0 END) AS sent_count,
+          SUM(CASE WHEN selection_status = N'selected' AND send_status = N'not_sent' THEN 1 ELSE 0 END) AS remaining_count
+        FROM dbo.marketing_email_campaign_recipients AS recipients
+        WHERE recipients.campaign_id = campaign.campaign_id
+      ) AS status_counts
+      WHERE campaign.campaign_id = @campaignId;
+    `);
+  });
+  return mapCampaignRow(result.recordset?.[0] || {});
 }
 
 async function snapshotCampaignRecipients(projectConn, { campaignId, streamKey, excludeClients, rankMin, rankMax, actor, demoOnly = false, schema = null }) {
@@ -932,25 +1695,51 @@ router.get('/streams/:streamKey/growth', async (req, res) => {
   try {
     const projectConn = deriveProjectDataConnectionString();
     const schema = await readSchemaState(projectConn);
-    const rows = (demoOnly && !schema.hasMemberDemoSeed) ? [] : await withRequest(projectConn, async (request) => {
-      request.input('streamKey', sql.NVarChar(40), streamKey);
-      const result = await request.query(`
-        SELECT CONVERT(date, last_seen_at) AS day, COUNT_BIG(*) AS member_count
-        FROM dbo.marketing_email_audience_members
-        WHERE stream_key = @streamKey AND last_seen_at IS NOT NULL
-          ${demoOnly ? 'AND demo_seed = 1' : ''}
-        GROUP BY CONVERT(date, last_seen_at)
-        ORDER BY day ASC;
-      `);
-      return result.recordset || [];
-    });
+    let rows = [];
+    let basis = 'source_enquiry_touchpoint_week';
+    let dateColumn = null;
+    let sourceUnavailableReason = null;
+    const growthStartIso = getFinancialYearStartIso(new Date());
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const growthEndExclusiveIso = addDaysIso(todayIso, 1);
+    if (!demoOnly) {
+      try {
+        const sourceGrowth = await readSourceWeeklyGrowthRows(streamKey, { startIso: growthStartIso, endExclusiveIso: growthEndExclusiveIso });
+        rows = sourceGrowth.rows;
+        dateColumn = sourceGrowth.dateColumn;
+      } catch (sourceError) {
+        trackException(sourceError, { operation, phase: 'stream-growth-source', streamKey });
+        trackEvent('MarketingEmail.StreamGrowth.Warning', { operation, streamKey, reason: 'source-growth-unavailable', error: sourceError?.message || 'Unknown error' });
+        rows = [];
+        basis = 'source_enquiry_datetime_unavailable';
+        sourceUnavailableReason = sourceError?.message || 'Unknown source growth error';
+      }
+    }
     const growth = rows
-      .map((row) => ({ day: row.day ? new Date(row.day).toISOString().slice(0, 10) : null, count: Number(row.member_count || 0) }))
+      .map((row) => ({
+        day: row.week_start ? new Date(row.week_start).toISOString().slice(0, 10) : null,
+        sendable: Number(row.sendable_count || 0),
+        suppressed: Number(row.suppression_count || 0),
+        held: Number(row.held_count || 0),
+        count: Number(row.total_count || 0),
+      }))
       .filter((entry) => entry.day);
     const durationMs = Date.now() - startedAt;
-    trackEvent('MarketingEmail.StreamGrowth.Completed', { operation, actor, streamKey, demoOnly: String(demoOnly), durationMs: String(durationMs), bucketCount: String(growth.length) });
+    trackEvent('MarketingEmail.StreamGrowth.Completed', { operation, actor, streamKey, demoOnly: String(demoOnly), durationMs: String(durationMs), bucketCount: String(growth.length), basis, dateColumn: dateColumn || '', windowStart: growthStartIso, windowEndExclusive: growthEndExclusiveIso || '', sourceUnavailable: String(Boolean(sourceUnavailableReason)) });
     trackMetric('MarketingEmail.StreamGrowth.Duration', durationMs, { operation, streamKey });
-    return res.json({ ok: true, mode: demoOnly ? 'demo' : 'live', streamKey, basis: 'touchpoint_date', growth, generatedAt: new Date().toISOString() });
+    return res.json({
+      ok: true,
+      mode: demoOnly ? 'demo' : 'live',
+      streamKey,
+      basis,
+      dateColumn,
+      windowStart: growthStartIso,
+      windowEndExclusive: growthEndExclusiveIso,
+      sourceUnavailable: Boolean(sourceUnavailableReason),
+      sourceUnavailableReason: process.env.NODE_ENV === 'production' ? null : sourceUnavailableReason,
+      growth,
+      generatedAt: new Date().toISOString(),
+    });
   } catch (error) {
     const durationMs = Date.now() - startedAt;
     trackException(error, { operation, phase: 'stream-growth', streamKey });
@@ -971,7 +1760,15 @@ router.get('/streams/:streamKey/members', async (req, res) => {
     const projectConn = deriveProjectDataConnectionString();
     const schema = await readSchemaState(projectConn);
     const rows = await readMembers(projectConn, streamKey, req.query.limit, { demoOnly, schema });
-    const members = rows.map(mapMemberRow);
+    const sourceNames = demoOnly ? new Map() : await resolveSourceNames(rows).catch((nameError) => {
+      trackException(nameError, { operation, phase: 'resolve-source-names', streamKey });
+      trackEvent('MarketingEmail.StreamMembers.NamesWarning', { operation, streamKey, error: nameError?.message || 'Unknown error' });
+      return new Map();
+    });
+    const members = rows.map((row) => ({
+      ...mapMemberRow(row),
+      contactName: sourceNames.get(trim(row.source_enquiry_id)) || sourceNames.get(trim(row.acid)) || null,
+    }));
     const durationMs = Date.now() - startedAt;
     trackEvent('MarketingEmail.StreamMembers.Completed', { operation, actor, streamKey, demoOnly: String(demoOnly), durationMs: String(durationMs), rowCount: String(members.length) });
     trackMetric('MarketingEmail.StreamMembers.Duration', durationMs, { operation, streamKey });
@@ -981,6 +1778,33 @@ router.get('/streams/:streamKey/members', async (req, res) => {
     trackException(error, { operation, phase: 'read-members', streamKey });
     trackEvent('MarketingEmail.StreamMembers.Failed', { operation, actor, streamKey, durationMs: String(durationMs), error: error?.message || 'Unknown error' });
     return res.status(500).json({ ok: false, error: 'Failed to load marketing email stream members' });
+  }
+});
+
+router.get('/streams/:streamKey/members/:memberId/campaign-history', async (req, res) => {
+  const operation = 'marketing-email-member-campaign-history';
+  const startedAt = Date.now();
+  const actor = getActor(req);
+  const streamKey = normaliseStreamKey(req.params.streamKey);
+  const memberId = trim(req.params.memberId);
+  const demoOnly = isDemoRequest(req);
+  if (!streamKey) return res.status(400).json({ ok: false, error: 'Unsupported stream key' });
+  if (!/^[0-9a-f-]{36}$/i.test(memberId)) return res.status(400).json({ ok: false, error: 'Invalid member id' });
+  trackEvent('MarketingEmail.MemberCampaignHistory.Started', { operation, actor, streamKey, demoOnly: String(demoOnly) });
+  try {
+    const projectConn = deriveProjectDataConnectionString();
+    const schema = await readSchemaState(projectConn);
+    const rows = await readMemberCampaignHistory(projectConn, { streamKey, memberId, demoOnly, schema });
+    const history = rows.map(mapMemberCampaignHistoryRow);
+    const durationMs = Date.now() - startedAt;
+    trackEvent('MarketingEmail.MemberCampaignHistory.Completed', { operation, actor, streamKey, demoOnly: String(demoOnly), durationMs: String(durationMs), rowCount: String(history.length) });
+    trackMetric('MarketingEmail.MemberCampaignHistory.Duration', durationMs, { operation, streamKey });
+    return res.json({ ok: true, mode: demoOnly ? 'demo' : 'live', streamKey, count: history.length, history, generatedAt: new Date().toISOString() });
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'member-campaign-history', streamKey });
+    trackEvent('MarketingEmail.MemberCampaignHistory.Failed', { operation, actor, streamKey, durationMs: String(durationMs), error: error?.message || 'Unknown error' });
+    return res.status(500).json({ ok: false, error: 'Failed to load recipient campaign history' });
   }
 });
 
@@ -1032,7 +1856,8 @@ router.patch('/streams/:streamKey/members/:memberId', async (req, res) => {
     const nextAcid = has('acid') ? nullable(req.body?.acid, 120) : nullable(current.acid, 120);
     const nextArea = has('areaOfWork') || has('area_of_work') ? nullable(req.body?.areaOfWork || req.body?.area_of_work, 160) : nullable(current.areaOfWork, 160);
     const nextRank = has('rank') ? parseRank(req.body?.rank) : current.rank;
-    const nextClient = has('client') ? ['1', 'true', 'yes'].includes(trim(req.body?.client).toLowerCase()) || req.body?.client === true : current.client;
+    const requestedClient = has('client') ? ['1', 'true', 'yes'].includes(trim(req.body?.client).toLowerCase()) || req.body?.client === true : current.client;
+    const nextClient = isClientRank(nextRank) || Boolean(current.matterId) || requestedClient;
     const qualification = qualifyStoredMember({
       streamKey: nextStreamKey,
       acid: nextAcid,
@@ -1087,6 +1912,7 @@ router.patch('/streams/:streamKey/members/:memberId', async (req, res) => {
           INSERTED.qualification_reason,
           INSERTED.sendable,
           INSERTED.last_seen_at,
+          INSERTED.created_at,
           INSERTED.last_qualified_at
         WHERE member_id = @memberId;
       `);
@@ -1230,9 +2056,9 @@ router.post('/campaigns', async (req, res) => {
   if (!campaignName) return res.status(400).json({ ok: false, error: 'Campaign name is required' });
   const sender = req.body?.senderEmail || req.body?.sender_email ? resolveSender(req.body?.senderEmail || req.body?.sender_email) : null;
   if ((req.body?.senderEmail || req.body?.sender_email) && !sender) return res.status(400).json({ ok: false, error: 'Unsupported SendGrid sender' });
-  const rankMin = parseRank(req.body?.rankMin ?? req.body?.rank_min);
-  const rankMax = parseRank(req.body?.rankMax ?? req.body?.rank_max);
   const excludeClients = req.body?.excludeClients !== false && String(req.body?.excludeClients || req.body?.exclude_clients || 'true').toLowerCase() !== 'false';
+  const rankMin = excludeClients ? 4 : 0;
+  const rankMax = 4;
   trackEvent('MarketingEmail.CampaignCreate.Started', { operation, actor, streamKey, demoOnly: String(demoOnly) });
   try {
     const projectConn = deriveProjectDataConnectionString();
@@ -1251,7 +2077,7 @@ router.post('/campaigns', async (req, res) => {
       request.input('preheader', sql.NVarChar(300), nullable(req.body?.preheader, 300));
       request.input('bodyHash', sql.Char(64), hashBody(req.body?.body || req.body?.bodyText));
       request.input('senderEmail', sql.NVarChar(255), sender);
-      request.input('signatureMode', sql.NVarChar(60), nullable(req.body?.signatureMode || req.body?.signature_mode, 60));
+      request.input('signatureMode', sql.NVarChar(60), 'data-hub-v2');
       request.input('excludeClients', sql.Bit, excludeClients);
       request.input('rankMin', sql.TinyInt, rankMin);
       request.input('rankMax', sql.TinyInt, rankMax);
@@ -1300,11 +2126,42 @@ router.post('/campaigns', async (req, res) => {
     const durationMs = Date.now() - startedAt;
     trackEvent('MarketingEmail.CampaignCreate.Completed', { operation, actor, streamKey, demoOnly: String(demoOnly), durationMs: String(durationMs), selectedCount: String(counts.selectedCount), blockedCount: String(counts.blockedCount) });
     trackMetric('MarketingEmail.CampaignCreate.Duration', durationMs, { operation });
+    await recordMarketingCampaignActivity(req, {
+      actor,
+      lifecycle: 'campaign-created',
+      summary: 'Marketing email campaign created',
+      stepName: 'marketing-email.campaign.create',
+      payload: buildCampaignActivityPayload(req, {
+        lifecycle: 'campaign-created',
+        campaign,
+        streamKey,
+        demoOnly,
+        counts: {
+          selectedCount: counts.selectedCount,
+          blockedCount: counts.blockedCount,
+        },
+        durationMs,
+      }),
+    });
     return res.json({ ok: true, campaign });
   } catch (error) {
     const durationMs = Date.now() - startedAt;
     trackException(error, { operation, phase: 'create-campaign', streamKey });
     trackEvent('MarketingEmail.CampaignCreate.Failed', { operation, actor, streamKey, durationMs: String(durationMs), error: error?.message || 'Unknown error' });
+    await recordMarketingCampaignActivity(req, {
+      actor,
+      lifecycle: 'campaign-create-failed',
+      summary: 'Marketing email campaign creation failed',
+      status: 'failed',
+      stepName: 'marketing-email.campaign.create',
+      error: 'Marketing email campaign creation failed',
+      payload: buildCampaignActivityPayload(req, {
+        lifecycle: 'campaign-create-failed',
+        streamKey,
+        demoOnly,
+        durationMs,
+      }),
+    });
     return res.status(500).json({ ok: false, error: 'Failed to create marketing email campaign' });
   }
 });
@@ -1390,14 +2247,359 @@ router.post('/campaigns/:campaignId/lock', async (req, res) => {
       `);
     });
     const durationMs = Date.now() - startedAt;
+    const campaign = mapCampaignRow(updateResult.recordset?.[0] || {});
     trackEvent('MarketingEmail.CampaignLock.Completed', { operation, actor, demoOnly: String(effectiveDemoOnly), durationMs: String(durationMs), selectedCount: String(counts.selectedCount), blockedCount: String(counts.blockedCount), snapshotAvailable: String(snapshot.available), snapshotCount: String(snapshot.insertedCount) });
     trackMetric('MarketingEmail.CampaignLock.Duration', durationMs, { operation });
-    return res.json({ ok: true, mode: effectiveDemoOnly ? 'demo' : 'live', snapshot, campaign: mapCampaignRow(updateResult.recordset?.[0] || {}) });
+    await recordMarketingCampaignActivity(req, {
+      actor,
+      lifecycle: 'campaign-locked',
+      summary: 'Marketing email campaign locked',
+      stepName: 'marketing-email.campaign.lock',
+      payload: buildCampaignActivityPayload(req, {
+        lifecycle: 'campaign-locked',
+        campaign,
+        demoOnly: effectiveDemoOnly,
+        counts: {
+          selectedCount: counts.selectedCount,
+          blockedCount: counts.blockedCount,
+        },
+        snapshot: {
+          available: Boolean(snapshot.available),
+          insertedCount: Number(snapshot.insertedCount || 0),
+        },
+        durationMs,
+      }),
+    });
+    return res.json({ ok: true, mode: effectiveDemoOnly ? 'demo' : 'live', snapshot, campaign });
   } catch (error) {
     const durationMs = Date.now() - startedAt;
     trackException(error, { operation, phase: 'lock-campaign', campaignId });
     trackEvent('MarketingEmail.CampaignLock.Failed', { operation, actor, durationMs: String(durationMs), error: error?.message || 'Unknown error' });
+    await recordMarketingCampaignActivity(req, {
+      actor,
+      lifecycle: 'campaign-lock-failed',
+      summary: 'Marketing email campaign lock failed',
+      status: 'failed',
+      stepName: 'marketing-email.campaign.lock',
+      error: 'Marketing email campaign lock failed',
+      payload: buildCampaignActivityPayload(req, {
+        lifecycle: 'campaign-lock-failed',
+        campaignId,
+        demoOnly,
+        durationMs,
+      }),
+    });
     return res.status(500).json({ ok: false, error: 'Failed to lock marketing email campaign' });
+  }
+});
+
+router.post('/campaigns/:campaignId/sendgrid-batch', async (req, res) => {
+  const operation = 'marketing-email-campaign-sendgrid-batch';
+  const requestId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+  const startedAt = Date.now();
+  const actor = getActor(req);
+  const campaignId = trim(req.params.campaignId);
+  const demoOnly = isDemoRequest(req);
+  const confirmSend = isTruthyFlag(req.body?.confirmSend);
+  const dryRun = req.body?.dryRun !== false && !confirmSend;
+  const limit = normaliseSendLimit(req.body?.limit);
+  let projectConn = null;
+  let plannedRecipients = [];
+
+  if (!/^[0-9a-f-]{36}$/i.test(campaignId)) return res.status(400).json({ ok: false, error: 'Invalid campaign id' });
+  if (!dryRun) {
+    const operatorConsent = trim(req.body?.operatorConsent || req.headers?.['x-helix-operator-consent']);
+    if (operatorConsent !== 'marketing-email-bulk-send') {
+      trackEvent('MarketingEmail.CampaignSendGridBatch.AccessDenied', { operation, requestId, actor, campaignId, reason: 'consent_missing' });
+      return res.status(403).json({ ok: false, error: 'Operator confirmation is required for bulk SendGrid send' });
+    }
+  }
+
+  trackEvent('MarketingEmail.CampaignSendGridBatch.Started', { operation, requestId, actor, campaignId, dryRun: String(dryRun), limit: String(limit), demoOnly: String(demoOnly) });
+  try {
+    projectConn = deriveProjectDataConnectionString();
+    const schema = await readSchemaState(projectConn);
+    if (!schema.hasCampaignRecipients || !schema.hasCampaignRecipientProviderColumns) {
+      return res.status(409).json({ ok: false, error: 'Campaign recipient delivery columns are not ready. Run the campaign recipients migration first.' });
+    }
+
+    const plan = await buildCampaignSendPlan(projectConn, { campaignId, limit, demoOnly, schema });
+    const campaign = plan.campaign;
+    plannedRecipients = plan.ready;
+    if (!campaign) return res.status(404).json({ ok: false, error: 'Campaign not found' });
+    if (plan.effectiveDemoOnly && !dryRun) return res.status(403).json({ ok: false, error: 'Demo campaigns cannot trigger bulk SendGrid sends' });
+    if (trim(campaign.status) !== 'locked') return res.status(409).json({ ok: false, error: 'Lock the campaign snapshot before sending' });
+
+    const bodyText = trim(req.body?.body || req.body?.bodyText);
+    const requestSubject = trim(req.body?.subject);
+    const bodyHash = hashBody(bodyText);
+    const bodyHashMatches = Boolean(bodyHash && trim(campaign.body_hash) && bodyHash === trim(campaign.body_hash));
+    if (requestSubject && requestSubject !== trim(campaign.subject)) {
+      return res.status(409).json({ ok: false, error: 'Campaign subject changed after lock. Lock a fresh campaign snapshot before sending.' });
+    }
+    const countsBefore = await readCampaignRecipientStatusCounts(projectConn, campaignId);
+
+    if (dryRun) {
+      const durationMs = Date.now() - startedAt;
+      trackEvent('MarketingEmail.CampaignSendGridBatch.DryRunCompleted', {
+        operation,
+        requestId,
+        actor,
+        campaignId,
+        durationMs: String(durationMs),
+        readyCount: String(plan.ready.length),
+        skippedCount: String(plan.skipped.length),
+        remainingCount: String(countsBefore.notSentCount),
+        bodyHashMatches: String(bodyHashMatches),
+      });
+      trackMetric('MarketingEmail.CampaignSendGridBatch.DryRunDuration', durationMs, { operation });
+      await recordMarketingCampaignActivity(req, {
+        actor,
+        lifecycle: 'campaign-send-dry-run',
+        summary: 'Marketing email send dry run completed',
+        stepName: 'marketing-email.campaign.send-dry-run',
+        payload: buildCampaignActivityPayload(req, {
+          lifecycle: 'campaign-send-dry-run',
+          campaign,
+          campaignId,
+          demoOnly: plan.effectiveDemoOnly,
+          dryRun: true,
+          limit,
+          requestId,
+          counts: {
+            readyCount: plan.ready.length,
+            skippedCount: plan.skipped.length,
+            remainingCount: countsBefore.notSentCount,
+          },
+          bodyText,
+          requestSubject,
+          bodyHashMatches,
+          durationMs,
+        }),
+      });
+      return res.json({
+        ok: true,
+        mode: plan.effectiveDemoOnly ? 'demo' : 'live',
+        dryRun: true,
+        campaign: mapCampaignRow(campaign),
+        batchLimit: limit,
+        batchRecipientCount: plan.ready.length,
+        skippedCount: plan.skipped.length,
+        statusCounts: countsBefore,
+        bodyHashMatches,
+        generatedAt: new Date().toISOString(),
+      });
+    }
+
+    const expectedRecipientCount = Number.parseInt(String(req.body?.expectedRecipientCount || ''), 10);
+    if (!bodyText || !bodyHashMatches) return res.status(409).json({ ok: false, error: 'Email body changed after lock. Lock a fresh campaign snapshot before sending.' });
+    if (!confirmSend || expectedRecipientCount !== plan.ready.length) return res.status(400).json({ ok: false, error: 'Confirm the exact dry-run recipient count before sending' });
+    if (plan.ready.length === 0) return res.status(409).json({ ok: false, error: 'No unsent recipients are ready for this campaign batch' });
+
+    const senderEmail = resolveSender(campaign.sender_email);
+    const subject = trim(campaign.subject);
+    if (!senderEmail) return res.status(400).json({ ok: false, error: 'Unsupported SendGrid sender on campaign' });
+    if (!subject) return res.status(400).json({ ok: false, error: 'Campaign subject is required before sending' });
+    const apiKey = await getSendGridApiKey();
+    if (!apiKey) return res.status(503).json({ ok: false, error: 'SendGrid is not configured. Add SENDGRID_API_KEY, HELIX_SENDGRID_API_KEY, or Key Vault secret sendgrid-helix-email.' });
+
+    if (plan.skipped.length > 0) {
+      await updateCampaignRecipientStatuses(projectConn, plan.skipped, {
+        sendStatus: 'skipped',
+        providerStatus: 'local_validation',
+        actor,
+      });
+    }
+    await updateCampaignRecipientStatuses(projectConn, plan.ready, {
+      sendStatus: 'sending',
+      providerStatus: 'sendgrid_request_started',
+      actor,
+    });
+
+    const signatureInitials = trim(req.body?.signatureInitials || req.user?.initials || actor).toUpperCase();
+    const signatureMode = normaliseSignatureMode(campaign.signature_mode || req.body?.signatureMode);
+    const operatorEmail = normalizeEmails(req.user?.email || req.headers?.['x-user-email'] || req.body?.operatorEmail)[0] || senderEmail;
+    const html = buildSendGridEmailHtml({
+      bodyText,
+      preheaderText: trim(campaign.preheader),
+      fromEmail: senderEmail,
+      signatureInitials,
+      signatureMode,
+      operatorName: trim(req.body?.operatorName || req.user?.name || req.user?.displayName || actor),
+      operatorEmail,
+    });
+    const plainText = campaign.preheader ? `${trim(campaign.preheader)}\n\n${bodyText}` : bodyText;
+    const sendGridPayload = {
+      personalizations: plan.ready.map((recipient) => ({
+        to: [{ email: recipient.email }],
+        custom_args: {
+          source: 'marketing-email-workbench',
+          mode: 'campaign-batch',
+          requestId,
+          campaignId,
+          recipientId: recipient.recipientId,
+          sourceEnquiryId: recipient.sourceEnquiryId,
+          activeCampaignId: recipient.acid,
+          streamKey: recipient.streamKey,
+          signatureMode,
+        },
+      })),
+      from: { email: senderEmail, name: 'Helix Law' },
+      reply_to: { email: EMAIL_SENDGRID_REPLY_TO_EMAIL, name: 'Helix Law' },
+      subject,
+      content: [
+        { type: 'text/plain', value: plainText },
+        { type: 'text/html', value: html },
+      ],
+      categories: ['marketing-email-workbench', 'campaign-batch'],
+    };
+
+    const sendGridResponse = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(sendGridPayload),
+    });
+    const sendGridMessageId = sendGridResponse.headers.get('x-message-id') || '';
+
+    if (sendGridResponse.status !== 202) {
+      const providerError = `SendGrid rejected request with status ${sendGridResponse.status}`;
+      await updateCampaignRecipientStatuses(projectConn, plan.ready, {
+        sendStatus: 'failed',
+        providerStatus: `sendgrid_${sendGridResponse.status}`,
+        providerError,
+        actor,
+      });
+      const campaignSummary = await updateCampaignSendSummary(projectConn, { campaignId, actor, sendGridMessageId: null });
+      const durationMs = Date.now() - startedAt;
+      trackEvent('MarketingEmail.CampaignSendGridBatch.Failed', { operation, requestId, actor, campaignId, phase: 'sendgrid', statusCode: String(sendGridResponse.status), durationMs: String(durationMs), recipientCount: String(plan.ready.length) });
+      await recordMarketingCampaignActivity(req, {
+        actor,
+        lifecycle: 'campaign-send-failed',
+        summary: 'Marketing email send failed',
+        status: 'failed',
+        stepName: 'marketing-email.campaign.send',
+        error: 'SendGrid rejected campaign batch',
+        payload: buildCampaignActivityPayload(req, {
+          lifecycle: 'campaign-send-failed',
+          campaign: campaignSummary,
+          campaignId,
+          demoOnly: false,
+          dryRun: false,
+          limit,
+          requestId,
+          counts: {
+            recipientCount: plan.ready.length,
+            skippedCount: plan.skipped.length,
+          },
+          provider: {
+            name: 'sendgrid',
+            statusCode: sendGridResponse.status,
+            accepted: false,
+          },
+          bodyText,
+          requestSubject,
+          bodyHashMatches,
+          durationMs,
+        }),
+      });
+      return res.status(502).json({ ok: false, error: 'SendGrid rejected the campaign batch', campaign: campaignSummary });
+    }
+
+    await updateCampaignRecipientStatuses(projectConn, plan.ready, {
+      sendStatus: 'sent',
+      providerStatus: 'sendgrid_accepted',
+      sendGridMessageId,
+      actor,
+      sent: true,
+    });
+    const campaignSummary = await updateCampaignSendSummary(projectConn, { campaignId, actor, sendGridMessageId });
+    const countsAfter = await readCampaignRecipientStatusCounts(projectConn, campaignId);
+    const durationMs = Date.now() - startedAt;
+    trackEvent('MarketingEmail.CampaignSendGridBatch.Completed', { operation, requestId, actor, campaignId, durationMs: String(durationMs), recipientCount: String(plan.ready.length), skippedCount: String(plan.skipped.length), sendGridMessageId });
+    trackMetric('MarketingEmail.CampaignSendGridBatch.Duration', durationMs, { operation });
+    trackMetric('MarketingEmail.CampaignSendGridBatch.Recipients', plan.ready.length, { operation });
+    await recordMarketingCampaignActivity(req, {
+      actor,
+      lifecycle: 'campaign-send-completed',
+      summary: 'Marketing email send completed',
+      stepName: 'marketing-email.campaign.send',
+      payload: buildCampaignActivityPayload(req, {
+        lifecycle: 'campaign-send-completed',
+        campaign: campaignSummary,
+        campaignId,
+        demoOnly: false,
+        dryRun: false,
+        limit,
+        requestId,
+        counts: {
+          recipientCount: plan.ready.length,
+          skippedCount: plan.skipped.length,
+          statusCounts: countsAfter,
+        },
+        provider: {
+          name: 'sendgrid',
+          statusCode: sendGridResponse.status,
+          accepted: true,
+          messageIdPresent: Boolean(sendGridMessageId),
+        },
+        bodyText,
+        requestSubject,
+        bodyHashMatches,
+        durationMs,
+      }),
+    });
+    return res.json({
+      ok: true,
+      provider: 'sendgrid',
+      mode: 'live',
+      requestId,
+      sendGridMessageId,
+      batchRecipientCount: plan.ready.length,
+      skippedCount: plan.skipped.length,
+      statusCounts: countsAfter,
+      campaign: campaignSummary,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (projectConn && plannedRecipients.length > 0) {
+      await updateCampaignRecipientStatuses(projectConn, plannedRecipients, {
+        sendStatus: 'failed',
+        providerStatus: 'server_error',
+        providerError: 'Server failed while processing SendGrid batch',
+        actor,
+      }).catch(() => null);
+    }
+    const durationMs = Date.now() - startedAt;
+    trackException(error, { operation, phase: 'sendgrid-batch', campaignId, requestId });
+    trackEvent('MarketingEmail.CampaignSendGridBatch.Failed', { operation, requestId, actor, campaignId, durationMs: String(durationMs), recipientCount: String(plannedRecipients.length), error: error?.message || 'Unknown error' });
+    await recordMarketingCampaignActivity(req, {
+      actor,
+      lifecycle: 'campaign-send-failed',
+      summary: 'Marketing email send failed',
+      status: 'failed',
+      stepName: 'marketing-email.campaign.send',
+      error: 'Marketing email campaign send failed',
+      payload: buildCampaignActivityPayload(req, {
+        lifecycle: 'campaign-send-failed',
+        campaignId,
+        demoOnly,
+        dryRun,
+        limit,
+        requestId,
+        counts: {
+          plannedRecipientCount: plannedRecipients.length,
+        },
+        provider: {
+          name: 'sendgrid',
+          accepted: false,
+        },
+        durationMs,
+      }),
+    });
+    return res.status(500).json({ ok: false, error: 'Failed to send marketing email campaign batch' });
   }
 });
 
@@ -1439,7 +2641,8 @@ router.get('/probes', async (req, res) => {
         configured: Boolean(apiKey),
         providerProbe,
         allowedSenders: Array.from(EMAIL_SENDGRID_ALLOWED_SENDERS),
-        massSendEnabled: false,
+        massSendEnabled: Boolean(schema.hasCampaignRecipients && schema.hasCampaignRecipientProviderColumns),
+        batchLimit: EMAIL_SENDGRID_BATCH_LIMIT,
       },
     });
   } catch (error) {

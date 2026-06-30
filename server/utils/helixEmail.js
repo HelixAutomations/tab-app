@@ -416,6 +416,7 @@ async function sendHelixEmail({ body = {}, req = null, debug = false, route = 's
   const ccList = normalizeEmails(body.cc_emails);
   const bccList = normalizeEmails([body.bcc_emails, body.bcc_email].filter(Boolean));
   const replyToList = normalizeEmails(body.reply_to || body.replyTo || body['reply-to']);
+  const toList = normalizeEmails(to);
   const saveToSentItems = typeof body.saveToSentItems === 'boolean' ? body.saveToSentItems : false;
 
   trackEvent('Email.Send.Started', {
@@ -432,8 +433,9 @@ async function sendHelixEmail({ body = {}, req = null, debug = false, route = 's
     reqId,
     route,
     from: fromEmail,
-    to,
-    subject,
+    toCount: toList.length,
+    subjectPresent: Boolean(subject),
+    subjectLength: subject.length,
     ccCount: ccList.length,
     bccCount: bccList.length,
     replyToCount: replyToList.length,
@@ -444,7 +446,7 @@ async function sendHelixEmail({ body = {}, req = null, debug = false, route = 's
     if (debug) {
       console.log(`[email ${reqId}] invalid payload`, {
         hasHtml: !!html,
-        to,
+        toPresent: !!to,
         keys: Object.keys(body || {}),
       });
     }
@@ -460,14 +462,14 @@ async function sendHelixEmail({ body = {}, req = null, debug = false, route = 's
   }
 
   if (debug) {
-    const previewLen = Number(process.env.EMAIL_LOG_HTML_PREVIEW_CHARS || 0);
     console.log(`[email ${reqId}] prepared`, {
-      subject,
+      subjectPresent: Boolean(subject),
+      subjectLength: subject.length,
       from: fromEmail,
-      to,
+      toCount: toList.length,
       ccCount: ccList.length,
       bccCount: bccList.length,
-      htmlPreview: previewLen > 0 ? html.slice(0, previewLen) : undefined,
+      htmlLength: html.length,
     });
   }
 
@@ -493,7 +495,7 @@ async function sendHelixEmail({ body = {}, req = null, debug = false, route = 's
       message: {
         subject,
         body: { contentType: 'HTML', content: skipSignature ? html : maybeWrapSignature(html) },
-        toRecipients: toRecipients(to),
+        toRecipients: toRecipients(toList),
         from: { emailAddress: { address: fromEmail } },
         ...(ccList.length ? { ccRecipients: toRecipients(ccList) } : {}),
         ...(bccList.length ? { bccRecipients: toRecipients(bccList) } : {}),
@@ -528,7 +530,7 @@ async function sendHelixEmail({ body = {}, req = null, debug = false, route = 's
         clientRequestId: graphRes.headers.get('client-request-id') || null,
         date: graphRes.headers.get('date') || null,
         durationMs,
-        body: graphRes.status === 202 ? undefined : respText?.slice(0, 500),
+        bodyLength: graphRes.status === 202 ? 0 : (respText || '').length,
       });
     }
 
@@ -541,8 +543,9 @@ async function sendHelixEmail({ body = {}, req = null, debug = false, route = 's
       clientRequestId: graphRes.headers.get('client-request-id') || null,
       durationMs,
       from: fromEmail,
-      to,
-      subject,
+      toCount: toList.length,
+      subjectPresent: Boolean(subject),
+      subjectLength: subject.length,
       ccCount: ccList.length,
       bccCount: bccList.length,
     });
@@ -553,7 +556,7 @@ async function sendHelixEmail({ body = {}, req = null, debug = false, route = 's
           sentAt: new Date().toISOString(),
           senderEmail: fromEmail,
           senderInitials: String(body.signature_initials || req?.user?.initials || '').trim().toUpperCase() || null,
-          toRecipients: normalizeEmails(to),
+          toRecipients: toList,
           ccRecipients: ccList,
           bccRecipients: bccList,
           subject,
@@ -624,10 +627,18 @@ async function sendHelixEmail({ body = {}, req = null, debug = false, route = 's
     trackEvent('Email.Send.Failed', {
       operation: 'send',
       status: 'exception',
-      error: String(err?.message || err),
+      errorName: err?.name || 'Error',
+      errorMessageLength: String(err?.message || err || '').length,
     });
     try {
-      opLog.append({ type: 'email.send.error', route, reason: 'unhandled', error: String(err?.message || err), status: 500 });
+      opLog.append({
+        type: 'email.send.error',
+        route,
+        reason: 'unhandled',
+        errorName: err?.name || 'Error',
+        errorMessageLength: String(err?.message || err || '').length,
+        status: 500,
+      });
     } catch {
       // ignore logging errors
     }
@@ -661,7 +672,8 @@ async function createHelixDraft({ body = {}, route = 'server:/api/create-draft' 
     reqId,
     route,
     mailbox: mailboxEmail,
-    subject,
+    subjectPresent: Boolean(subject),
+    subjectLength: subject.length,
     toCount: normalizeEmails(body.to_email || body.to || body.user_email).length,
     ccCount: ccList.length,
     bccCount: bccList.length,
@@ -712,7 +724,7 @@ async function createHelixDraft({ body = {}, route = 'server:/api/create-draft' 
         mailbox: mailboxEmail,
         reason: 'graph-failed',
         status: graphRes.status,
-        error: errBody.slice(0, 500),
+        errorLength: errBody.length,
       });
       return { ok: false, status: graphRes.status, error: errBody, requestId: reqId, durationMs };
     }
@@ -737,7 +749,8 @@ async function createHelixDraft({ body = {}, route = 'server:/api/create-draft' 
       mailbox: mailboxEmail,
       reason: 'unhandled',
       status: 500,
-      error: String(error?.message || error),
+      errorName: error?.name || 'Error',
+      errorMessageLength: String(error?.message || error || '').length,
     });
     throw error;
   }
