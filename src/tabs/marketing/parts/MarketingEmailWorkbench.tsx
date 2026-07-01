@@ -132,6 +132,19 @@ type CampaignBatchPreview = {
   statusCounts: CampaignBatchStatusCounts;
 };
 
+type InternalProofRecipient = {
+  initials: string;
+  label: string;
+  email: string;
+};
+
+type ProofResultRow = InternalProofRecipient & {
+  status: 'accepted' | 'failed';
+  detail: string;
+  at: string;
+  sendGridMessageId?: string;
+};
+
 type MemberCampaignHistoryItem = {
   historyId?: string;
   kind?: 'campaign-email' | 'campaign-reply';
@@ -200,23 +213,61 @@ const STREAM_OPTIONS: Array<{ streamKey: StreamKey; label: string }> = [
 ];
 
 const SENDERS = [
-  { value: 'automations@helix-law.com', label: 'Automations' },
-  { value: 'team@helix-law.com', label: 'Team inbox' },
-  { value: 'careers@helix-law.com', label: 'Careers' },
-  { value: 'support@helix-law.com', label: 'Support' },
-  { value: 'operations@helix-law.com', label: 'Operations' },
-  { value: 'lz@helix-law.com', label: 'LZ' },
+  { value: 'team@helix-law.com', label: 'Team inbox', description: 'Default campaign inbox' },
+  { value: 'automations@helix-law.com', label: 'Automations', description: 'System-led operational sends' },
+  { value: 'careers@helix-law.com', label: 'Careers', description: 'Recruitment and people messages' },
+  { value: 'support@helix-law.com', label: 'Support', description: 'Support and client helpdesk' },
+  { value: 'operations@helix-law.com', label: 'Operations', description: 'Internal operations updates' },
+  { value: 'lz@helix-law.com', label: 'LZ', description: 'Luke direct sender' },
 ];
 
 const SIGNATURES = [
   { value: 'data-hub-v2', label: 'Helix email v2' },
 ];
 
+const DEFAULT_COMPOSE_BODY = 'Hello,\n\nWe are preparing a short update for this audience.\n\nKind regards,\nHelix Law';
+const DEMO_COMPOSE_COPY = {
+  subject: 'Demo campaign proof for Helix internal review',
+  preheader: 'Internal demo proof only. No live client contact will be emailed.',
+  body: 'Hello,\n\nThis is a demo campaign proof for the selected internal Helix recipients. It is safe to use for checking the subject line, preview text, sender identity, signature and batch commitment flow before a live campaign is prepared.\n\nKind regards,\nHelix Law',
+};
+const CAMPAIGN_REPLY_TO_EMAIL = 'team@helix-law.com';
+const INTERNAL_PROOF_RECIPIENTS: InternalProofRecipient[] = [
+  { initials: 'KW', label: 'Kanchel', email: 'kw@helix-law.com' },
+  { initials: 'EA', label: 'Emma', email: 'ea@helix-law.com' },
+  { initials: 'LD', label: 'Libby', email: 'ld@helix-law.com' },
+  { initials: 'WH', label: 'Wolfgang', email: 'wh@helix-law.com' },
+  { initials: 'LZ', label: 'Luke', email: 'lz@helix-law.com' },
+  { initials: 'JW', label: 'Jonathan', email: 'jw@helix-law.com' },
+  { initials: 'AC', label: 'Alex', email: 'ac@helix-law.com' },
+];
+
+type SenderSignatureIdentity = { signatureInitials: string; operatorName: string; operatorEmail: string };
+const SENDER_SIGNATURES: Record<string, SenderSignatureIdentity> = {
+  'team@helix-law.com': { signatureInitials: 'TEAM', operatorName: 'Helix Law', operatorEmail: 'team@helix-law.com' },
+  'automations@helix-law.com': { signatureInitials: 'AUTOMATIONS', operatorName: 'Automations', operatorEmail: 'automations@helix-law.com' },
+  'careers@helix-law.com': { signatureInitials: 'CAREERS', operatorName: 'Careers', operatorEmail: 'careers@helix-law.com' },
+  'support@helix-law.com': { signatureInitials: 'SUPPORT', operatorName: 'Support', operatorEmail: 'support@helix-law.com' },
+  'operations@helix-law.com': { signatureInitials: 'OPERATIONS', operatorName: 'Operations', operatorEmail: 'operations@helix-law.com' },
+  'lz@helix-law.com': { signatureInitials: 'LZ', operatorName: 'Luke', operatorEmail: 'lz@helix-law.com' },
+};
+
+function getSenderSignatureIdentity(senderEmail: string, fallback: { operatorName?: string; operatorInitials?: string; operatorEmail?: string }): SenderSignatureIdentity {
+  const sender = senderEmail.trim().toLowerCase();
+  const configured = SENDER_SIGNATURES[sender];
+  if (configured) return configured;
+  return {
+    signatureInitials: fallback.operatorInitials?.trim() || '',
+    operatorName: fallback.operatorName?.trim() || fallback.operatorInitials?.trim() || 'Helix Law',
+    operatorEmail: fallback.operatorEmail?.trim() || sender,
+  };
+}
+
 type CampaignStep = 'audience' | 'copy' | 'review';
 const WIZARD_STEPS: Array<{ key: CampaignStep; label: string; hint: string }> = [
   { key: 'audience', label: 'Audience', hint: 'Sender, exclusions and batches' },
   { key: 'copy', label: 'Copy', hint: 'Subject, preheader and body' },
-  { key: 'review', label: 'Proof', hint: 'Test, lock and release batches' },
+  { key: 'review', label: 'Proof', hint: 'Test, commit and release batches' },
 ];
 
 const RANK_OPTIONS = ['0', '1', '2', '3', '4'];
@@ -315,6 +366,33 @@ const displayContactName = (member: AudienceMember): string => {
 };
 
 const displayContactId = (member: AudienceMember): string => member.acid?.trim() || member.sourceEnquiryId?.trim() || 'No ID';
+const DEMO_RECIPIENT_VISUAL_ORDER = ['LZ', 'EA', 'KW', 'WH', 'LD', 'JW', 'AC'];
+const DEMO_RECIPIENT_SILOS = [
+  { key: 'luke-emma-kw', label: 'Luke / Emma / KW', initials: ['LZ', 'EA', 'KW'] },
+  { key: 'wh-ld', label: 'WH / LD', initials: ['WH', 'LD'] },
+  { key: 'jonathan-alex', label: 'Jonathan / Alex', initials: ['JW', 'AC'] },
+] as const;
+const CAMPAIGN_RANK_SCOPE = [
+  { rank: 0, state: 'locked-low', label: 'Client' },
+  { rank: 1, state: 'locked-low', label: 'Client' },
+  { rank: 2, state: 'locked-low', label: 'Client' },
+  { rank: 3, state: 'locked-low', label: 'Client' },
+  { rank: 4, state: 'active', label: 'Send' },
+  { rank: 5, state: 'locked-high', label: 'No prefs' },
+  { rank: 6, state: 'locked-high', label: 'Held' },
+] as const;
+const demoRecipientInitials = (member: AudienceMember): string => displayContactName(member)
+  .split(/\s+/)
+  .filter(Boolean)
+  .slice(0, 2)
+  .map((part) => part.slice(0, 1).toUpperCase())
+  .join('');
+const demoRecipientVisualClass = (member: AudienceMember): string => {
+  const index = DEMO_RECIPIENT_VISUAL_ORDER.indexOf(demoRecipientInitials(member));
+  if (index >= 0 && index <= 3) return ' mew-demo-recipient--wide';
+  if (index >= 4 && index <= 6) return ' mew-demo-recipient--compact';
+  return '';
+};
 const isClientRank = (rank: number | null): boolean => rank != null && rank < 4;
 const relationshipLabel = (member: AudienceMember): string => isClientRank(member.rank) || member.client ? 'Client' : 'Prospect';
 const relationshipReason = (member: AudienceMember): string => isClientRank(member.rank) ? 'Rank below 4' : member.clientStatus || 'Prospect';
@@ -371,10 +449,10 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
 
   const [composeSender, setComposeSender] = useState(SENDERS[0].value);
   const [composeSignature, setComposeSignature] = useState(SIGNATURES[0].value);
-  const [composeSubject, setComposeSubject] = useState('');
-  const [composePreheader, setComposePreheader] = useState('');
-  const [composeBody, setComposeBody] = useState('Hello,\n\nWe are preparing a short update for this audience.\n\nKind regards,\nHelix Law');
-  const [excludeClients, setExcludeClients] = useState(true);
+  const [composeSubject, setComposeSubject] = useState(() => demoModeEnabled ? DEMO_COMPOSE_COPY.subject : '');
+  const [composePreheader, setComposePreheader] = useState(() => demoModeEnabled ? DEMO_COMPOSE_COPY.preheader : '');
+  const [composeBody, setComposeBody] = useState(() => demoModeEnabled ? DEMO_COMPOSE_COPY.body : DEFAULT_COMPOSE_BODY);
+  const [demoRecipientSelections, setDemoRecipientSelections] = useState<Record<string, boolean>>({});
   const [proofIncludeClients, setProofIncludeClients] = useState(false);
   const [showSendableCounts, setShowSendableCounts] = useState(true);
   const [memberQuery, setMemberQuery] = useState('');
@@ -382,14 +460,17 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
   const [memberColumnFilters, setMemberColumnFilters] = useState<MemberColumnFilters>(() => emptyMemberColumnFilters());
   const [memberColumnFilterOperators, setMemberColumnFilterOperators] = useState<MemberColumnFilterOperators>(() => defaultMemberFilterOperators());
   const [proofExpanded, setProofExpanded] = useState(false);
-  const [composerSplitPct, setComposerSplitPct] = useState(68);
-  const [composerResizing, setComposerResizing] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewFrameHeights, setPreviewFrameHeights] = useState<Record<PreviewDevice, number>>(PREVIEW_FRAME_MIN_HEIGHT);
-  const [copyPreviewDevice, setCopyPreviewDevice] = useState<Extract<PreviewDevice, 'desktop' | 'mobile'>>('desktop');
   const [campaignPromptHovered, setCampaignPromptHovered] = useState(false);
   const [recentlyChangedSetting, setRecentlyChangedSetting] = useState<string | null>(null);
+  const [senderMenuOpen, setSenderMenuOpen] = useState(false);
+  const [proofRecipientMenuOpen, setProofRecipientMenuOpen] = useState(false);
+  const [proofRecipientSelections, setProofRecipientSelections] = useState<Record<string, boolean>>({});
+  const [proofCommitSignature, setProofCommitSignature] = useState('');
+  const [proofSentAt, setProofSentAt] = useState<string | null>(null);
+  const [proofResults, setProofResults] = useState<ProofResultRow[]>([]);
 
   const [locking, setLocking] = useState(false);
   const [lockedCampaign, setLockedCampaign] = useState<EmailCampaign | null>(null);
@@ -406,10 +487,13 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
   const [processingEvents, setProcessingEvents] = useState<ProcessingEvent[]>([]);
   const [sendGridBridge, setSendGridBridge] = useState<SendGridBridgeState>({ connectionStatus: 'idle', activityStatus: 'idle', message: 'SendGrid checks have not run in this session.' });
   const [growthAnimationTick, setGrowthAnimationTick] = useState(0);
+  const demoCopyPrefillAppliedRef = useRef(demoModeEnabled);
   const lastGrowthSignatureRef = useRef('');
   const settingPulseTimerRef = useRef<number | null>(null);
   const sendResultTimerRef = useRef<number | null>(null);
   const memberHistoryAbortRef = useRef<Record<string, AbortController>>({});
+  const senderMenuRef = useRef<HTMLDivElement | null>(null);
+  const proofRecipientMenuRef = useRef<HTMLDivElement | null>(null);
 
   const text = isDarkMode ? colours.dark.text : colours.darkBlue;
   const muted = isDarkMode ? colours.subtleGrey : colours.greyText;
@@ -422,12 +506,13 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
   const hover = withAlpha(tone, isDarkMode ? 0.14 : 0.08);
   const selected = withAlpha(tone, isDarkMode ? 0.16 : 0.1);
   const inkOnBlue = colours.dark.text;
-  const composeLayoutRef = useRef<HTMLDivElement | null>(null);
 
   const apiPath = useCallback((path: string): string => {
     const suffix = demoModeEnabled ? `${path.includes('?') ? '&' : '?'}demo=1` : '';
     return getApiUrl(`/api/marketing-email${path}${suffix}`);
   }, [demoModeEnabled]);
+
+  const senderSignatureIdentity = useMemo(() => getSenderSignatureIdentity(composeSender, { operatorName, operatorInitials, operatorEmail }), [composeSender, operatorEmail, operatorInitials, operatorName]);
 
   const addProcessingEvent = useCallback((event: Omit<ProcessingEvent, 'id' | 'at'>) => {
     setProcessingEvents((current) => [{
@@ -441,6 +526,9 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
     setLockedCampaign(null);
     setBatchPreview(null);
     setSendResult({ status: 'saved', message: `${label} updated` });
+    setProofCommitSignature('');
+    setProofSentAt(null);
+    setProofResults([]);
     setRecentlyChangedSetting(settingKey);
     if (settingPulseTimerRef.current != null) window.clearTimeout(settingPulseTimerRef.current);
     if (sendResultTimerRef.current != null) window.clearTimeout(sendResultTimerRef.current);
@@ -449,11 +537,44 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
     showToast({
       id: `marketing-email-setting-${settingKey}`,
       type: 'success',
-      title: 'Campaign setting updated',
+      title: `${label} updated`,
       message: detail,
       duration: 2200,
     });
   }, [showToast]);
+
+  useEffect(() => {
+    if (!senderMenuOpen && !proofRecipientMenuOpen) return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (senderMenuRef.current && target instanceof Node && !senderMenuRef.current.contains(target)) {
+        setSenderMenuOpen(false);
+      }
+      if (proofRecipientMenuRef.current && target instanceof Node && !proofRecipientMenuRef.current.contains(target)) {
+        setProofRecipientMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSenderMenuOpen(false);
+        setProofRecipientMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [proofRecipientMenuOpen, senderMenuOpen]);
+
+  useEffect(() => {
+    if (!demoModeEnabled || demoCopyPrefillAppliedRef.current) return;
+    setComposeSubject((current) => current.trim() ? current : DEMO_COMPOSE_COPY.subject);
+    setComposePreheader((current) => current.trim() ? current : DEMO_COMPOSE_COPY.preheader);
+    setComposeBody((current) => current.trim() && current !== DEFAULT_COMPOSE_BODY ? current : DEMO_COMPOSE_COPY.body);
+    demoCopyPrefillAppliedRef.current = true;
+  }, [demoModeEnabled]);
 
   useEffect(() => () => {
     if (settingPulseTimerRef.current != null) window.clearTimeout(settingPulseTimerRef.current);
@@ -568,23 +689,6 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
   }, [apiPath]);
 
   useEffect(() => {
-    if (!composerResizing) return undefined;
-    const onPointerMove = (event: PointerEvent) => {
-      const rect = composeLayoutRef.current?.getBoundingClientRect();
-      if (!rect || rect.width <= 0) return;
-      const next = ((event.clientX - rect.left) / rect.width) * 100;
-      setComposerSplitPct(Math.max(44, Math.min(76, Math.round(next))));
-    };
-    const onPointerUp = () => setComposerResizing(false);
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp, { once: true });
-    return () => {
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-    };
-  }, [composerResizing]);
-
-  useEffect(() => {
     if (!selectedStreamKey) return undefined;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
@@ -600,10 +704,10 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
             subject: composeSubject.trim(),
             preheader: composePreheader.trim(),
             body: composeBody,
-            signatureInitials: operatorInitials || '',
+            signatureInitials: senderSignatureIdentity.signatureInitials,
             signatureMode: composeSignature,
-            operatorName: operatorName || operatorInitials || '',
-            operatorEmail: operatorEmail.trim(),
+            operatorName: senderSignatureIdentity.operatorName,
+            operatorEmail: senderSignatureIdentity.operatorEmail,
           }),
         });
         const payload = await response.json() as { ok?: boolean; html?: string };
@@ -620,7 +724,7 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [composeBody, composePreheader, composeSender, composeSignature, composeSubject, operatorEmail, operatorInitials, operatorName, selectedStreamKey]);
+  }, [composeBody, composePreheader, composeSender, composeSignature, composeSubject, selectedStreamKey, senderSignatureIdentity]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -636,6 +740,31 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
     void loadGrowth(selectedStreamKey, controller.signal);
     return () => controller.abort();
   }, [loadMembers, loadGrowth, selectedStreamKey]);
+
+  useEffect(() => {
+    if (!demoModeEnabled) {
+      setDemoRecipientSelections({});
+      return;
+    }
+    setDemoRecipientSelections((current) => {
+      const next = { ...current };
+      const memberIds = new Set(members.map((member) => member.memberId));
+      let changed = false;
+      Object.keys(next).forEach((memberId) => {
+        if (!memberIds.has(memberId)) {
+          delete next[memberId];
+          changed = true;
+        }
+      });
+      members.forEach((member) => {
+        if (member.sendable && next[member.memberId] == null) {
+          next[member.memberId] = true;
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [demoModeEnabled, members]);
 
   useEffect(() => {
     if (!campaignComposerOpen) return undefined;
@@ -773,9 +902,15 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
     setBatchPreview(null);
     setSendResult(null);
     setSelectedHistoryCampaignId(null);
+    if (demoModeEnabled) {
+      setDemoRecipientSelections({});
+      setProofCommitSignature('');
+      setProofSentAt(null);
+      setProofResults([]);
+    }
     setCampaignStep('audience');
     setCampaignComposerOpen(true);
-  }, []);
+  }, [demoModeEnabled]);
 
   const closeCampaignComposer = useCallback(() => {
     setCampaignComposerOpen(false);
@@ -853,16 +988,124 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
   const isLiveStream = selectedStream?.isSendable ?? true;
   const campaignPromptDimOpacity = campaignPromptHovered ? 0.92 : 0.48;
 
-  const rankMinValue = excludeClients ? 4 : 0;
+  const effectiveExcludeClients = !demoModeEnabled;
+  const rankMinValue = effectiveExcludeClients ? 4 : 0;
   const rankMaxValue = 4;
+  const demoEligibleMembers = useMemo(() => demoModeEnabled ? members.filter((member) => member.sendable) : [], [demoModeEnabled, members]);
+  const demoDisplayMembers = useMemo(() => demoEligibleMembers
+    .map((member, originalIndex) => ({ member, originalIndex, visualIndex: DEMO_RECIPIENT_VISUAL_ORDER.indexOf(demoRecipientInitials(member)) }))
+    .sort((left, right) => {
+      const leftIndex = left.visualIndex === -1 ? DEMO_RECIPIENT_VISUAL_ORDER.length + left.originalIndex : left.visualIndex;
+      const rightIndex = right.visualIndex === -1 ? DEMO_RECIPIENT_VISUAL_ORDER.length + right.originalIndex : right.visualIndex;
+      return leftIndex - rightIndex;
+    })
+    .map((entry) => entry.member), [demoEligibleMembers]);
+  const defaultDemoRecipientInitials = useMemo(() => {
+    const defaults = new Set<string>(['LZ']);
+    const operatorEmailKey = operatorEmail.trim().toLowerCase();
+    const configured = INTERNAL_PROOF_RECIPIENTS.find((recipient) => recipient.email.toLowerCase() === operatorEmailKey);
+    if (configured) defaults.add(configured.initials);
+    const initials = operatorInitials.trim().toUpperCase();
+    if (initials) defaults.add(initials);
+    return defaults;
+  }, [operatorEmail, operatorInitials]);
+  const isDemoRecipientSelected = useCallback((member: AudienceMember): boolean => {
+    const explicit = demoRecipientSelections[member.memberId];
+    return typeof explicit === 'boolean' ? explicit : defaultDemoRecipientInitials.has(demoRecipientInitials(member));
+  }, [defaultDemoRecipientInitials, demoRecipientSelections]);
+  const demoRecipientSilos = useMemo(() => {
+    const used = new Set<string>();
+    const silos = DEMO_RECIPIENT_SILOS.map((silo) => {
+      const siloInitials = new Set<string>(silo.initials);
+      const siloMembers = demoDisplayMembers.filter((member) => {
+        const initials = demoRecipientInitials(member);
+        if (!siloInitials.has(initials)) return false;
+        used.add(member.memberId);
+        return true;
+      });
+      return { ...silo, members: siloMembers };
+    }).filter((silo) => silo.members.length > 0);
+    const remainingMembers = demoDisplayMembers.filter((member) => !used.has(member.memberId));
+    return remainingMembers.length > 0
+      ? [...silos, { key: 'other', label: 'Other', initials: remainingMembers.map(demoRecipientInitials), members: remainingMembers }]
+      : silos;
+  }, [demoDisplayMembers]);
 
   const segmentMembers = useMemo(() => members.filter((member) => {
     if (!member.sendable) return false;
-    if (excludeClients && member.client) return false;
+    if (demoModeEnabled) return isDemoRecipientSelected(member);
+    if (effectiveExcludeClients && member.client) return false;
     if (rankMinValue != null && (member.rank == null || member.rank < rankMinValue)) return false;
     if (rankMaxValue != null && (member.rank == null || member.rank > rankMaxValue)) return false;
     return true;
-  }), [members, excludeClients, rankMinValue, rankMaxValue]);
+  }), [demoModeEnabled, effectiveExcludeClients, isDemoRecipientSelected, members, rankMinValue, rankMaxValue]);
+
+  const selectedDemoMemberIds = useMemo(() => demoModeEnabled ? segmentMembers.map((member) => member.memberId) : [], [demoModeEnabled, segmentMembers]);
+  const selectedDemoRecipientCount = selectedDemoMemberIds.length;
+  const allDemoRecipientsSelected = demoEligibleMembers.length > 0 && demoEligibleMembers.every(isDemoRecipientSelected);
+  const operatorProofRecipient = useMemo<InternalProofRecipient | null>(() => {
+    const email = operatorEmail.trim().toLowerCase();
+    if (!email || !/@helix-law\.com$/i.test(email)) return null;
+    const configured = INTERNAL_PROOF_RECIPIENTS.find((recipient) => recipient.email.toLowerCase() === email);
+    if (configured) return configured;
+    const initials = operatorInitials.trim().toUpperCase() || email.slice(0, 2).toUpperCase();
+    return { initials, label: operatorName.trim() || initials, email };
+  }, [operatorEmail, operatorInitials, operatorName]);
+  const optionalProofRecipients = useMemo(() => INTERNAL_PROOF_RECIPIENTS.filter((recipient) => recipient.email.toLowerCase() !== operatorProofRecipient?.email.toLowerCase()), [operatorProofRecipient]);
+  const selectedProofRecipients = useMemo(() => {
+    const selectedOptional = optionalProofRecipients.filter((recipient) => proofRecipientSelections[recipient.email.toLowerCase()] === true);
+    return operatorProofRecipient ? [operatorProofRecipient, ...selectedOptional] : selectedOptional;
+  }, [operatorProofRecipient, optionalProofRecipients, proofRecipientSelections]);
+  const selectedProofRecipientEmails = useMemo(() => selectedProofRecipients.map((recipient) => recipient.email.toLowerCase()), [selectedProofRecipients]);
+  const selectedProofRecipientSummary = selectedProofRecipients.length === 0
+    ? 'No proof recipients available'
+    : selectedProofRecipients.length === 1
+      ? `${selectedProofRecipients[0].label} only`
+      : `${selectedProofRecipients[0].label} plus ${formatNumber(selectedProofRecipients.length - 1)} internal reviewer${selectedProofRecipients.length === 2 ? '' : 's'}`;
+  const toggleDemoRecipient = useCallback((memberId: string, selected: boolean) => {
+    setLockedCampaign(null);
+    setBatchPreview(null);
+    setProofCommitSignature('');
+    setProofSentAt(null);
+    setProofResults([]);
+    setDemoRecipientSelections((current) => ({ ...current, [memberId]: selected }));
+  }, []);
+  const setAllDemoRecipients = useCallback((selected: boolean) => {
+    setLockedCampaign(null);
+    setBatchPreview(null);
+    setProofCommitSignature('');
+    setProofSentAt(null);
+    setProofResults([]);
+    setDemoRecipientSelections((current) => {
+      const next = { ...current };
+      demoEligibleMembers.forEach((member) => { next[member.memberId] = selected; });
+      return next;
+    });
+  }, [demoEligibleMembers]);
+  const setDemoRecipientSilo = useCallback((initials: readonly string[], selected: boolean) => {
+    const targetInitials = new Set(initials);
+    setLockedCampaign(null);
+    setBatchPreview(null);
+    setProofCommitSignature('');
+    setProofSentAt(null);
+    setProofResults([]);
+    setDemoRecipientSelections((current) => {
+      const next = { ...current };
+      demoEligibleMembers.forEach((member) => {
+        if (targetInitials.has(demoRecipientInitials(member))) next[member.memberId] = selected;
+      });
+      return next;
+    });
+  }, [demoEligibleMembers]);
+  const toggleProofRecipient = useCallback((email: string, selected: boolean) => {
+    const key = email.toLowerCase();
+    setLockedCampaign(null);
+    setBatchPreview(null);
+    setProofCommitSignature('');
+    setProofSentAt(null);
+    setProofResults([]);
+    setProofRecipientSelections((current) => ({ ...current, [key]: selected }));
+  }, []);
 
   const updateMemberColumnFilter = useCallback((key: MemberSortKey, value: string) => {
     setMemberColumnFilters((current) => ({ ...current, [key]: value }));
@@ -1018,20 +1261,85 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
     [growthBarChart],
   );
 
-  const canTest = Boolean(operatorEmail.trim() && composeSubject.trim() && composeBody.trim());
+  const campaignInternalName = `${selectedStream?.label || selectedStreamKey || 'Selected campaign'} update`;
+  const composeSubjectText = composeSubject.trim();
+  const composePreheaderText = composePreheader.trim();
+  const composeBodyText = composeBody.trim();
+  const composeSubjectLength = composeSubjectText.length;
+  const composePreheaderLength = composePreheaderText.length;
+  const composeBodyWordCount = composeBodyText ? composeBodyText.split(/\s+/).filter(Boolean).length : 0;
+  const starterBodyStillPresent = !demoModeEnabled && composeBodyText === DEFAULT_COMPOSE_BODY.trim();
+  const copySubjectComplete = composeSubjectLength > 0;
+  const copyPreheaderComplete = composePreheaderLength > 0;
+  const copyBodyComplete = Boolean(composeBodyText && !starterBodyStillPresent);
+  const copyActionPointCount = [!copySubjectComplete, !copyBodyComplete].filter(Boolean).length;
+  const copyStepComplete = copyActionPointCount === 0;
+  const campaignDraftReady = copyStepComplete;
+  const copyStepStatusTitle = copyStepComplete ? (demoModeEnabled ? 'Demo copy is already complete' : 'Copy is complete') : `${formatNumber(copyActionPointCount)} action point${copyActionPointCount === 1 ? '' : 's'}`;
+  const copyStepStatusDetail = copyStepComplete
+    ? 'Subject and body are ready for preview.'
+    : 'Complete the action points before previewing the campaign.';
+  const copyTaskRows = [
+    {
+      key: 'subject',
+      label: 'Subject line',
+      meta: `${composeSubjectLength}/240`,
+      complete: copySubjectComplete,
+      status: copySubjectComplete ? 'Complete' : 'Action point',
+      detail: copySubjectComplete ? 'Ready for recipient inboxes' : 'Add the subject recipients will see',
+    },
+    {
+      key: 'preheader',
+      label: 'Preview text',
+      meta: `${composePreheaderLength}/240`,
+      complete: copyPreheaderComplete,
+      optional: !copyPreheaderComplete,
+      status: copyPreheaderComplete ? 'Complete' : 'Optional',
+      detail: copyPreheaderComplete ? 'Ready after the subject line' : 'Optional, but useful for inbox context',
+    },
+    {
+      key: 'body',
+      label: 'Body text',
+      meta: `${formatNumber(composeBodyWordCount)} words`,
+      complete: copyBodyComplete,
+      status: copyBodyComplete ? 'Complete' : 'Action point',
+      detail: copyBodyComplete ? 'Ready for proof preview' : starterBodyStillPresent ? 'Replace the starter body' : 'Add the campaign body',
+    },
+  ];
+  const currentProofSignature = useMemo(() => JSON.stringify({
+    streamKey: selectedStreamKey,
+    campaignInternalName,
+    subject: composeSubjectText,
+    preheader: composePreheaderText,
+    body: composeBody,
+    sender: composeSender,
+    signature: composeSignature,
+    proofRecipients: selectedProofRecipientEmails,
+    selectedMemberIds: demoModeEnabled ? selectedDemoMemberIds : [],
+    recipientCount: segmentMembers.length,
+    batchCount: Math.max(1, Math.ceil(segmentMembers.length / RECOMMENDED_DRIP_SIZE)),
+  }), [campaignInternalName, composeBody, composePreheaderText, composeSender, composeSignature, composeSubjectText, demoModeEnabled, segmentMembers.length, selectedDemoMemberIds, selectedProofRecipientEmails, selectedStreamKey]);
+  const proofEvidenceCurrent = Boolean(proofSentAt && proofCommitSignature === currentProofSignature);
+  const proofEvidenceAccepted = Boolean(proofEvidenceCurrent && proofResults.length === selectedProofRecipients.length && proofResults.length > 0 && proofResults.every((row) => row.status === 'accepted'));
+  const canTest = Boolean(operatorProofRecipient && campaignDraftReady);
   const canLock = Boolean(isLiveStream && composeSender && composeSignature && segmentMembers.length > 0 && !locking);
+  const canCommitCampaign = Boolean(canLock && proofEvidenceAccepted);
   const selectedSenderLabel = SENDERS.find((sender) => sender.value === composeSender)?.label || composeSender;
   const selectedSignatureLabel = SIGNATURES.find((signature) => signature.value === composeSignature)?.label || composeSignature;
-  const campaignDraftReady = Boolean(composeSubject.trim() && composeBody.trim());
-  const campaignProofState = canTest ? 'Ready' : operatorEmail.trim() ? 'Needs subject/body' : 'No user email';
-  const campaignLockState = lockedCampaign ? 'Locked' : canLock ? 'Ready to lock' : 'Needs list';
-  const composeSubjectLength = composeSubject.trim().length;
-  const composePreheaderLength = composePreheader.trim().length;
-  const composeBodyText = composeBody.trim();
-  const composeBodyWordCount = composeBodyText ? composeBodyText.split(/\s+/).filter(Boolean).length : 0;
+  const selectedSenderIdentityLabel = `${selectedSenderLabel} / ${composeSender}`;
+  const signatureMatchesSender = senderSignatureIdentity.operatorEmail.toLowerCase() === composeSender.toLowerCase();
+  const handleSenderSelect = useCallback((nextSender: string) => {
+    setSenderMenuOpen(false);
+    if (nextSender === composeSender) return;
+    setComposeSender(nextSender);
+    setComposeSignature('data-hub-v2');
+    const nextSenderMeta = SENDERS.find((sender) => sender.value === nextSender);
+    recordCampaignSettingChange('sender', 'From sender', `${nextSenderMeta?.label || nextSender} will send this campaign with the Helix email v2 signature.`);
+  }, [composeSender, recordCampaignSettingChange]);
+  const campaignProofState = proofEvidenceAccepted ? 'Test accepted' : canTest ? 'Send a Test required' : operatorEmail.trim() ? 'Add subject and body' : 'User email unavailable';
   const canManageSourceCounts = isDevOwner({ Initials: operatorInitials, Email: operatorEmail });
   const canPreviewBatch = Boolean(lockedCampaign?.campaignId && lockedCampaign.status === 'locked' && composeBody.trim() && composeSubject.trim());
-  const canSendBatch = Boolean(canPreviewBatch && batchPreview?.bodyHashMatches && batchPreview.batchRecipientCount > 0 && !demoModeEnabled);
+  const canSendBatch = Boolean(canPreviewBatch && batchPreview?.bodyHashMatches && batchPreview.batchRecipientCount > 0);
   const wizardStepIndex = WIZARD_STEPS.findIndex((step) => step.key === campaignStep);
   const totalListSize = streams.reduce((sum, stream) => sum + listSizeForStream(stream), 0);
   const totalLegacyCount = streams.reduce((sum, stream) => sum + normaliseCount(stream.legacyCount), 0);
@@ -1044,9 +1352,67 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
   const selectedSuppressedCount = normaliseCount(selectedStream?.blocked);
   const selectedHeldCount = Math.max(0, selectedMembershipCount - selectedSendableCount - selectedSuppressedCount);
   const selectedDripCount = Math.max(1, Math.ceil(segmentMembers.length / RECOMMENDED_DRIP_SIZE));
+  const campaignRankRows = useMemo(() => {
+    const rankCounts = new Map<number, number>();
+    segmentMembers.forEach((member) => {
+      if (member.rank == null) return;
+      rankCounts.set(member.rank, (rankCounts.get(member.rank) || 0) + 1);
+    });
+    return CAMPAIGN_RANK_SCOPE.map((entry) => ({ ...entry, count: rankCounts.get(entry.rank) || 0 }));
+  }, [segmentMembers]);
   const reviewRecipientCount = lockedCampaign?.selectedCount ?? segmentMembers.length;
   const reviewHeldCount = lockedCampaign?.blockedCount ?? selectedSuppressedCount + selectedHeldCount;
   const nextBatchCount = batchPreview?.batchRecipientCount ?? Math.min(RECOMMENDED_DRIP_SIZE, Math.max(0, batchPreview?.statusCounts.notSentCount ?? reviewRecipientCount));
+  const lockedBatchLimit = batchPreview?.batchLimit ?? RECOMMENDED_DRIP_SIZE;
+  const lockedSentCount = normaliseCount(batchPreview?.statusCounts.sentCount ?? lockedCampaign?.sentCount ?? 0);
+  const lockedRemainingCount = Math.max(0, normaliseCount(batchPreview?.statusCounts.notSentCount ?? reviewRecipientCount - lockedSentCount));
+  const lockedTotalBatchCount = Math.max(1, Math.ceil(Math.max(0, reviewRecipientCount) / lockedBatchLimit));
+  const lockedCurrentBatchNumber = lockedRemainingCount === 0
+    ? lockedTotalBatchCount
+    : Math.min(lockedTotalBatchCount, Math.floor(lockedSentCount / lockedBatchLimit) + 1);
+  const lockedCurrentBatchCount = lockedRemainingCount === 0 ? 0 : nextBatchCount;
+  const lockedCurrentBatchStart = lockedCurrentBatchCount > 0 ? ((lockedCurrentBatchNumber - 1) * lockedBatchLimit) + 1 : 0;
+  const lockedCurrentBatchEnd = lockedCurrentBatchCount > 0 ? Math.min(reviewRecipientCount, lockedCurrentBatchStart + lockedCurrentBatchCount - 1) : 0;
+  const lockedBatchRangeLabel = lockedCurrentBatchCount > 0 ? `${formatNumber(lockedCurrentBatchStart)}-${formatNumber(lockedCurrentBatchEnd)}` : 'Complete';
+  const lockedPreviewReady = Boolean(batchPreview?.bodyHashMatches && batchPreview.batchRecipientCount > 0);
+  const lockedCopyChanged = Boolean(batchPreview && !batchPreview.bodyHashMatches);
+  const lockedAllSent = reviewRecipientCount > 0 && lockedRemainingCount === 0;
+  const canPreviewCurrentBatch = Boolean(canPreviewBatch && !lockedAllSent);
+  const canSendCurrentBatch = Boolean(canSendBatch && !lockedAllSent);
+  const lockedBatchSegments = Array.from({ length: Math.min(lockedTotalBatchCount, 10) }, (_, index) => {
+    const batchNumber = index + 1;
+    const start = (index * lockedBatchLimit) + 1;
+    const end = Math.min(reviewRecipientCount, (index + 1) * lockedBatchLimit);
+    const isSent = lockedSentCount >= end;
+    const isCurrent = !lockedAllSent && batchNumber === lockedCurrentBatchNumber;
+    return { batchNumber, start, end, isSent, isCurrent };
+  });
+  const lockedHiddenBatchCount = Math.max(0, lockedTotalBatchCount - lockedBatchSegments.length);
+  const lockedBatchActionLabel = demoModeEnabled ? `Send demo batch ${lockedCurrentBatchNumber}` : `Send batch ${lockedCurrentBatchNumber}`;
+  const lockedProgressPercent = reviewRecipientCount > 0 ? Math.min(100, Math.round((lockedSentCount / reviewRecipientCount) * 100)) : 0;
+  const lockedReleaseTone = lockedCopyChanged ? 'error' : lockedAllSent ? 'complete' : batchWorking ? 'active' : lockedPreviewReady ? 'ready' : 'waiting';
+  const lockedReleaseTitle = lockedAllSent
+    ? `${demoModeEnabled ? 'Demo campaign' : 'Campaign'} complete`
+    : batchWorking === 'send'
+      ? `Sending batch ${formatNumber(lockedCurrentBatchNumber)}`
+      : batchWorking === 'preview'
+        ? `Previewing batch ${formatNumber(lockedCurrentBatchNumber)}`
+        : lockedPreviewReady
+          ? `Preview complete - send batch ${formatNumber(lockedCurrentBatchNumber)}`
+          : lockedCopyChanged
+            ? 'Copy changed after commit'
+            : `Preview batch ${formatNumber(lockedCurrentBatchNumber)}`;
+  const lockedReleaseDetail = lockedAllSent
+    ? 'Every selected recipient in this committed campaign has been accepted by SendGrid.'
+    : batchWorking === 'send'
+      ? `${formatNumber(lockedCurrentBatchCount)} recipients from ${lockedBatchRangeLabel} are being sent now.`
+      : batchWorking === 'preview'
+        ? `Checking recipients ${lockedBatchRangeLabel}. No email is sent during preview.`
+        : lockedPreviewReady
+          ? `${formatNumber(lockedCurrentBatchCount)} recipients are confirmed. The next click sends only this batch.`
+          : lockedCopyChanged
+            ? 'The body no longer matches the committed snapshot. Commit a fresh campaign before sending.'
+            : `Confirm the exact recipients in ${lockedBatchRangeLabel}. Previewing does not send email.`;
   const campaignBatches = useMemo(() => {
     if (segmentMembers.length === 0) return [];
     return Array.from({ length: selectedDripCount }, (_, index) => {
@@ -1063,6 +1429,7 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
     return historyCampaigns.find((campaign) => campaign.campaignId === selectedHistoryCampaignId) || null;
   }, [historyCampaigns, selectedHistoryCampaignId]);
   const operationalProcessingEvents = useMemo(() => processingEvents.filter((event) => event.status !== 'selected'), [processingEvents]);
+  const releaseProcessingEvents = useMemo(() => operationalProcessingEvents.filter((event) => /^batch/i.test(event.label)).slice(0, 3), [operationalProcessingEvents]);
   const sendGridBridgeActive = sendGridBridge.connectionStatus !== 'idle' || sendGridBridge.activityStatus !== 'idle' || Boolean(lockedCampaign);
   const showOperationsStatus = Boolean(selectedStreamKey && (operationalProcessingEvents.length > 0 || sendGridBridgeActive));
   const previewSubject = composeSubject.trim() || 'Subject pending';
@@ -1126,10 +1493,13 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
   );
 
   const lockCampaign = useCallback(async () => {
-    if (!canLock) return;
+    if (!canCommitCampaign) {
+      setSendResult({ status: 'error', message: proofEvidenceAccepted ? 'Campaign is not ready to commit' : 'Send a Test before committing this campaign.' });
+      return;
+    }
     setLocking(true);
     setSendResult(null);
-    addProcessingEvent({ label: 'Campaign lock started', detail: `${selectedStream?.label || selectedStreamKey} list snapshot is being created`, status: 'running' });
+    addProcessingEvent({ label: 'Campaign commit started', detail: `${selectedStream?.label || selectedStreamKey} list snapshot is being created`, status: 'running' });
     try {
       const createResponse = await fetch(apiPath('/campaigns'), {
         method: 'POST',
@@ -1137,16 +1507,17 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           streamKey: selectedStreamKey,
-          campaignName: `${selectedStream?.label || selectedStreamKey} update`,
+          campaignName: campaignInternalName,
           subject: composeSubject.trim(),
           preheader: composePreheader.trim(),
           body: composeBody,
           senderEmail: composeSender,
           signatureMode: composeSignature,
-          excludeClients,
+          excludeClients: effectiveExcludeClients,
           rankMin: rankMinValue,
           rankMax: rankMaxValue,
           demoMode: demoModeEnabled,
+          selectedMemberIds: demoModeEnabled ? selectedDemoMemberIds : undefined,
         }),
       });
       const createPayload = await createResponse.json() as { ok?: boolean; error?: string; campaign?: EmailCampaign };
@@ -1157,7 +1528,7 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ demoMode: demoModeEnabled }),
+        body: JSON.stringify({ demoMode: demoModeEnabled, selectedMemberIds: demoModeEnabled ? selectedDemoMemberIds : undefined }),
       });
       const lockPayload = await lockResponse.json() as { ok?: boolean; error?: string; campaign?: EmailCampaign };
       if (!lockResponse.ok || lockPayload.ok === false || !lockPayload.campaign) {
@@ -1166,19 +1537,19 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
       setLockedCampaign(lockPayload.campaign);
       setBatchPreview(null);
       addProcessingEvent({
-        label: 'Campaign lock completed',
+        label: 'Campaign commit completed',
         detail: `${formatNumber(lockPayload.campaign.selectedCount ?? segmentMembers.length)} selected, ${formatNumber(lockPayload.campaign.blockedCount ?? 0)} held`,
         status: 'complete',
       });
-      setSendResult({ status: 'saved', message: `Campaign locked for ${formatNumber(lockPayload.campaign.selectedCount ?? segmentMembers.length)} sendable members, ${formatNumber(lockPayload.campaign.blockedCount ?? 0)} held` });
+      setSendResult(null);
       void loadCampaigns();
     } catch (err) {
-      addProcessingEvent({ label: 'Campaign lock failed', detail: err instanceof Error ? err.message : 'Campaign lock failed', status: 'error' });
-      setSendResult({ status: 'error', message: err instanceof Error ? err.message : 'Campaign lock failed' });
+      addProcessingEvent({ label: 'Campaign commit failed', detail: err instanceof Error ? err.message : 'Campaign commit failed', status: 'error' });
+      setSendResult({ status: 'error', message: err instanceof Error ? err.message : 'Campaign commit failed' });
     } finally {
       setLocking(false);
     }
-  }, [addProcessingEvent, apiPath, canLock, selectedStreamKey, selectedStream, composeSubject, composePreheader, composeBody, composeSender, composeSignature, excludeClients, rankMinValue, rankMaxValue, demoModeEnabled, segmentMembers.length, loadCampaigns]);
+  }, [addProcessingEvent, apiPath, campaignInternalName, canCommitCampaign, composeBody, composePreheader, composeSender, composeSignature, composeSubject, demoModeEnabled, effectiveExcludeClients, loadCampaigns, proofEvidenceAccepted, rankMaxValue, rankMinValue, selectedDemoMemberIds, selectedStream, selectedStreamKey, segmentMembers.length]);
 
   const sendTest = useCallback(async () => {
     if (!canTest) {
@@ -1187,7 +1558,10 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
     }
     setTestSending(true);
     setSendResult(null);
-    addProcessingEvent({ label: 'Test send started', detail: `Sending proof to ${operatorEmail.trim()}`, status: 'running' });
+    setProofCommitSignature('');
+    setProofSentAt(null);
+    setProofResults([]);
+    addProcessingEvent({ label: 'Test send started', detail: `Sending proof to ${formatNumber(selectedProofRecipients.length)} internal recipient${selectedProofRecipients.length === 1 ? '' : 's'}`, status: 'running' });
     try {
       const response = await fetch(getApiUrl('/api/enquiries-unified/email-lists/test-send'), {
         method: 'POST',
@@ -1196,51 +1570,75 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
         body: JSON.stringify({
           demoMode: true,
           enquiryId: EMAIL_DEMO_ENQUIRY_ID,
-          recipientEmail: operatorEmail.trim(),
+          recipientEmails: selectedProofRecipientEmails,
           sender: composeSender,
-          campaignName: `${selectedStream?.label || selectedStreamKey} update`,
+          campaignName: campaignInternalName,
           subject: composeSubject.trim(),
           preheader: composePreheader.trim(),
           body: composeBody.trim(),
-          signatureInitials: operatorInitials || '',
+          signatureInitials: senderSignatureIdentity.signatureInitials,
           signatureMode: composeSignature,
-          operatorName: operatorName || operatorInitials || '',
-          operatorEmail: operatorEmail.trim(),
+          operatorName: senderSignatureIdentity.operatorName,
+          operatorEmail: senderSignatureIdentity.operatorEmail,
           operatorConsent: 'email-lists-limited-stream',
           operatorActor: operatorInitials || operatorName || 'operator',
         }),
       });
-      const payload = await response.json() as { error?: string };
+      const payload = await response.json() as { error?: string; recipients?: Array<{ email?: string; status?: string }>; sendGridMessageId?: string; requestId?: string };
       if (!response.ok) throw new Error(payload.error || `Test send failed (${response.status})`);
-      addProcessingEvent({ label: 'Test send completed', detail: `Proof sent to ${operatorEmail.trim()}`, status: 'complete' });
-      setSendResult({ status: 'ready', message: 'Test email sent to you only' });
+      const acceptedEmails = new Set((payload.recipients || []).filter((row) => row.status === 'accepted' && row.email).map((row) => String(row.email).toLowerCase()));
+      const resultRows: ProofResultRow[] = selectedProofRecipients.map((recipient) => {
+        const accepted = acceptedEmails.has(recipient.email.toLowerCase());
+        return {
+          ...recipient,
+          status: accepted ? 'accepted' : 'failed',
+          detail: accepted ? 'Accepted by SendGrid' : 'No provider acceptance returned',
+          at: new Date().toISOString(),
+          sendGridMessageId: payload.sendGridMessageId,
+        };
+      });
+      setProofResults(resultRows);
+      setProofSentAt(new Date().toISOString());
+      setProofCommitSignature(currentProofSignature);
+      addProcessingEvent({ label: 'Test send completed', detail: `${formatNumber(resultRows.filter((row) => row.status === 'accepted').length)} of ${formatNumber(resultRows.length)} proof recipients accepted`, status: resultRows.every((row) => row.status === 'accepted') ? 'complete' : 'error' });
+      setSendResult({ status: resultRows.every((row) => row.status === 'accepted') ? 'ready' : 'error', message: resultRows.every((row) => row.status === 'accepted') ? `Test accepted for ${formatNumber(resultRows.length)} internal recipient${resultRows.length === 1 ? '' : 's'}.` : 'One or more proof recipients did not return SendGrid acceptance.' });
     } catch (err) {
+      const failedAt = new Date().toISOString();
+      setProofResults(selectedProofRecipients.map((recipient) => ({
+        ...recipient,
+        status: 'failed',
+        detail: err instanceof Error ? err.message : 'Test send failed',
+        at: failedAt,
+      })));
       addProcessingEvent({ label: 'Test send failed', detail: err instanceof Error ? err.message : 'Test send failed', status: 'error' });
       setSendResult({ status: 'error', message: err instanceof Error ? err.message : 'Test send failed' });
     } finally {
       setTestSending(false);
     }
-  }, [addProcessingEvent, canTest, operatorEmail, composeSender, composeSubject, composePreheader, composeBody, composeSignature, operatorInitials, operatorName, selectedStream, selectedStreamKey]);
+  }, [addProcessingEvent, campaignInternalName, canTest, composeBody, composePreheader, composeSender, composeSignature, composeSubject, currentProofSignature, operatorInitials, operatorName, selectedProofRecipientEmails, selectedProofRecipients, senderSignatureIdentity]);
 
   const runSendGridBatch = useCallback(async (mode: 'preview' | 'send') => {
     if (!lockedCampaign?.campaignId) return;
     if (mode === 'send' && !canSendBatch) return;
     const expectedCount = batchPreview?.batchRecipientCount ?? 0;
+    const batchNumber = lockedCurrentBatchNumber;
+    const totalBatches = lockedTotalBatchCount;
+    const batchRange = lockedBatchRangeLabel;
     const toastId = showToast({
       id: 'marketing-email-sendgrid-batch',
       type: 'loading',
-      title: mode === 'preview' ? 'Previewing SendGrid batch' : 'Sending SendGrid batch',
+      title: mode === 'preview' ? `Previewing batch ${batchNumber} of ${totalBatches}` : `${demoModeEnabled ? 'Sending demo batch' : 'Sending batch'} ${batchNumber} of ${totalBatches}`,
       message: mode === 'preview'
-        ? `Resolving the next ${formatNumber(RECOMMENDED_DRIP_SIZE)} recipients from the locked snapshot.`
-        : `Submitting one SendGrid API request for ${formatNumber(expectedCount)} recipients.`,
+        ? `Checking committed recipients ${batchRange}. No email is sent during preview.`
+        : `${formatNumber(expectedCount)} recipients from the committed list are being sent now.`,
       persist: true,
     });
 
     setBatchWorking(mode);
     setSendResult(null);
     addProcessingEvent({
-      label: mode === 'preview' ? 'SendGrid batch preview' : 'SendGrid batch send',
-      detail: mode === 'preview' ? 'Resolving the next capped batch from the locked snapshot' : `Sending ${formatNumber(batchPreview?.batchRecipientCount ?? 0)} recipients through SendGrid`,
+      label: mode === 'preview' ? `Preview batch ${batchNumber}` : `Send batch ${batchNumber}`,
+      detail: mode === 'preview' ? `Checking committed recipients ${batchRange}; no email sent yet` : `Sending ${formatNumber(expectedCount)} recipients from committed recipients ${batchRange}`,
       status: 'running',
     });
     try {
@@ -1256,10 +1654,10 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
           limit: RECOMMENDED_DRIP_SIZE,
           body: composeBody,
           subject: composeSubject.trim(),
-          signatureInitials: operatorInitials || '',
+          signatureInitials: senderSignatureIdentity.signatureInitials,
           signatureMode: composeSignature,
-          operatorName: operatorName || operatorInitials || '',
-          operatorEmail: operatorEmail.trim(),
+          operatorName: senderSignatureIdentity.operatorName,
+          operatorEmail: senderSignatureIdentity.operatorEmail,
           demoMode: demoModeEnabled,
         }),
       });
@@ -1287,35 +1685,35 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
         setBatchPreview(preview);
         const remainingAfterBatch = Math.max(0, preview.statusCounts.notSentCount - preview.batchRecipientCount);
         addProcessingEvent({
-          label: 'SendGrid batch preview ready',
-          detail: `${formatNumber(preview.batchRecipientCount)} ready for one SendGrid request, ${formatNumber(remainingAfterBatch)} left after this batch`,
+          label: `Batch ${batchNumber} preview ready`,
+          detail: `${formatNumber(preview.batchRecipientCount)} recipients ready; ${formatNumber(remainingAfterBatch)} will remain after this batch is sent`,
           status: preview.batchRecipientCount > 0 && preview.bodyHashMatches ? 'complete' : 'error',
         });
         updateToast(toastId, {
           type: preview.batchRecipientCount > 0 && preview.bodyHashMatches ? 'success' : 'warning',
-          title: preview.bodyHashMatches ? 'Batch preview ready' : 'Campaign copy changed',
+          title: preview.bodyHashMatches ? `Batch ${batchNumber} is ready to send` : 'Campaign copy changed',
           message: preview.bodyHashMatches
-            ? `${formatNumber(preview.batchRecipientCount)} recipients will be sent in one SendGrid API request. Hash checks stayed inside Hub.`
-            : 'The current copy no longer matches the locked snapshot. Lock a fresh campaign before sending.',
+            ? `${formatNumber(preview.batchRecipientCount)} recipients are staged from the committed list. No email has been sent yet.`
+            : 'The current copy no longer matches the committed snapshot. Commit a fresh campaign before sending.',
           persist: false,
           duration: 6500,
         });
-        setSendResult({ status: preview.batchRecipientCount > 0 && preview.bodyHashMatches ? 'ready' : 'error', message: preview.bodyHashMatches ? `Next batch has ${formatNumber(preview.batchRecipientCount)} recipients ready` : 'Campaign copy no longer matches the locked snapshot. Lock it again before sending.' });
+        setSendResult({ status: preview.batchRecipientCount > 0 && preview.bodyHashMatches ? 'ready' : 'error', message: preview.bodyHashMatches ? `Batch ${batchNumber} preview complete. Exact count: ${formatNumber(preview.batchRecipientCount)}.` : 'Campaign copy no longer matches the committed snapshot. Commit it again before sending.' });
       } else {
         setBatchPreview(null);
         addProcessingEvent({
-          label: 'SendGrid batch accepted',
-          detail: `${formatNumber(payload.batchRecipientCount ?? 0)} recipients accepted by SendGrid${payload.sendGridMessageId ? ` · ${payload.sendGridMessageId}` : ''}`,
+          label: `Batch ${batchNumber} sent`,
+          detail: `${formatNumber(payload.batchRecipientCount ?? 0)} recipients accepted${payload.sendGridMessageId ? ` / ${payload.sendGridMessageId}` : ''}`,
           status: 'complete',
         });
         updateToast(toastId, {
           type: 'success',
-          title: 'SendGrid accepted the batch',
-          message: `${formatNumber(payload.batchRecipientCount ?? 0)} recipients submitted in one provider request. Preview the next batch when ready.`,
+          title: `${demoModeEnabled ? 'Demo batch' : 'Batch'} ${batchNumber} sent`,
+          message: `${formatNumber(payload.batchRecipientCount ?? 0)} recipients were accepted by SendGrid. The release board now shows what is left.`,
           persist: false,
           duration: 6500,
         });
-        setSendResult({ status: 'ready', message: `SendGrid accepted ${formatNumber(payload.batchRecipientCount ?? 0)} recipients. Run preview again for the next batch.` });
+        setSendResult({ status: 'ready', message: `Batch ${batchNumber} accepted by SendGrid for ${formatNumber(payload.batchRecipientCount ?? 0)} recipients.` });
         void loadCampaigns();
       }
     } catch (err) {
@@ -1331,7 +1729,7 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
     } finally {
       setBatchWorking(null);
     }
-  }, [addProcessingEvent, apiPath, batchPreview, canSendBatch, composeBody, composeSignature, composeSubject, demoModeEnabled, loadCampaigns, lockedCampaign, operatorEmail, operatorInitials, operatorName, showToast, updateToast]);
+  }, [addProcessingEvent, apiPath, batchPreview, canSendBatch, composeBody, composeSignature, composeSubject, demoModeEnabled, loadCampaigns, lockedBatchRangeLabel, lockedCurrentBatchNumber, lockedCampaign, lockedTotalBatchCount, senderSignatureIdentity, showToast, updateToast]);
 
   const rootVars = {
     '--mew-edge': edge,
@@ -1513,14 +1911,14 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
                 <div className="mew-area-focus-title">
                   <strong>{selectedStream.label}</strong>
                 </div>
-                {selectedStream.streamKey !== 'commercial' && (
-                  <div className="mew-area-focus-actions">
+                <div className="mew-area-focus-actions">
+                  {selectedStream.streamKey !== 'commercial' && (
                     <button type="button" className={`mew-mini-action${proofExpanded ? ' is-active' : ''}`} onClick={() => setProofExpanded((prev) => !prev)} aria-expanded={proofExpanded} aria-pressed={proofExpanded}>
                       {proofExpanded ? 'Hide records' : 'Show records'}
                     </button>
-                    <button type="button" className="mew-mini-action" onClick={clearSelectedStream}>Change area</button>
-                  </div>
-                )}
+                  )}
+                  <button type="button" className="mew-mini-action" onClick={clearSelectedStream}>Change list</button>
+                </div>
               </div>
               <div className="mew-area-focus-body mew-area-focus-body--sendable">
                 <article className="mew-area-focus-total">
@@ -1593,7 +1991,7 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
       </section>
 
       {error && <div className="mew-banner mew-banner--error" role="alert">{error}</div>}
-      {sendResult && <div className={`mew-banner mew-banner--${sendResult.status === 'error' ? 'error' : 'ok'}`} role="status">{sendResult.message}</div>}
+      {sendResult && !campaignComposerOpen && <div className={`mew-banner mew-banner--${sendResult.status === 'error' ? 'error' : 'ok'}`} role="status">{sendResult.message}</div>}
 
       {selectedStreamKey && proofExpanded && (
       <section className="mew-cockpit" data-helix-region="marketing/email-operations/cockpit">
@@ -2018,7 +2416,7 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
                     <span className="mew-create-plus" aria-hidden="true">+</span>
                     <span className="mew-create-copy">
                       <strong>{selectedStream ? `Create a new ${selectedStream.label} Campaign` : 'Create a new campaign'}</strong>
-                      <small>{selectedStream ? `${formatNumber(segmentMembers.length)} sendable - ${formatNumber(selectedDripCount)} drips at max ${formatNumber(RECOMMENDED_DRIP_SIZE)}` : 'Select an area first'}</small>
+                      <small>{selectedStream ? `${formatNumber(segmentMembers.length)} sendable - ${formatNumber(selectedDripCount)} batches at max ${formatNumber(RECOMMENDED_DRIP_SIZE)}` : 'Select an area first'}</small>
                     </span>
                     <span className="mew-create-arrow" aria-hidden="true">&#8250;</span>
                   </button>
@@ -2092,7 +2490,10 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
         <div className="mew-panel-head mew-panel-head--composer">
           <span className="mew-eyebrow">Campaign composer</span>
           <strong>{selectedStream.label}</strong>
-          <button type="button" className="mew-wizard-close" onClick={closeCampaignComposer} aria-label="Close composer">&#215;</button>
+          <div className="mew-panel-head-actions">
+            <button type="button" className="mew-mini-action" onClick={clearSelectedStream}>Change list</button>
+            <button type="button" className="mew-wizard-close" onClick={closeCampaignComposer} aria-label="Close composer">&#215;</button>
+          </div>
         </div>
       <div className="mew-history-grid is-composing">
       <div className="mew-history-lane mew-history-lane--composer">
@@ -2117,7 +2518,7 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
             </div>
           </header>
 
-          {sendResult && <div className={`mew-banner mew-banner--${sendResult.status === 'error' ? 'error' : 'ok'}`} role="status">{sendResult.message}</div>}
+          {sendResult && !(campaignStep === 'review' && lockedCampaign) && <div className={`mew-banner mew-banner--${sendResult.status === 'error' ? 'error' : 'ok'}`} role="status">{sendResult.message}</div>}
 
           <div className="mew-wizard-body">
             {campaignStep === 'audience' && (
@@ -2128,80 +2529,181 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
                       {renderAreaOfWorkGlyph(STREAM_GLYPHS[selectedStream.streamKey], resolveStreamAccentColor(selectedStream.streamKey), 'glyph', 30)}
                     </span>
                     <div className="mew-wizard-audience-title">
-                      <small>Campaign audience</small>
+                      <small>Campaign Silo</small>
                       <strong>{selectedStream.label}</strong>
-                      <em>{showSendableCounts ? 'Sendable planning mode' : 'Full list comparison mode'}</em>
                     </div>
                     <div className="mew-wizard-audience-count">
                       <strong>{formatNumber(segmentMembers.length)}</strong>
                       <small>sendable</small>
                     </div>
-                  </div>
-                  <div className="mew-wizard-audience-metrics" aria-label="Campaign audience counts">
-                    <span><small>Full list</small><strong>{formatNumber(selectedMembershipCount)}</strong></span>
-                    <span><small>Held</small><strong>{formatNumber(selectedSuppressedCount + selectedHeldCount)}</strong></span>
-                    <span><small>Clients</small><strong>{formatNumber(selectedStream.clients ?? 0)}</strong></span>
-                    <span><small>Drips</small><strong>{formatNumber(selectedDripCount)}</strong></span>
+                    <div className="mew-wizard-audience-metrics" aria-label="Campaign silo counts">
+                      <span className="mew-silo-metric mew-silo-metric--full"><small>Full list</small><strong>{formatNumber(selectedMembershipCount)}</strong></span>
+                      <span className="mew-silo-metric mew-silo-metric--held"><small>Held</small><strong>{formatNumber(selectedSuppressedCount + selectedHeldCount)}</strong></span>
+                      <span className="mew-silo-metric mew-silo-metric--clients"><small>Clients</small><strong>{formatNumber(selectedStream.clients ?? 0)}</strong></span>
+                      <span className="mew-silo-metric mew-silo-metric--batches"><small>Batches</small><strong>{formatNumber(selectedDripCount)}</strong></span>
+                    </div>
                   </div>
                   <div className="mew-wizard-audience-batches" aria-label="Campaign batches">
                     <div className="mew-wizard-section-head">
                       <span className="mew-eyebrow">Batch plan</span>
-                      <strong>Max {formatNumber(RECOMMENDED_DRIP_SIZE)} recipients per SendGrid request</strong>
                     </div>
-                    <div className="mew-wizard-batch-grid">
-                      {campaignBatches.length === 0 ? (
-                        <span className="mew-wizard-batch is-empty">No batches</span>
-                      ) : campaignBatches.slice(0, 8).map((batch) => (
-                        <span key={batch.batch} className="mew-wizard-batch">
-                          <small>Batch {batch.batch}</small>
-                          <strong>{formatNumber(batch.count)}</strong>
-                          <em>{formatNumber(batch.start)}-{formatNumber(batch.end)}</em>
-                        </span>
-                      ))}
-                      {campaignBatches.length > 8 && (
-                        <span className="mew-wizard-batch is-empty">+{formatNumber(campaignBatches.length - 8)} more</span>
-                      )}
+                    <div className="mew-wizard-batch-plan">
+                      <span className="mew-wizard-batch-total">
+                        <small>Batches</small>
+                        <strong>{formatNumber(selectedDripCount)}</strong>
+                        <em>{formatNumber(segmentMembers.length)} recipients</em>
+                      </span>
+                      <div className="mew-wizard-batch-grid">
+                        {campaignBatches.length === 0 ? (
+                          <span className="mew-wizard-batch is-empty">No batches</span>
+                        ) : campaignBatches.slice(0, 8).map((batch) => (
+                          <span key={batch.batch} className="mew-wizard-batch">
+                            <small>Batch {batch.batch}</small>
+                            <strong>{formatNumber(batch.count)}</strong>
+                            <em>{formatNumber(batch.start)}-{formatNumber(batch.end)}</em>
+                          </span>
+                        ))}
+                        {campaignBatches.length > 8 && (
+                          <span className="mew-wizard-batch is-empty">+{formatNumber(campaignBatches.length - 8)} more</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
+                {demoModeEnabled && (
+                  <section className="mew-demo-recipient-panel" data-helix-region="marketing/email-operations/campaign-composer/demo-recipients" aria-label="Demo recipients">
+                    <div className="mew-demo-recipient-head">
+                      <div>
+                        <span className="mew-eyebrow">Demo recipients</span>
+                        <strong>{formatNumber(selectedDemoRecipientCount)} of {formatNumber(demoEligibleMembers.length)} selected</strong>
+                      </div>
+                      <div className="mew-demo-recipient-actions">
+                        <button type="button" className="mew-mini-action" onClick={() => setAllDemoRecipients(true)} disabled={allDemoRecipientsSelected || demoEligibleMembers.length === 0}>Select all</button>
+                        <button type="button" className="mew-mini-action" onClick={() => setAllDemoRecipients(false)} disabled={selectedDemoRecipientCount === 0}>Clear</button>
+                      </div>
+                    </div>
+                    <div className="mew-demo-silo-grid">
+                      {demoEligibleMembers.length === 0 ? (
+                        <div className="mew-demo-recipient-empty">No demo recipients loaded.</div>
+                      ) : demoRecipientSilos.map((silo) => {
+                        const siloSelected = silo.members.length > 0 && silo.members.every(isDemoRecipientSelected);
+                        const siloCount = silo.members.filter(isDemoRecipientSelected).length;
+                        return (
+                          <section key={silo.key} className={`mew-demo-silo${siloSelected ? ' is-selected' : ''}`} aria-label={`${silo.label} demo silo`}>
+                            <header className="mew-demo-silo-head">
+                              <div>
+                                <span className="mew-eyebrow">Silo</span>
+                                <strong>{silo.label}</strong>
+                                <small>{formatNumber(siloCount)} of {formatNumber(silo.members.length)}</small>
+                              </div>
+                              <button type="button" className="mew-mini-action" onClick={() => setDemoRecipientSilo(silo.initials, !siloSelected)}>
+                                {siloSelected ? 'Clear' : 'Select'}
+                              </button>
+                            </header>
+                            <div className="mew-demo-silo-members">
+                              {silo.members.map((member) => {
+                                const selected = isDemoRecipientSelected(member);
+                                return (
+                                  <label key={member.memberId} className={`mew-demo-recipient${selected ? ' is-selected' : ''}${demoRecipientVisualClass(member)}`}>
+                                    <input type="checkbox" checked={selected} onChange={(event) => toggleDemoRecipient(member.memberId, event.currentTarget.checked)} />
+                                    <span>
+                                      <strong>{displayContactName(member)}</strong>
+                                      <small>{displayContactId(member)}</small>
+                                    </span>
+                                    <em>{member.emailDomain || 'helix-law.com'}</em>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
                 <section className="mew-compose-sender" aria-label="Campaign sender">
                   <div className="mew-compose-sender-copy">
-                    <div className="mew-compose-sender-primary">
-                      <small>From Sender</small>
-                      <label className="mew-compose-sender-select-wrap">
-                        <select value={composeSender} onChange={(event) => {
-                          const nextSender = event.currentTarget.value;
-                          setComposeSender(nextSender);
-                          setComposeSignature('data-hub-v2');
-                          const nextSenderLabel = SENDERS.find((sender) => sender.value === nextSender)?.label || nextSender;
-                          recordCampaignSettingChange('sender', 'Sender', `${nextSenderLabel} will send this campaign with the v2 signature.`);
-                        }} aria-label="From sender">
-                          {SENDERS.map((sender) => <option key={sender.value} value={sender.value}>{sender.value}</option>)}
-                        </select>
-                        <span aria-hidden="true">&#8964;</span>
-                      </label>
-                      <em>{selectedSenderLabel}</em>
-                    </div>
-                    <div className="mew-compose-sender-settings" aria-label="Campaign settings">
-                      <div className={`mew-compose-setting mew-compose-setting--static${recentlyChangedSetting === 'signature' ? ' is-updated' : ''}`}>
+                    <div className="mew-compose-sender-identity">
+                      <div className="mew-compose-sender-primary">
+                        <small>From Sender</small>
+                        <div ref={senderMenuRef} className={`mew-compose-sender-select-wrap${senderMenuOpen ? ' is-open' : ''}${recentlyChangedSetting === 'sender' ? ' is-updated' : ''}`}>
+                          <button
+                            type="button"
+                            className="mew-compose-sender-trigger"
+                            aria-haspopup="listbox"
+                            aria-expanded={senderMenuOpen}
+                            aria-controls="mew-compose-sender-menu"
+                            onClick={() => setSenderMenuOpen((open) => !open)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'ArrowDown') {
+                                event.preventDefault();
+                                setSenderMenuOpen(true);
+                              }
+                            }}
+                          >
+                            <span className="mew-compose-sender-value">
+                              <strong>{selectedSenderLabel}</strong>
+                              <small>{composeSender}</small>
+                            </span>
+                            <span className="mew-compose-sender-chevron" aria-hidden="true"><FiChevronRight size={15} /></span>
+                          </button>
+                          {senderMenuOpen && (
+                            <div id="mew-compose-sender-menu" className="mew-compose-sender-menu" role="listbox" aria-label="From sender options">
+                              {SENDERS.map((sender) => {
+                                const isSelected = sender.value === composeSender;
+                                return (
+                                  <button
+                                    key={sender.value}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={isSelected}
+                                    className={`mew-compose-sender-option${isSelected ? ' is-selected' : ''}`}
+                                    onClick={() => handleSenderSelect(sender.value)}
+                                  >
+                                    <span>
+                                      <strong>{sender.label}</strong>
+                                      <small>{sender.value}</small>
+                                    </span>
+                                    <em>{sender.description}</em>
+                                    {isSelected && <FiCheckCircle size={14} aria-hidden="true" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className={`mew-compose-signature-preview${signatureMatchesSender ? ' is-matched' : ' is-warning'}${recentlyChangedSetting === 'sender' ? ' is-updated' : ''}`} aria-label="Signature preview">
                         <span>Signature</span>
-                        <strong>{selectedSignatureLabel}</strong>
+                        <div className="mew-signature-mini-card">
+                          <strong>{senderSignatureIdentity.operatorName}</strong>
+                          <small>{senderSignatureIdentity.operatorEmail}</small>
+                          <div className="mew-signature-mini-lines" aria-hidden="true">
+                            <i />
+                            <i />
+                          </div>
+                          <footer>
+                            <em>{senderSignatureIdentity.operatorEmail}</em>
+                            <b>020 4538 6385</b>
+                            <b>helix-law.com</b>
+                          </footer>
+                        </div>
                       </div>
-                      <div className="mew-compose-setting mew-compose-setting--static">
+                    </div>
+                    <div className="mew-compose-rank-panel" aria-label="Campaign rank scope">
+                      <div className="mew-compose-rank-head">
                         <span>Rank scope</span>
-                        <strong>{excludeClients ? '4 only' : '0-4'}</strong>
                       </div>
-                      <label className={`mew-compose-setting mew-compose-setting--check${recentlyChangedSetting === 'clients' ? ' is-updated' : ''}`}>
-                        <span>Clients</span>
-                        <span className="mew-compose-setting-check-row">
-                          <input type="checkbox" checked={excludeClients} onChange={(event) => {
-                            const nextExcludeClients = event.currentTarget.checked;
-                            setExcludeClients(nextExcludeClients);
-                            recordCampaignSettingChange('clients', 'Client filter', `Clients are now ${nextExcludeClients ? 'excluded' : 'included'}.`);
-                          }} />
-                          <strong>Exclude ({formatNumber(selectedStream.clients ?? 0)})</strong>
-                        </span>
-                      </label>
+                      <div className="mew-compose-rank-grid">
+                        {campaignRankRows.map((entry) => (
+                          <span key={entry.rank} className={`mew-compose-rank mew-compose-rank--${entry.state}`}>
+                            <b>{entry.rank}</b>
+                            <small>{entry.label}</small>
+                            <em>{formatNumber(entry.count)}</em>
+                            {entry.state === 'active' ? <FiCheckCircle size={12} aria-hidden="true" /> : <FiLock size={11} aria-hidden="true" />}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -2210,56 +2712,60 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
 
             {campaignStep === 'copy' && (
               <section className="mew-wizard-pane mew-wizard-copy">
-                <div
-                  ref={composeLayoutRef}
-                  className={`mew-wizard-copy-split${composerResizing ? ' is-resizing' : ''}`}
-                  style={{ '--compose-left': `${composerSplitPct}%` } as React.CSSProperties}
-                >
-                  <div className="mew-wizard-copy-fields">
-                    <label className={`mew-wizard-field${composeSubjectLength ? ' is-filled' : ''}`}>
-                      <span>Subject line <em>{composeSubjectLength}/240</em></span>
-                      <input className="mew-wizard-input mew-wizard-input--subject" value={composeSubject} onChange={(event) => { setComposeSubject(event.currentTarget.value); setLockedCampaign(null); }} placeholder="Write the subject line recipients will see" maxLength={240} />
-                    </label>
-                    <label className={`mew-wizard-field${composePreheaderLength ? ' is-filled' : ''}`}>
-                      <span>Preview text <em>{composePreheaderLength}/240</em></span>
-                      <input className="mew-wizard-input" value={composePreheader} onChange={(event) => { setComposePreheader(event.currentTarget.value); setLockedCampaign(null); }} placeholder="Add optional preview text shown after the subject" maxLength={240} />
-                    </label>
-                    <label className={`mew-wizard-field mew-wizard-field--body${composeBodyWordCount ? ' is-filled' : ''}`}>
-                      <span>Body text <em>{formatNumber(composeBodyWordCount)} words</em></span>
-                      <textarea className="mew-wizard-input mew-wizard-textarea" value={composeBody} onChange={(event) => { setComposeBody(event.currentTarget.value); setLockedCampaign(null); }} rows={16} placeholder="Write the body text. The Helix v2 signature is added automatically." />
-                    </label>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="mew-wizard-copy-resizer"
-                    onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); setComposerResizing(true); }}
-                    onDoubleClick={() => setComposerSplitPct(60)}
-                    aria-label="Resize composer and preview"
-                    title="Drag to resize composer and preview"
-                  />
-
-                  <aside className="mew-wizard-preview">
-                    <div className="mew-wizard-preview-bar">
-                      <span className="mew-eyebrow">Rendered email</span>
-                      <div className="mew-preview-toggle" role="group" aria-label="Preview device">
-                        {(['desktop', 'mobile'] as Array<Extract<PreviewDevice, 'desktop' | 'mobile'>>).map((device) => (
-                          <button
-                            key={device}
-                            type="button"
-                            className={copyPreviewDevice === device ? 'is-active' : ''}
-                            onClick={() => setCopyPreviewDevice(device)}
-                            aria-pressed={copyPreviewDevice === device}
-                          >
-                            {device === 'desktop' ? 'Desktop' : 'Mobile'}
-                          </button>
+                <div className="mew-copy-builder">
+                  <div className="mew-wizard-copy-fields mew-email-builder">
+                    <div className={`mew-copy-status${copyStepComplete ? ' is-complete' : ' is-action'}`} aria-label="Copy step status">
+                      <span className="mew-copy-status-icon" aria-hidden="true">
+                        {copyStepComplete ? <FiCheckCircle size={18} /> : <FiTarget size={18} />}
+                      </span>
+                      <div className="mew-copy-status-copy">
+                        <span className="mew-eyebrow">{demoModeEnabled && copyStepComplete ? 'Demo copy prefilled' : 'Copy status'}</span>
+                        <strong>{copyStepStatusTitle}</strong>
+                        <small>{copyStepStatusDetail}</small>
+                      </div>
+                      <div className="mew-copy-task-list" aria-label="Copy field readiness">
+                        {copyTaskRows.map((task) => (
+                          <span key={task.key} className={`mew-copy-task${task.complete ? ' is-complete' : task.optional ? ' is-optional' : ' is-action'}`}>
+                            {task.complete ? <FiCheckCircle size={12} aria-hidden="true" /> : <FiTarget size={12} aria-hidden="true" />}
+                            <b>{task.label}</b>
+                            <em>{task.status}</em>
+                            <small>{task.detail}</small>
+                          </span>
                         ))}
                       </div>
                     </div>
-                    <div className="mew-wizard-preview-stage">
-                      {renderDevicePreview(copyPreviewDevice)}
+                    <label className={`mew-wizard-field mew-email-block mew-email-block--subject mew-wizard-field--subject${copySubjectComplete ? ' is-filled is-complete' : ' is-action'}`}>
+                      <span><b>Subject line</b><em>{composeSubjectLength}/240</em><i>{copySubjectComplete ? 'Complete' : 'Action point'}</i></span>
+                      <input className="mew-wizard-input mew-wizard-input--subject" value={composeSubject} onChange={(event) => { setComposeSubject(event.currentTarget.value); setLockedCampaign(null); }} placeholder="Write the subject line recipients will see" maxLength={240} />
+                    </label>
+                    <label className={`mew-wizard-field mew-email-block mew-email-block--preheader mew-wizard-field--preheader${copyPreheaderComplete ? ' is-filled is-complete' : ' is-optional'}`}>
+                      <span><b>Preview text</b><em>{composePreheaderLength}/240</em><i>{copyPreheaderComplete ? 'Complete' : 'Optional'}</i></span>
+                      <input className="mew-wizard-input" value={composePreheader} onChange={(event) => { setComposePreheader(event.currentTarget.value); setLockedCampaign(null); }} placeholder="Add optional preview text shown after the subject" maxLength={240} />
+                    </label>
+                    <label className={`mew-wizard-field mew-email-block mew-email-block--body mew-wizard-field--body${copyBodyComplete ? ' is-filled is-complete' : ' is-action'}`}>
+                      <span><b>Body text</b><em>{formatNumber(composeBodyWordCount)} words</em><i>{copyBodyComplete ? 'Complete' : 'Action point'}</i></span>
+                      <textarea className="mew-wizard-input mew-wizard-textarea" value={composeBody} onChange={(event) => { setComposeBody(event.currentTarget.value); setLockedCampaign(null); }} rows={16} placeholder="Write the body text. The Helix v2 signature is added automatically." />
+                    </label>
+                    <div className={`mew-email-block mew-email-block--signature${signatureMatchesSender ? ' is-complete' : ' is-action'}`} aria-label="Signature footer preview">
+                      <span><b>Signature footer</b><em>{selectedSignatureLabel}</em><i>{signatureMatchesSender ? 'Complete' : 'Check sender'}</i></span>
+                      <div className="mew-copy-signature-preview">
+                        <span className="mew-copy-signature-mark" aria-hidden="true"><img src={logoIcon} alt="" /></span>
+                        <div className="mew-copy-signature-card">
+                          <strong>{senderSignatureIdentity.operatorName}</strong>
+                          <small>{senderSignatureIdentity.operatorEmail}</small>
+                          <div className="mew-copy-signature-lines" aria-hidden="true">
+                            <i />
+                            <i />
+                          </div>
+                          <footer>
+                            <em>{senderSignatureIdentity.operatorEmail}</em>
+                            <b>020 4538 6385</b>
+                            <b>helix-law.com</b>
+                          </footer>
+                        </div>
+                      </div>
                     </div>
-                  </aside>
+                  </div>
                 </div>
               </section>
             )}
@@ -2268,64 +2774,232 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
               <section className="mew-wizard-pane mew-wizard-review">
                 {lockedCampaign ? (
                   <div className="mew-wizard-success" role="status">
-                    <div className="mew-wizard-lock-summary">
-                      <span className="mew-wizard-success-mark" aria-hidden="true"><FiLock size={20} /></span>
-                      <div>
-                        <small>Locked snapshot</small>
-                        <strong>{formatNumber(reviewRecipientCount)} recipients ready</strong>
-                        <p>{formatNumber(reviewHeldCount)} held outside the send set. Preview the next capped batch, then confirm the exact recipient count.</p>
+                    <section
+                      className={`mew-release-board is-${lockedReleaseTone}`}
+                      data-helix-region="marketing/email-operations/sendgrid-batch"
+                      aria-live="polite"
+                      style={{ '--release-progress': `${lockedProgressPercent}%` } as React.CSSProperties}
+                    >
+                      <header className="mew-release-hero">
+                        <span className="mew-release-mark" aria-hidden="true">{lockedAllSent ? <FiCheckCircle size={22} /> : <FiLock size={20} />}</span>
+                        <div className="mew-release-copy">
+                          <span className="mew-eyebrow">Committed batch release</span>
+                          <strong>{lockedReleaseTitle}</strong>
+                          <p>{lockedReleaseDetail}</p>
+                        </div>
+                        <div className="mew-release-current" aria-label="Current send position">
+                          <small>{lockedAllSent ? 'Accepted' : 'This batch'}</small>
+                          <strong>{lockedAllSent ? `${formatNumber(lockedProgressPercent)}%` : formatNumber(lockedCurrentBatchCount)}</strong>
+                          <em>{lockedAllSent ? `${formatNumber(lockedSentCount)} of ${formatNumber(reviewRecipientCount)}` : `Recipients ${lockedBatchRangeLabel}`}</em>
+                        </div>
+                      </header>
+
+                      <div className="mew-release-progress" aria-label="Campaign send progress">
+                        <div className="mew-release-progress-track"><span /></div>
+                        <div className="mew-release-progress-meta">
+                          <span><strong>{formatNumber(reviewRecipientCount)}</strong><small>committed</small></span>
+                          <span><strong>{formatNumber(lockedSentCount)}</strong><small>accepted</small></span>
+                          <span><strong>{formatNumber(lockedRemainingCount)}</strong><small>unsent</small></span>
+                          <span><strong>{formatNumber(reviewHeldCount)}</strong><small>held aside</small></span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="mew-batch-panel" data-helix-region="marketing/email-operations/sendgrid-batch">
-                      <div className="mew-batch-stats" aria-label="SendGrid batch status">
-                        <span><small>Batch cap</small><strong>{formatNumber(batchPreview?.batchLimit ?? RECOMMENDED_DRIP_SIZE)}</strong></span>
-                        <span><small>Ready now</small><strong>{formatNumber(nextBatchCount)}</strong></span>
-                        <span><small>Unsent</small><strong>{formatNumber(batchPreview?.statusCounts.notSentCount ?? lockedCampaign.selectedCount ?? 0)}</strong></span>
-                        <span><small>Sent</small><strong>{formatNumber(batchPreview?.statusCounts.sentCount ?? lockedCampaign.sentCount ?? 0)}</strong></span>
+
+                      <div className="mew-release-batches" aria-label="Locked campaign batches">
+                        {lockedBatchSegments.map((batch) => (
+                          <span key={batch.batchNumber} className={`mew-release-batch${batch.isSent ? ' is-sent' : ''}${batch.isCurrent ? ' is-current' : ''}`} title={`Batch ${batch.batchNumber}: recipients ${batch.start}-${batch.end}`}>
+                            <small>Batch {batch.batchNumber}</small>
+                            <strong>{formatNumber(batch.start)}-{formatNumber(batch.end)}</strong>
+                            <em>{batch.isSent ? 'Sent' : batch.isCurrent ? lockedPreviewReady ? 'Previewed' : 'Next' : 'Waiting'}</em>
+                          </span>
+                        ))}
+                        {lockedHiddenBatchCount > 0 && <span className="mew-release-batch is-more"><small>Later</small><strong>+{formatNumber(lockedHiddenBatchCount)}</strong><em>Queued</em></span>}
                       </div>
-                      <div className="mew-batch-route" aria-label="SendGrid provider route">
-                        <span><small>Hub request</small><strong>Preview, then confirm</strong></span>
-                        <span><small>Provider request</small><strong>One SendGrid call per batch</strong></span>
-                        <span><small>Guardrail</small><strong>Hashes stay inside Hub</strong></span>
+
+                      {sendResult && (
+                        <div className={`mew-release-result is-${sendResult.status === 'error' ? 'error' : 'ok'}`} role={sendResult.status === 'error' ? 'alert' : 'status'}>
+                          {sendResult.status === 'error' ? <FiSlash size={15} aria-hidden="true" /> : <FiCheckCircle size={15} aria-hidden="true" />}
+                          <div>
+                            <small>{sendResult.status === 'error' ? 'Needs attention' : 'Latest outcome'}</small>
+                            <strong>{sendResult.message}</strong>
+                          </div>
+                        </div>
+                      )}
+
+                      {releaseProcessingEvents.length > 0 && (
+                        <div className="mew-release-log" aria-label="Recent campaign processing">
+                          <span className="mew-eyebrow">Recent assurances</span>
+                          {releaseProcessingEvents.map((event) => (
+                            <span key={event.id} className={`mew-release-log-row is-${event.status}`}>
+                              <i aria-hidden="true" />
+                              <strong>{event.label}</strong>
+                              <small>{event.detail}</small>
+                              <time dateTime={event.at}>{formatStamp(event.at)}</time>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {lockedCopyChanged && <div className="mew-release-warning">Copy changed after commit. Commit a fresh snapshot before sending.</div>}
+                      <div className="mew-release-actions">
+                        <div className="mew-release-action-copy">
+                          <strong>{lockedAllSent ? 'The committed send is finished' : lockedPreviewReady ? 'Send is ready' : `Preview batch ${formatNumber(lockedCurrentBatchNumber)} first`}</strong>
+                          <small>{lockedAllSent ? 'Nothing else will be sent from this committed snapshot.' : lockedPreviewReady ? 'The previewed count is tied to the send button.' : 'Preview confirms the exact recipient count before anything is sent.'}</small>
+                        </div>
+                        {!lockedAllSent ? (
+                          <div className="mew-release-buttons">
+                            {lockedPreviewReady ? (
+                              <>
+                                <button type="button" className="mew-btn mew-btn--primary" onClick={() => runSendGridBatch('send')} disabled={!canSendCurrentBatch || batchWorking !== null}>
+                                  {batchWorking === 'send' ? 'Sending' : `${lockedBatchActionLabel} now`}
+                                </button>
+                                <button type="button" className="mew-btn mew-btn--ghost" onClick={() => runSendGridBatch('preview')} disabled={!canPreviewCurrentBatch || batchWorking !== null}>
+                                  {batchWorking === 'preview' ? 'Refreshing' : 'Refresh preview'}
+                                </button>
+                              </>
+                            ) : (
+                              <button type="button" className="mew-btn mew-btn--primary" onClick={() => runSendGridBatch('preview')} disabled={!canPreviewCurrentBatch || batchWorking !== null}>
+                                {batchWorking === 'preview' ? 'Previewing' : `Preview batch ${formatNumber(lockedCurrentBatchNumber)}`}
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="mew-release-complete-note"><FiCheckCircle size={14} aria-hidden="true" /> Campaign results are attached to this locked send.</span>
+                        )}
                       </div>
-                      {batchPreview && !batchPreview.bodyHashMatches && <div className="mew-batch-warning">Copy changed after lock. Lock a fresh snapshot before sending.</div>}
-                      <div className="mew-batch-actions">
-                        <button type="button" className="mew-btn mew-btn--ghost" onClick={() => runSendGridBatch('preview')} disabled={!canPreviewBatch || batchWorking !== null}>
-                          {batchWorking === 'preview' ? 'Previewing' : 'Preview next batch'}
-                        </button>
-                        <button type="button" className="mew-btn mew-btn--primary" onClick={() => runSendGridBatch('send')} disabled={!canSendBatch || batchWorking !== null}>
-                          {batchWorking === 'send' ? 'Sending' : `Send ${formatNumber(batchPreview?.batchRecipientCount ?? 0)} in one call`}
-                        </button>
-                      </div>
-                    </div>
+                    </section>
                   </div>
                 ) : (
                   <>
-                    <div className="mew-wizard-lead">
-                      <h3>Proof, then lock</h3>
-                      <p>Confirm the inbox line, send yourself a proof, then lock the audience snapshot for batch release.</p>
-                    </div>
                     <div className="mew-wizard-review-layout">
                       <div className="mew-wizard-review-main">
-                        <div className="mew-wizard-review-grid">
-                          <article className="mew-wizard-stat"><small>List</small><strong>{selectedStream.label}</strong></article>
-                          <article className="mew-wizard-stat"><small>Sendable</small><strong>{formatNumber(segmentMembers.length)}</strong></article>
-                          <article className="mew-wizard-stat"><small>Drips</small><strong>{formatNumber(selectedDripCount)} @ {formatNumber(RECOMMENDED_DRIP_SIZE)}</strong></article>
-                          <article className="mew-wizard-stat"><small>From</small><strong>{selectedSenderLabel}</strong></article>
-                          <article className="mew-wizard-stat"><small>Signature</small><strong>{selectedSignatureLabel}</strong></article>
-                          <article className="mew-wizard-stat"><small>Proof</small><strong>{campaignProofState}</strong></article>
+                        <div className="mew-proof-lock-card" aria-label="Final campaign check">
+                          <header>
+                            <span className="mew-eyebrow">Ready check</span>
+                            <strong>Review and Commit Campaign</strong>
+                          </header>
+                          <div className="mew-commit-summary-table">
+                            <span>
+                              <small>Internal Campaign Name</small>
+                              <strong>{campaignInternalName}</strong>
+                            </span>
+                            <span>
+                              <small>Subject</small>
+                              <strong>{previewSubject}</strong>
+                            </span>
+                            <span>
+                              <small>Preheader / prefix</small>
+                              <strong>{previewPreheader}</strong>
+                            </span>
+                            <span>
+                              <small>From Sender</small>
+                              <strong>{selectedSenderIdentityLabel}</strong>
+                            </span>
+                            <span>
+                              <small>Reply-to</small>
+                              <strong>{CAMPAIGN_REPLY_TO_EMAIL}</strong>
+                            </span>
+                            <span>
+                              <small>Recipients</small>
+                              <strong>{formatNumber(segmentMembers.length)}</strong>
+                            </span>
+                            <span>
+                              <small>Batches</small>
+                              <strong>{formatNumber(selectedDripCount)}</strong>
+                            </span>
+                            <span>
+                              <small>Status</small>
+                              <strong>Pending Commit</strong>
+                              <em>{campaignProofState}</em>
+                            </span>
+                          </div>
                         </div>
-                        <div className="mew-wizard-review-inbox" aria-label="Inbox line preview">
-                          <small>Inbox proof</small>
-                          <strong>{previewSubject}</strong>
-                          <span>{previewPreheader}</span>
-                          <em>{campaignLockState}</em>
-                        </div>
-                        <div className="mew-wizard-send-row">
+                        <section className="mew-proof-test-card" aria-label="Mandatory test send">
+                          <header>
+                            <span className="mew-eyebrow">Send a Test</span>
+                            <strong>{proofEvidenceAccepted ? 'Test accepted for this campaign' : 'Mandatory before commit'}</strong>
+                            <p>The proof is sent to the current operator. Add optional internal reviewers from the demo roster before committing.</p>
+                          </header>
+                          <div className="mew-proof-recipient-row">
+                            <div className="mew-proof-required-recipient">
+                              <small>Required</small>
+                              <strong>{operatorProofRecipient?.label || 'Current operator unavailable'}</strong>
+                              <em>{operatorProofRecipient?.email || 'No Helix user email'}</em>
+                            </div>
+                            <div ref={proofRecipientMenuRef} className={`mew-compose-sender-select-wrap mew-proof-recipient-select${proofRecipientMenuOpen ? ' is-open' : ''}`}>
+                              <button
+                                type="button"
+                                className="mew-compose-sender-trigger"
+                                aria-haspopup="listbox"
+                                aria-expanded={proofRecipientMenuOpen}
+                                aria-controls="mew-proof-recipient-menu"
+                                onClick={() => setProofRecipientMenuOpen((open) => !open)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'ArrowDown') {
+                                    event.preventDefault();
+                                    setProofRecipientMenuOpen(true);
+                                  }
+                                }}
+                              >
+                                <span className="mew-compose-sender-value">
+                                  <strong>{selectedProofRecipientSummary}</strong>
+                                  <small>{formatNumber(selectedProofRecipients.length)} proof recipient{selectedProofRecipients.length === 1 ? '' : 's'}</small>
+                                </span>
+                                <span className="mew-compose-sender-chevron" aria-hidden="true"><FiChevronRight size={15} /></span>
+                              </button>
+                              {proofRecipientMenuOpen && (
+                                <div id="mew-proof-recipient-menu" className="mew-compose-sender-menu" role="listbox" aria-label="Optional internal proof recipients" aria-multiselectable="true">
+                                  {optionalProofRecipients.map((recipient) => {
+                                    const isSelected = proofRecipientSelections[recipient.email.toLowerCase()] === true;
+                                    return (
+                                      <button
+                                        key={recipient.email}
+                                        type="button"
+                                        role="option"
+                                        aria-selected={isSelected}
+                                        className={`mew-compose-sender-option${isSelected ? ' is-selected' : ''}`}
+                                        onClick={() => toggleProofRecipient(recipient.email, !isSelected)}
+                                      >
+                                        <span>
+                                          <strong>{recipient.label}</strong>
+                                          <small>{recipient.email}</small>
+                                        </span>
+                                        <em>{isSelected ? 'Included' : recipient.initials}</em>
+                                        {isSelected && <FiCheckCircle size={14} aria-hidden="true" />}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          {proofResults.length > 0 && (
+                            <div className={`mew-proof-results${proofEvidenceCurrent ? '' : ' is-stale'}`} aria-label="Test send results">
+                              <div className="mew-proof-results-head">
+                                <span className="mew-eyebrow">Test summary</span>
+                                <strong>{proofEvidenceCurrent ? 'Current campaign proof' : 'Retest required after changes'}</strong>
+                                <small>{proofSentAt ? formatStamp(proofSentAt) : 'Not sent'}</small>
+                              </div>
+                              <div className="mew-proof-result-list">
+                                {proofResults.map((row) => (
+                                  <span key={row.email} className={`mew-proof-result is-${row.status}`}>
+                                    <small>{row.initials}</small>
+                                    <strong>{row.label}</strong>
+                                    <em>{row.detail}</em>
+                                    <b>{row.sendGridMessageId ? `Message ${row.sendGridMessageId}` : row.email}</b>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </section>
+                        <div className="mew-wizard-send-row mew-wizard-send-row--lock">
                           <button type="button" className="mew-btn mew-btn--ghost" onClick={sendTest} disabled={!canTest || testSending}>
-                            {testSending ? 'Sending' : 'Send test to me'}
+                            {testSending ? 'Sending Test' : 'Send a Test'}
                           </button>
-                          <span className="mew-wizard-send-note">Lock becomes available once the audience, sender, signature, subject and body are ready.</span>
+                          <button type="button" className="mew-btn mew-btn--primary" onClick={lockCampaign} disabled={!canCommitCampaign}>
+                            {locking ? 'Committing' : 'Commit Campaign'}
+                          </button>
+                          <span className="mew-wizard-send-note">{proofEvidenceAccepted ? 'Commit creates the locked recipient snapshot. The next screen previews the exact first batch before any email is sent.' : proofSentAt && !proofEvidenceCurrent ? 'Campaign details changed. Send a Test again before commit.' : 'Commit is disabled until Send a Test is accepted for the current campaign details.'}</span>
                         </div>
                       </div>
                       <aside className="mew-wizard-review-preview" aria-label="Final rendered preview">
@@ -2355,11 +3029,6 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
               {campaignStep === 'copy' && (
                 <button type="button" className="mew-btn mew-btn--primary" onClick={() => setCampaignStep('review')} disabled={!campaignDraftReady}>
                   Continue to preview
-                </button>
-              )}
-              {campaignStep === 'review' && !lockedCampaign && (
-                <button type="button" className="mew-btn mew-btn--primary" onClick={lockCampaign} disabled={!canLock}>
-                  {locking ? 'Locking' : 'Lock campaign'}
                 </button>
               )}
               {campaignStep === 'review' && lockedCampaign && (
@@ -2518,7 +3187,9 @@ const mewStyles = `
   .mew-growth-stack,
   .mew-growth-bar em,
   .mew-skeleton-line,
-  .mew-skeleton-block {
+  .mew-skeleton-block,
+  .mew-compose-sender-select-wrap.is-updated,
+  .mew-compose-sender-menu {
     animation: none !important;
     opacity: 1;
     transform: none;
@@ -2571,8 +3242,9 @@ const mewStyles = `
 .mew-wizard-pane { display: grid; gap: 14px; min-height: 100%; }
 .mew-wizard-lead h3 { margin: 0 0 2px; font-size: 16px; font-weight: 900; color: var(--mew-text); }
 .mew-wizard-lead p { margin: 0; font-size: 12px; font-weight: 700; color: var(--mew-muted); }
-.mew-wizard-audience-board { display: grid; grid-template-columns: minmax(300px, 0.9fr) minmax(260px, 0.72fr) minmax(0, 1.28fr); gap: 10px; align-items: stretch; min-width: 0; }
-.mew-wizard-audience-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; min-width: 0; padding: 13px; border: 1px solid color-mix(in srgb, var(--stream-accent, var(--wizard-accent)) 34%, var(--mew-edge)); border-left: 3px solid var(--stream-accent, var(--wizard-accent)); background: color-mix(in srgb, var(--stream-accent, var(--wizard-accent)) 8%, var(--mew-elevated)); }
+.mew-wizard-audience-board { display: grid; grid-template-columns: minmax(300px, 0.92fr) minmax(0, 1.08fr); gap: 10px; align-items: stretch; min-width: 0; }
+.mew-wizard-audience-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px 12px; align-items: center; min-width: 0; padding: 12px; border: 1px solid color-mix(in srgb, var(--stream-accent, var(--wizard-accent)) 34%, var(--mew-edge)); border-left: 3px solid var(--stream-accent, var(--wizard-accent)); background: color-mix(in srgb, var(--stream-accent, var(--wizard-accent)) 8%, var(--mew-elevated)); transition: border-color 160ms ease, background 160ms ease; }
+.mew-wizard-audience-hero:hover { border-color: color-mix(in srgb, var(--stream-accent, var(--wizard-accent)) 48%, var(--mew-edge)); background: color-mix(in srgb, var(--stream-accent, var(--wizard-accent)) 10%, var(--mew-elevated)); }
 .mew-wizard-audience-glyph { display: inline-flex; flex-shrink: 0; }
 .mew-wizard-audience-title { display: grid; gap: 3px; min-width: 0; }
 .mew-wizard-audience-title small, .mew-wizard-section-head span { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -2581,25 +3253,90 @@ const mewStyles = `
 .mew-wizard-audience-count { display: grid; gap: 2px; justify-items: end; min-width: 76px; }
 .mew-wizard-audience-count strong { color: var(--mew-text); font-size: 30px; font-weight: 900; line-height: 0.95; font-variant-numeric: tabular-nums; }
 .mew-wizard-audience-count small { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
-.mew-wizard-audience-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; min-width: 0; }
-.mew-wizard-audience-metrics span { display: grid; gap: 3px; min-width: 0; padding: 9px 10px; border: 1px solid var(--mew-edge); background: var(--mew-elevated); }
+.mew-wizard-audience-metrics { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; min-width: 0; padding-top: 2px; }
+.mew-wizard-audience-metrics span { display: grid; gap: 2px; min-width: 0; padding: 7px 8px; border: 1px solid var(--mew-edge); background: color-mix(in srgb, var(--mew-control) 66%, transparent); transition: border-color 160ms ease, background 160ms ease, transform 140ms ease; }
+.mew-wizard-audience-metrics span:hover { transform: translateY(-1px); }
+.mew-silo-metric--full:hover { border-color: color-mix(in srgb, var(--stream-accent, var(--wizard-accent)) 44%, var(--mew-edge)); background: color-mix(in srgb, var(--stream-accent, var(--wizard-accent)) 9%, var(--mew-control)); }
+.mew-silo-metric--held:hover { border-color: color-mix(in srgb, var(--mew-red) 36%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-red) 6%, var(--mew-control)); }
+.mew-silo-metric--clients:hover { border-color: color-mix(in srgb, var(--mew-orange) 40%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-orange) 8%, var(--mew-control)); }
+.mew-silo-metric--batches:hover { border-color: color-mix(in srgb, var(--mew-green) 40%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-green) 8%, var(--mew-control)); }
 .mew-wizard-audience-metrics small { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mew-wizard-audience-metrics strong { color: var(--mew-text); font-size: 17px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
-.mew-wizard-audience-batches { display: grid; gap: 8px; min-width: 0; padding: 10px; border: 1px solid var(--mew-edge); background: var(--mew-elevated); }
+.mew-wizard-audience-metrics strong { color: var(--mew-text); font-size: 15px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+.mew-wizard-audience-batches { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 24%, var(--mew-edge)); border-left: 3px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 60%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 6%, var(--mew-elevated)); transition: border-color 160ms ease, background 160ms ease; }
+.mew-wizard-audience-batches:hover { border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 42%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 8%, var(--mew-elevated)); }
 .mew-wizard-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
 .mew-wizard-section-head strong { color: var(--mew-muted); font-size: 10px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mew-wizard-batch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 7px; align-items: stretch; }
-.mew-wizard-batch { display: grid; gap: 3px; min-width: 0; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 24%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 7%, transparent); }
+.mew-wizard-batch-plan { display: grid; grid-template-columns: minmax(84px, 0.26fr) minmax(0, 1fr); gap: 8px; align-items: stretch; min-width: 0; }
+.mew-wizard-batch-total { display: grid; gap: 4px; align-content: center; min-width: 0; padding: 9px; border: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 38%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 10%, var(--mew-control)); }
+.mew-wizard-batch-total small { color: var(--wizard-accent, var(--mew-tone)); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; }
+.mew-wizard-batch-total strong { color: var(--mew-text); font-size: 28px; font-weight: 900; line-height: 0.9; font-variant-numeric: tabular-nums; }
+.mew-wizard-batch-total em { color: var(--mew-muted); font-size: 9px; font-style: normal; font-weight: 800; line-height: 1.25; }
+.mew-wizard-batch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 7px; align-items: stretch; }
+.mew-wizard-batch { display: grid; gap: 3px; min-width: 0; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 24%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 7%, var(--mew-control)); transition: border-color 160ms ease, background 160ms ease, transform 140ms ease; }
+.mew-wizard-batch:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 42%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 10%, var(--mew-control)); }
 .mew-wizard-batch small { color: var(--wizard-accent, var(--mew-tone)); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mew-wizard-batch strong { color: var(--mew-text); font-size: 17px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
 .mew-wizard-batch em { color: var(--mew-muted); font-size: 9px; font-style: normal; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mew-wizard-batch.is-empty { align-content: center; min-height: 52px; color: var(--mew-muted); font-size: 11px; font-weight: 800; }
-.mew-compose-sender { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; align-items: stretch; padding: 11px; border: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 22%, var(--mew-edge)); background: linear-gradient(180deg, color-mix(in srgb, var(--mew-elevated) 88%, transparent), color-mix(in srgb, var(--mew-surface) 96%, transparent)); overflow: hidden; box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 6%, transparent); }
+.mew-demo-recipient-panel { display: grid; gap: 9px; min-width: 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 24%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 5%, var(--mew-elevated)); }
+.mew-demo-recipient-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.mew-demo-recipient-head > div:first-child { display: grid; gap: 2px; min-width: 0; }
+.mew-demo-recipient-head strong { color: var(--mew-text); font-size: 11px; font-weight: 900; line-height: 1.1; }
+.mew-demo-recipient-actions { display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.mew-demo-silo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; min-width: 0; align-items: stretch; }
+.mew-demo-silo { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; min-width: 0; padding: 9px; border: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 22%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 4%, var(--mew-surface)); transition: border-color 160ms ease, background 160ms ease, transform 140ms ease; }
+.mew-demo-silo:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 38%, var(--mew-edge)); }
+.mew-demo-silo.is-selected { border-color: color-mix(in srgb, var(--mew-green) 42%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-green) 7%, var(--mew-surface)); }
+.mew-demo-silo-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; min-width: 0; padding-bottom: 7px; border-bottom: 1px solid color-mix(in srgb, var(--mew-edge) 68%, transparent); }
+.mew-demo-silo-head > div { display: grid; gap: 2px; min-width: 0; }
+.mew-demo-silo-head strong { color: var(--mew-text); font-size: 11px; font-weight: 900; line-height: 1.1; overflow-wrap: anywhere; }
+.mew-demo-silo-head small { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.mew-demo-silo-members { display: grid; gap: 6px; min-width: 0; align-content: start; }
+.mew-demo-recipient { grid-column: span 2; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; min-width: 0; padding: 8px 9px; border: 1px solid var(--mew-edge); background: var(--mew-control); cursor: pointer; transition: border-color 160ms ease, background 160ms ease, transform 140ms ease; }
+.mew-demo-silo-members .mew-demo-recipient { grid-column: auto; }
+.mew-demo-recipient--wide { grid-column: span 3; }
+.mew-demo-recipient--compact { grid-column: span 2; }
+.mew-demo-recipient:hover { border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 38%, var(--mew-edge)); transform: translateY(-1px); }
+.mew-demo-recipient.is-selected { border-color: color-mix(in srgb, var(--mew-green) 44%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-green) 9%, var(--mew-control)); }
+.mew-demo-recipient input { width: 13px; height: 13px; margin: 0; accent-color: var(--mew-green); }
+.mew-demo-recipient span { display: grid; gap: 1px; min-width: 0; }
+.mew-demo-recipient strong { color: var(--mew-text); font-size: 10px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-demo-recipient small, .mew-demo-recipient em { color: var(--mew-muted); font-size: 8px; font-style: normal; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-demo-recipient-empty { grid-column: 1 / -1; padding: 10px; border: 1px dashed var(--mew-edge); color: var(--mew-muted); font-size: 10px; font-weight: 800; text-align: center; }
+.mew-compose-sender { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; align-items: stretch; padding: 11px; border: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 22%, var(--mew-edge)); background: linear-gradient(180deg, color-mix(in srgb, var(--mew-elevated) 88%, transparent), color-mix(in srgb, var(--mew-surface) 96%, transparent)); overflow: visible; box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 6%, transparent); }
 .mew-compose-sender::before { content: ''; position: absolute; inset: 0 0 auto; height: 2px; background: linear-gradient(90deg, var(--wizard-accent, var(--mew-tone)), color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 18%, transparent)); opacity: 0.9; }
-.mew-compose-sender-copy { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(250px, 0.94fr) minmax(0, 1.06fr); gap: 11px; align-items: stretch; min-width: 0; }
-.mew-compose-sender-primary { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; align-content: center; min-width: 0; padding: 9px 0 9px 2px; border: 0; background: transparent; }
+.mew-compose-sender-copy { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: stretch; min-width: 0; }
+.mew-compose-sender-identity { display: grid; grid-template-rows: auto auto; gap: 7px; min-width: 0; }
+.mew-compose-sender-primary { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; align-content: center; min-width: 0; padding: 3px 0 0 2px; border: 0; background: transparent; }
 .mew-compose-sender-primary small { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; }
 .mew-compose-sender-primary em { color: color-mix(in srgb, var(--mew-muted) 82%, var(--mew-text)); font-size: 9px; font-style: normal; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mew-compose-signature-preview { position: relative; display: grid; gap: 5px; align-content: start; min-width: 0; min-height: 0; padding: 8px 10px 9px 12px; border: 1px solid color-mix(in srgb, var(--mew-edge) 72%, transparent); background: linear-gradient(135deg, var(--mew-control), color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 8%, var(--mew-surface))); }
+.mew-compose-signature-preview::before { content: ''; position: absolute; inset: 8px auto 8px 0; width: 2px; background: var(--mew-green); opacity: 0.86; }
+.mew-compose-signature-preview.is-warning::before { background: var(--mew-orange); }
+.mew-compose-signature-preview.is-updated { animation: mewSettingPulse 820ms ease; }
+.mew-compose-signature-preview > span { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; }
+.mew-signature-mini-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; min-width: 0; padding: 7px 8px; border: 1px solid color-mix(in srgb, var(--mew-edge) 76%, transparent); background: var(--mew-surface); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 16%, transparent); }
+.mew-signature-mini-card strong { min-width: 0; color: var(--mew-text); font-size: 12px; font-weight: 900; line-height: 1.05; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-signature-mini-card small { grid-column: 1; min-width: 0; color: color-mix(in srgb, var(--mew-muted) 84%, var(--mew-text)); font-size: 8px; font-weight: 850; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-signature-mini-lines { grid-column: 2; grid-row: 1 / span 2; align-self: center; display: grid; gap: 3px; width: 42px; }
+.mew-signature-mini-lines i { display: block; height: 3px; background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 34%, var(--mew-edge)); }
+.mew-signature-mini-lines i:last-child { width: 64%; justify-self: end; opacity: 0.7; }
+.mew-signature-mini-card footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; min-width: 0; padding-top: 5px; border-top: 1px solid color-mix(in srgb, var(--mew-edge) 58%, transparent); }
+.mew-signature-mini-card footer em, .mew-signature-mini-card footer b { min-width: 0; color: var(--mew-muted); font-size: 7px; font-style: normal; font-weight: 850; line-height: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-signature-mini-card footer em { max-width: 45%; color: color-mix(in srgb, var(--mew-green) 72%, var(--mew-text)); }
+.mew-compose-rank-panel { display: grid; gap: 7px; min-width: 0; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--mew-edge) 72%, transparent); background: color-mix(in srgb, var(--mew-control) 54%, transparent); }
+.mew-compose-rank-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.mew-compose-rank-head span { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; }
+.mew-compose-rank-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; min-width: 0; }
+.mew-compose-rank { position: relative; display: grid; justify-items: center; align-content: center; gap: 2px; min-width: 0; aspect-ratio: 1 / 1; max-height: 56px; padding: 5px 3px; border: 1px solid var(--mew-edge); background: color-mix(in srgb, var(--mew-surface) 62%, transparent); color: var(--mew-muted); overflow: hidden; }
+.mew-compose-rank b { color: inherit; font-size: 15px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+.mew-compose-rank small { color: inherit; font-size: 6px; font-weight: 900; line-height: 1; text-transform: uppercase; letter-spacing: 0; white-space: nowrap; }
+.mew-compose-rank em { color: inherit; font-size: 7px; font-style: normal; font-weight: 800; line-height: 1; opacity: 0.82; }
+.mew-compose-rank svg { color: inherit; opacity: 0.82; width: 10px; height: 10px; }
+.mew-compose-rank--active { border-color: color-mix(in srgb, var(--mew-green) 56%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-green) 12%, var(--mew-control)); color: color-mix(in srgb, var(--mew-green) 78%, var(--mew-text)); box-shadow: inset 0 -2px 0 var(--mew-green); }
+.mew-compose-rank--locked-low, .mew-compose-rank--locked-high { opacity: 0.72; }
+.mew-compose-rank--locked-low { background: color-mix(in srgb, var(--mew-orange) 7%, var(--mew-control)); }
+.mew-compose-rank--locked-high { background: color-mix(in srgb, var(--mew-red) 5%, var(--mew-control)); }
 .mew-compose-sender-settings { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(92px, 0.66fr) minmax(130px, 0.86fr); gap: 8px; align-items: stretch; }
 .mew-compose-setting { position: relative; display: grid; grid-template-rows: auto 1fr; gap: 5px; align-content: center; min-width: 0; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--mew-edge) 70%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--mew-surface) 76%, transparent), color-mix(in srgb, var(--mew-control) 26%, transparent)); transition: border-color 180ms ease, background 180ms ease, transform 180ms ease, box-shadow 180ms ease; }
 .mew-compose-setting::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 2px; background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 52%, transparent); opacity: 0; transition: opacity 180ms ease; }
@@ -2614,86 +3351,209 @@ const mewStyles = `
 .mew-compose-setting-check-row { display: inline-grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 7px; min-width: 0; align-self: end; }
 .mew-compose-setting-check-row input { width: 16px; height: 16px; margin: 0; accent-color: var(--wizard-accent, var(--mew-tone)); }
 .mew-compose-setting-check-row strong { color: var(--mew-text); font-size: 11px; font-weight: 800; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mew-compose-sender-select-wrap { position: relative; display: inline-flex; align-items: center; width: 100%; max-width: 100%; min-width: 0; min-height: 34px; border: 1px solid color-mix(in srgb, var(--mew-edge) 78%, transparent); background: transparent; transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease; }
-.mew-compose-sender-select-wrap:hover, .mew-compose-sender-select-wrap:focus-within { border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 46%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 5%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 16%, transparent); }
-.mew-compose-sender-select-wrap select { width: 100%; max-width: 100%; min-height: 32px; padding: 0 28px 0 10px; border: 0; background: transparent; appearance: none; color: var(--mew-text); font-family: 'Raleway', sans-serif; font-size: 14px; font-weight: 900; line-height: 1.2; cursor: pointer; text-overflow: ellipsis; }
-.mew-compose-sender-select-wrap select:hover { color: var(--mew-text); }
-.mew-compose-sender-select-wrap select:focus { outline: none; color: var(--wizard-accent, var(--mew-tone)); }
-.mew-compose-sender-select-wrap select option { background: var(--mew-surface); color: var(--mew-text); font-weight: 800; }
-.mew-compose-sender-select-wrap span { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--mew-muted); font-size: 12px; pointer-events: none; line-height: 1; transition: color 160ms ease, transform 160ms ease; }
-.mew-compose-sender-select-wrap:hover span, .mew-compose-sender-select-wrap:focus-within span { color: var(--wizard-accent, var(--mew-tone)); transform: translateY(-50%) rotate(180deg); }
+.mew-compose-sender-select-wrap { position: relative; width: 100%; max-width: 100%; min-width: 0; z-index: 12; }
+.mew-compose-sender-select-wrap.is-open { z-index: 80; }
+.mew-compose-sender-select-wrap.is-updated { animation: mewSettingPulse 820ms ease; }
+.mew-compose-sender-trigger { width: 100%; min-height: 42px; display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; gap: 10px; padding: 7px 7px 7px 11px; border: 1px solid color-mix(in srgb, var(--mew-edge) 78%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--mew-surface) 84%, transparent), color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 6%, transparent)); color: var(--mew-text); font-family: 'Raleway', sans-serif; cursor: pointer; text-align: left; transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
+.mew-compose-sender-trigger:hover, .mew-compose-sender-trigger:focus-visible, .mew-compose-sender-select-wrap.is-open .mew-compose-sender-trigger { border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 58%, var(--mew-edge)); background: linear-gradient(135deg, color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 9%, var(--mew-surface)), color-mix(in srgb, var(--mew-control) 54%, transparent)); box-shadow: 0 10px 24px color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 12%, rgba(0,0,0,0.12)); transform: translateY(-1px); outline: none; }
+.mew-compose-sender-value { display: grid; gap: 2px; min-width: 0; }
+.mew-compose-sender-value strong { color: var(--mew-text); font-size: 14px; font-weight: 900; line-height: 1.08; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-compose-sender-value small { color: color-mix(in srgb, var(--mew-muted) 86%, var(--mew-text)); font-size: 9px; font-weight: 800; text-transform: none; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-compose-sender-chevron { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 1px solid color-mix(in srgb, var(--mew-edge) 70%, transparent); background: color-mix(in srgb, var(--mew-control) 68%, transparent); color: var(--mew-muted); transition: color 160ms ease, border-color 160ms ease, background 160ms ease; }
+.mew-compose-sender-chevron svg { transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+.mew-compose-sender-select-wrap.is-open .mew-compose-sender-chevron { color: var(--wizard-accent, var(--mew-tone)); border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 50%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 12%, var(--mew-control)); }
+.mew-compose-sender-select-wrap.is-open .mew-compose-sender-chevron svg { transform: rotate(90deg); }
+.mew-compose-sender-menu { position: absolute; left: 0; right: 0; top: auto; bottom: calc(100% + 7px); display: grid; gap: 5px; padding: 7px; border: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 36%, var(--mew-edge)); background: var(--mew-elevated); box-shadow: 0 22px 42px rgba(0,0,0,0.22); animation: mewSenderMenuIn 150ms cubic-bezier(0.22, 0.61, 0.36, 1); transform-origin: 50% 100%; }
+.mew-compose-sender-menu::before { content: ''; position: absolute; left: 15px; bottom: -5px; width: 9px; height: 9px; border-right: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 36%, var(--mew-edge)); border-bottom: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 36%, var(--mew-edge)); background: var(--mew-elevated); transform: rotate(45deg); }
+.mew-compose-sender-option { position: relative; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; gap: 9px; min-height: 46px; padding: 8px 8px 8px 10px; border: 1px solid transparent; background: transparent; color: var(--mew-text); font-family: 'Raleway', sans-serif; text-align: left; cursor: pointer; transition: border-color 140ms ease, background 140ms ease, transform 140ms ease, color 140ms ease; }
+.mew-compose-sender-option span { display: grid; gap: 2px; min-width: 0; }
+.mew-compose-sender-option strong { color: inherit; font-size: 12px; font-weight: 900; line-height: 1.08; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-compose-sender-option small { color: var(--mew-muted); font-size: 9px; font-weight: 800; letter-spacing: 0; text-transform: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 140ms ease; }
+.mew-compose-sender-option em { color: var(--mew-muted); font-size: 9px; font-style: normal; font-weight: 800; white-space: nowrap; transition: color 140ms ease; }
+.mew-compose-sender-option svg { color: var(--wizard-accent, var(--mew-tone)); opacity: 0.95; }
+.mew-compose-sender-option:hover, .mew-compose-sender-option:focus-visible { border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 34%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 8%, var(--mew-control)); transform: translateX(2px); outline: none; }
+.mew-compose-sender-option:hover small, .mew-compose-sender-option:focus-visible small, .mew-compose-sender-option:hover em, .mew-compose-sender-option:focus-visible em { color: color-mix(in srgb, var(--mew-muted) 70%, var(--mew-text)); }
+.mew-compose-sender-option.is-selected { border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 48%, var(--mew-edge)); background: linear-gradient(90deg, color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 14%, transparent), color-mix(in srgb, var(--mew-control) 42%, transparent)); color: var(--mew-text); }
+.mew-compose-sender-option.is-selected::before { content: ''; position: absolute; inset: 8px auto 8px 0; width: 2px; background: var(--wizard-accent, var(--mew-tone)); }
 .mew-wizard-stat { display: grid; gap: 3px; min-width: 0; padding: 9px 10px; border: 1px solid var(--mew-edge); background: var(--mew-elevated); }
 .mew-wizard-stat small { color: var(--mew-muted); font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
 .mew-wizard-stat strong { color: var(--mew-text); font-size: 14px; font-weight: 900; line-height: 1.05; overflow-wrap: anywhere; }
 .mew-wizard-stat--hero { grid-column: span 2; border-left: 3px solid var(--wizard-accent, var(--mew-tone)); }
 .mew-wizard-stat--hero strong { font-size: 28px; line-height: 0.95; }
 .mew-wizard-stat--hero em { color: var(--mew-muted); font-size: 10px; font-style: normal; font-weight: 800; }
-.mew-wizard-copy { display: block; }
-.mew-wizard-copy-split { --compose-left: 56%; display: grid; grid-template-columns: minmax(340px, var(--compose-left)) 8px minmax(320px, 1fr); gap: 12px; align-items: start; animation: mewComposerIn 220ms ease-out both; }
-.mew-wizard-copy-split.is-resizing { user-select: none; cursor: col-resize; }
-.mew-wizard-copy-resizer { align-self: stretch; width: 8px; min-height: 100%; border: 1px solid var(--mew-edge); border-top: 0; border-bottom: 0; background: linear-gradient(90deg, transparent, var(--mew-edge), transparent); cursor: col-resize; padding: 0; touch-action: none; opacity: 0.72; transition: opacity 160ms ease, background 160ms ease; }
-.mew-wizard-copy-resizer:hover, .mew-wizard-copy-split.is-resizing .mew-wizard-copy-resizer { opacity: 1; background: linear-gradient(90deg, transparent, var(--mew-tone), transparent); }
-.mew-wizard-copy-fields { display: grid; gap: 12px; align-content: start; min-width: 0; padding: 12px; border: 1px solid var(--mew-edge); background: linear-gradient(180deg, color-mix(in srgb, var(--mew-elevated) 92%, transparent), var(--mew-surface)); box-shadow: none; }
+.mew-wizard-copy { display: grid; justify-items: center; }
+.mew-copy-builder { width: min(940px, 100%); min-width: 0; animation: mewComposerIn 220ms ease-out both; }
+.mew-wizard-copy-fields { display: grid; gap: 0; align-content: start; min-width: 0; padding: 13px; border: 1px solid var(--mew-edge); background: linear-gradient(180deg, color-mix(in srgb, var(--mew-elevated) 94%, transparent), color-mix(in srgb, var(--mew-control) 54%, var(--mew-surface))); box-shadow: none; }
+.mew-email-builder { position: relative; }
+.mew-email-builder::before { content: ''; position: absolute; inset: 13px 13px auto; height: 3px; background: linear-gradient(90deg, var(--wizard-accent, var(--mew-tone)), color-mix(in srgb, var(--mew-green) 54%, var(--wizard-accent, var(--mew-tone)))); opacity: 0.9; }
+.mew-copy-status { --copy-tone: var(--mew-orange); display: grid; grid-template-columns: auto minmax(0, 0.72fr) minmax(220px, 1fr); gap: 10px; align-items: stretch; min-width: 0; padding: 11px; border: 1px solid color-mix(in srgb, var(--copy-tone) 36%, var(--mew-edge)); background: linear-gradient(135deg, color-mix(in srgb, var(--copy-tone) 9%, var(--mew-control)), color-mix(in srgb, var(--mew-elevated) 82%, transparent)); }
+.mew-email-builder .mew-copy-status { margin: 0 0 12px; }
+.mew-copy-status.is-complete { --copy-tone: var(--mew-green); }
+.mew-copy-status.is-action { --copy-tone: var(--mew-orange); }
+.mew-copy-status-icon { display: inline-grid; place-items: center; width: 34px; height: 34px; align-self: start; border: 1px solid color-mix(in srgb, var(--copy-tone) 46%, var(--mew-edge)); background: color-mix(in srgb, var(--copy-tone) 12%, var(--mew-control)); color: var(--copy-tone); }
+.mew-copy-status-copy { display: grid; gap: 3px; min-width: 0; align-content: center; }
+.mew-copy-status-copy strong { color: var(--mew-text); font-size: 15px; font-weight: 900; line-height: 1.12; overflow-wrap: anywhere; }
+.mew-copy-status-copy small { color: var(--mew-muted); font-size: 9px; font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; }
+.mew-copy-task-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; min-width: 0; }
+.mew-copy-task { --task-tone: var(--mew-orange); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 6px; align-items: center; min-width: 0; padding: 7px 8px; border: 1px solid color-mix(in srgb, var(--task-tone) 32%, var(--mew-edge)); background: color-mix(in srgb, var(--task-tone) 7%, var(--mew-control)); color: var(--task-tone); }
+.mew-copy-task.is-complete { --task-tone: var(--mew-green); }
+.mew-copy-task.is-action { --task-tone: var(--mew-orange); }
+.mew-copy-task.is-optional { --task-tone: var(--mew-muted); }
+.mew-copy-task svg { color: currentColor; }
+.mew-copy-task b { min-width: 0; color: var(--mew-text); font-size: 9px; font-weight: 900; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-copy-task em { color: currentColor; font-size: 8px; font-style: normal; font-weight: 900; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
+.mew-copy-task small { grid-column: 2 / -1; color: var(--mew-muted); font-size: 8px; font-weight: 750; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mew-wizard-field { position: relative; display: grid; gap: 6px; min-width: 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--mew-edge) 80%, transparent); background: color-mix(in srgb, var(--mew-control) 72%, transparent); transition: border-color 160ms ease, background 160ms ease, transform 160ms ease, box-shadow 160ms ease; }
 .mew-wizard-field:hover, .mew-wizard-field:focus-within { border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 48%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 6%, var(--mew-control)); transform: translateY(-1px); box-shadow: 0 10px 20px rgba(0,0,0,0.07); }
 .mew-wizard-field.is-filled { border-left: 3px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 74%, var(--mew-edge)); }
-.mew-wizard-field > span { display: flex; align-items: center; justify-content: space-between; color: var(--mew-muted); font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
-.mew-wizard-field > span em { font-style: normal; font-weight: 800; color: var(--mew-muted); }
+.mew-wizard-field.is-complete { border-left-color: var(--mew-green); background: color-mix(in srgb, var(--mew-green) 6%, var(--mew-control)); }
+.mew-wizard-field.is-action { border-left: 3px solid var(--mew-orange); background: color-mix(in srgb, var(--mew-orange) 6%, var(--mew-control)); }
+.mew-wizard-field.is-optional { border-left: 3px solid color-mix(in srgb, var(--mew-muted) 58%, var(--mew-edge)); }
+.mew-email-block { position: relative; display: grid; gap: 8px; min-width: 0; padding: 15px 16px; border: 1px solid color-mix(in srgb, var(--mew-edge) 82%, transparent); border-left: 3px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 36%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-surface) 86%, transparent); transition: border-color 160ms ease, background 160ms ease, transform 160ms ease, box-shadow 160ms ease; }
+.mew-email-block + .mew-email-block { border-top: 0; }
+.mew-email-block:hover, .mew-email-block:focus-within { border-color: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 42%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 5%, var(--mew-surface)); transform: translateY(-1px); box-shadow: 0 12px 22px rgba(0,0,0,0.07); z-index: 1; }
+.mew-email-block.is-complete { border-left-color: var(--mew-green); background: color-mix(in srgb, var(--mew-green) 5%, var(--mew-surface)); }
+.mew-email-block.is-action { border-left-color: var(--mew-orange); background: color-mix(in srgb, var(--mew-orange) 5%, var(--mew-surface)); }
+.mew-email-block.is-optional { border-left-color: color-mix(in srgb, var(--mew-muted) 58%, var(--mew-edge)); }
+.mew-email-block > span { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; align-items: center; color: var(--mew-muted); font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
+.mew-email-block > span b { min-width: 0; color: inherit; font-size: inherit; font-weight: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-email-block > span em { font-style: normal; font-weight: 800; color: var(--mew-muted); }
+.mew-email-block > span i { padding: 3px 6px; border: 1px solid color-mix(in srgb, var(--mew-muted) 38%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-control) 68%, transparent); color: var(--mew-muted); font-size: 8px; font-style: normal; font-weight: 900; line-height: 1; white-space: nowrap; }
+.mew-email-block.is-complete > span i { border-color: color-mix(in srgb, var(--mew-green) 42%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-green) 10%, var(--mew-control)); color: var(--mew-green); }
+.mew-email-block.is-action > span i { border-color: color-mix(in srgb, var(--mew-orange) 46%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-orange) 10%, var(--mew-control)); color: var(--mew-orange); }
 .mew-wizard-input { width: 100%; min-height: 34px; padding: 0; border: 0; background: transparent; color: var(--mew-text); font-family: 'Raleway', sans-serif; font-size: 12px; font-weight: 700; }
 .mew-wizard-input::placeholder { color: color-mix(in srgb, var(--mew-muted) 72%, transparent); font-weight: 700; }
 .mew-wizard-input:focus { outline: none; }
+.mew-email-block--subject .mew-wizard-input--subject { min-height: 46px; color: var(--mew-text); font-size: 22px; font-weight: 900; line-height: 1.12; letter-spacing: 0; }
+.mew-email-block--preheader .mew-wizard-input { min-height: 36px; color: color-mix(in srgb, var(--mew-muted) 72%, var(--mew-text)); font-size: 13px; font-weight: 800; }
 .mew-wizard-input--subject { min-height: 38px; font-size: 16px; font-weight: 900; letter-spacing: 0; }
-.mew-wizard-textarea { min-height: 270px; padding: 0; line-height: 1.58; font-weight: 650; resize: vertical; }
+.mew-wizard-textarea { min-height: 310px; padding: 2px 0 0; line-height: 1.62; font-weight: 650; resize: vertical; }
 .mew-wizard-field--body { align-content: start; }
-.mew-wizard-preview { position: sticky; top: 0; display: grid; gap: 0; align-content: start; border: 1px solid var(--mew-edge); background: linear-gradient(180deg, var(--mew-elevated), color-mix(in srgb, var(--mew-control) 54%, transparent)); min-width: 0; overflow: hidden; }
+.mew-email-block--signature { border-left-color: color-mix(in srgb, var(--mew-green) 68%, var(--mew-edge)); background: linear-gradient(180deg, color-mix(in srgb, var(--mew-green) 5%, var(--mew-surface)), color-mix(in srgb, var(--mew-control) 34%, transparent)); }
+.mew-copy-signature-preview { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; min-width: 0; padding: 10px 0 2px; }
+.mew-copy-signature-mark { display: inline-grid; place-items: center; width: 38px; height: 38px; border: 1px solid color-mix(in srgb, var(--mew-green) 34%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-control) 74%, transparent); }
+.mew-copy-signature-mark img { width: 24px; height: 24px; object-fit: contain; }
+.mew-copy-signature-card { display: grid; grid-template-columns: minmax(0, 0.42fr) minmax(0, 1fr); gap: 3px 12px; min-width: 0; align-items: start; }
+.mew-copy-signature-card strong { color: var(--mew-text); font-size: 14px; font-weight: 900; line-height: 1.1; overflow-wrap: anywhere; }
+.mew-copy-signature-card small { color: color-mix(in srgb, var(--mew-green) 68%, var(--mew-text)); font-size: 10px; font-weight: 850; line-height: 1.2; overflow-wrap: anywhere; }
+.mew-copy-signature-lines { display: grid; gap: 5px; align-self: center; }
+.mew-copy-signature-lines i { height: 5px; background: color-mix(in srgb, var(--mew-muted) 18%, transparent); }
+.mew-copy-signature-lines i:last-child { width: 72%; opacity: 0.72; }
+.mew-copy-signature-card footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 5px 10px; min-width: 0; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--mew-edge) 64%, transparent); }
+.mew-copy-signature-card footer em, .mew-copy-signature-card footer b { min-width: 0; color: var(--mew-muted); font-size: 8px; font-style: normal; font-weight: 850; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-copy-signature-card footer em { color: color-mix(in srgb, var(--mew-green) 72%, var(--mew-text)); }
 .mew-wizard-preview-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 9px 11px; border-bottom: 1px solid var(--mew-edge); background: color-mix(in srgb, var(--mew-control) 82%, transparent); }
 .mew-wizard-preview-bar small, .mew-wizard-preview-bar .mew-eyebrow { min-width: 0; font-size: 9px; font-weight: 800; color: var(--mew-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mew-preview-toggle { display: inline-grid; grid-template-columns: repeat(2, minmax(54px, 1fr)); align-items: center; gap: 2px; flex: 0 0 auto; max-width: 100%; padding: 2px; border: 1px solid var(--mew-edge); background: var(--mew-surface); }
-.mew-preview-toggle button { min-width: 0; min-height: 24px; padding: 0 8px; border: 0; background: transparent; color: var(--mew-muted); font-family: 'Raleway', sans-serif; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer; transition: background 140ms ease, color 140ms ease, transform 140ms ease; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mew-preview-toggle button:hover { color: var(--mew-text); background: var(--mew-hover); }
-.mew-preview-toggle button.is-active { color: var(--mew-ink); background: var(--mew-blue); transform: translateY(-1px); }
-.mew-wizard-preview-stage { min-width: 0; padding: 12px; background: color-mix(in srgb, var(--mew-control) 72%, var(--mew-surface)); }
 .mew-wizard-review { max-width: none; }
 .mew-wizard-review-layout { display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(300px, 1.1fr); gap: 12px; align-items: start; }
 .mew-wizard-review-main { display: grid; gap: 10px; min-width: 0; }
-.mew-wizard-review-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
-.mew-wizard-review-inbox { display: grid; gap: 4px; padding: 14px; border: 1px solid var(--mew-edge); border-left: 3px solid var(--wizard-accent, var(--mew-tone)); background: var(--mew-elevated); }
-.mew-wizard-review-inbox > small { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
-.mew-wizard-review-inbox strong { font-size: 14px; font-weight: 900; color: var(--mew-text); }
-.mew-wizard-review-inbox span { font-size: 11px; font-weight: 700; color: var(--mew-muted); }
-.mew-wizard-review-inbox em { font-size: 9px; font-style: normal; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; color: var(--wizard-accent, var(--mew-tone)); }
+.mew-proof-lock-card { display: grid; gap: 12px; min-width: 0; padding: 14px 0 0; border-top: 3px solid var(--wizard-accent, var(--mew-tone)); background: transparent; }
+.mew-proof-lock-card header { display: grid; gap: 4px; min-width: 0; padding-bottom: 12px; border-bottom: 1px solid color-mix(in srgb, var(--mew-edge) 72%, transparent); }
+.mew-proof-lock-card header strong { color: var(--mew-text); font-size: 22px; font-weight: 900; line-height: 1.08; overflow-wrap: anywhere; }
+.mew-proof-lock-card header p { margin: 0; color: var(--mew-muted); font-size: 11px; font-weight: 750; line-height: 1.45; overflow-wrap: anywhere; }
+.mew-commit-summary-table { display: grid; gap: 0; min-width: 0; border-top: 1px solid color-mix(in srgb, var(--mew-edge) 64%, transparent); }
+.mew-commit-summary-table span { display: grid; grid-template-columns: minmax(122px, 0.34fr) minmax(0, 1fr) minmax(104px, 0.3fr); gap: 10px; align-items: baseline; min-width: 0; padding: 9px 0; border-bottom: 1px solid color-mix(in srgb, var(--mew-edge) 64%, transparent); }
+.mew-commit-summary-table small { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.mew-commit-summary-table strong { min-width: 0; color: var(--mew-text); font-size: 12px; font-weight: 900; line-height: 1.25; overflow-wrap: anywhere; }
+.mew-commit-summary-table em { min-width: 0; justify-self: end; color: var(--mew-muted); font-size: 9px; font-style: normal; font-weight: 850; line-height: 1.25; overflow-wrap: anywhere; text-align: right; }
+.mew-proof-lock-lines { display: grid; gap: 0; min-width: 0; }
+.mew-proof-lock-lines span { display: grid; grid-template-columns: minmax(82px, 0.28fr) minmax(0, 1fr) minmax(120px, 0.42fr); gap: 10px; align-items: baseline; min-width: 0; padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--mew-edge) 64%, transparent); }
+.mew-proof-lock-lines small { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.mew-proof-lock-lines strong { min-width: 0; color: var(--mew-text); font-size: 12px; font-weight: 900; line-height: 1.25; overflow-wrap: anywhere; }
+.mew-proof-lock-lines em { min-width: 0; color: var(--mew-muted); font-size: 10px; font-style: normal; font-weight: 750; line-height: 1.35; overflow-wrap: anywhere; }
+.mew-proof-test-card { display: grid; gap: 10px; min-width: 0; padding: 11px; border: 1px solid color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 24%, var(--mew-edge)); background: color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 5%, var(--mew-elevated)); }
+.mew-proof-test-card header { display: grid; gap: 4px; min-width: 0; }
+.mew-proof-test-card header strong { color: var(--mew-text); font-size: 15px; font-weight: 900; line-height: 1.1; }
+.mew-proof-test-card header p { margin: 0; color: var(--mew-muted); font-size: 10px; font-weight: 750; line-height: 1.4; }
+.mew-proof-recipient-row { display: grid; grid-template-columns: minmax(150px, 0.42fr) minmax(0, 1fr); gap: 8px; align-items: stretch; min-width: 0; }
+.mew-proof-required-recipient { display: grid; gap: 2px; align-content: center; min-width: 0; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--mew-green) 34%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-green) 8%, var(--mew-control)); }
+.mew-proof-required-recipient small { color: var(--mew-green); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
+.mew-proof-required-recipient strong { color: var(--mew-text); font-size: 12px; font-weight: 900; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-proof-required-recipient em { color: var(--mew-muted); font-size: 9px; font-style: normal; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-proof-recipient-select .mew-compose-sender-menu { max-height: 320px; overflow-y: auto; }
+.mew-proof-results { display: grid; gap: 8px; min-width: 0; padding-top: 2px; }
+.mew-proof-results.is-stale { opacity: 0.72; }
+.mew-proof-results-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; align-items: baseline; min-width: 0; }
+.mew-proof-results-head .mew-eyebrow { grid-column: 1 / -1; }
+.mew-proof-results-head strong { color: var(--mew-text); font-size: 12px; font-weight: 900; line-height: 1.1; overflow-wrap: anywhere; }
+.mew-proof-results-head small { color: var(--mew-muted); font-size: 9px; font-weight: 800; white-space: nowrap; }
+.mew-proof-result-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 7px; min-width: 0; }
+.mew-proof-result { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 7px; align-items: center; min-width: 0; padding: 8px 9px; border: 1px solid var(--mew-edge); background: var(--mew-control); }
+.mew-proof-result small { grid-row: span 2; display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--mew-edge); background: var(--mew-elevated); color: var(--mew-muted); font-size: 8px; font-weight: 900; line-height: 1; }
+.mew-proof-result strong { color: var(--mew-text); font-size: 11px; font-weight: 900; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-proof-result em, .mew-proof-result b { min-width: 0; color: var(--mew-muted); font-size: 8px; font-style: normal; font-weight: 800; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-proof-result b { grid-column: 1 / -1; font-weight: 750; }
+.mew-proof-result.is-accepted { border-color: color-mix(in srgb, var(--mew-green) 38%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-green) 8%, var(--mew-control)); }
+.mew-proof-result.is-accepted small { color: var(--mew-green); border-color: color-mix(in srgb, var(--mew-green) 38%, var(--mew-edge)); }
+.mew-proof-result.is-failed { border-color: color-mix(in srgb, var(--mew-red) 38%, var(--mew-edge)); background: color-mix(in srgb, var(--mew-red) 7%, var(--mew-control)); }
+.mew-proof-result.is-failed small { color: var(--mew-red); border-color: color-mix(in srgb, var(--mew-red) 38%, var(--mew-edge)); }
 .mew-wizard-review-preview { display: grid; min-width: 0; border: 1px solid var(--mew-edge); background: var(--mew-elevated); }
 .mew-wizard-review-preview .mew-device { border: 0; box-shadow: none; }
 .mew-wizard-send-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mew-wizard-send-row--lock { align-items: center; padding-top: 2px; }
 .mew-wizard-send-note { font-size: 10px; font-weight: 800; color: var(--mew-muted); flex: 1; min-width: 200px; }
 .mew-wizard-success { display: grid; gap: 12px; align-items: start; }
-.mew-wizard-lock-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; padding: 14px; border: 1px solid rgba(32,178,108,0.28); background: rgba(32,178,108,0.07); }
-.mew-wizard-success-mark { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 4px; background: var(--mew-green); color: #ffffff; font-size: 22px; font-weight: 900; }
-.mew-wizard-lock-summary small { color: var(--mew-green); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
-.mew-wizard-success strong { display: block; margin-top: 2px; font-size: 18px; font-weight: 900; color: var(--mew-text); }
-.mew-wizard-success p { margin: 4px 0 0; max-width: 720px; font-size: 12px; font-weight: 700; color: var(--mew-muted); line-height: 1.5; }
-.mew-batch-panel { display: grid; gap: 10px; width: 100%; margin-top: 0; padding: 13px; border: 1px solid var(--mew-edge); background: var(--mew-elevated); text-align: left; }
-.mew-batch-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.mew-batch-stats span { display: grid; gap: 2px; min-width: 0; padding: 8px 9px; border: 1px solid var(--mew-edge); background: var(--mew-control); }
-.mew-batch-stats small { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mew-batch-stats strong { color: var(--mew-text); font-size: 16px; font-weight: 900; line-height: 1; overflow-wrap: anywhere; }
-.mew-batch-route { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.mew-batch-route span { display: grid; gap: 3px; min-width: 0; padding: 8px 9px; border: 1px solid rgba(32,178,108,0.28); background: rgba(32,178,108,0.07); }
-.mew-batch-route small { color: var(--mew-green); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mew-batch-route strong { color: var(--mew-text); font-size: 10px; font-weight: 900; line-height: 1.3; overflow-wrap: anywhere; }
-.mew-batch-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-.mew-batch-warning { padding: 8px 10px; border: 1px solid rgba(214,85,65,0.38); background: rgba(214,85,65,0.08); color: var(--mew-red); font-size: 10px; font-weight: 900; }
+.mew-release-board { --release-tone: var(--wizard-accent, var(--mew-tone)); display: grid; gap: 14px; width: 100%; padding: 16px; border: 1px solid color-mix(in srgb, var(--release-tone) 30%, var(--mew-edge)); border-left: 3px solid var(--release-tone); background: linear-gradient(180deg, color-mix(in srgb, var(--release-tone) 6%, var(--mew-elevated)), var(--mew-elevated)); text-align: left; }
+.mew-release-board.is-ready, .mew-release-board.is-complete { --release-tone: var(--mew-green); }
+.mew-release-board.is-error { --release-tone: var(--mew-red); }
+.mew-release-board.is-active { --release-tone: var(--wizard-accent, var(--mew-tone)); }
+.mew-release-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(124px, auto); gap: 14px; align-items: center; min-width: 0; padding-bottom: 13px; border-bottom: 1px solid color-mix(in srgb, var(--mew-edge) 78%, transparent); }
+.mew-release-mark { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--release-tone) 42%, var(--mew-edge)); background: color-mix(in srgb, var(--release-tone) 13%, var(--mew-control)); color: var(--release-tone); }
+.mew-release-copy { display: grid; gap: 4px; min-width: 0; }
+.mew-release-copy strong { color: var(--mew-text); font-size: 22px; font-weight: 900; line-height: 1.06; overflow-wrap: anywhere; }
+.mew-release-copy p { margin: 0; max-width: 760px; color: var(--mew-muted); font-size: 12px; font-weight: 750; line-height: 1.48; overflow-wrap: anywhere; }
+.mew-release-current { display: grid; gap: 3px; min-width: 124px; justify-items: end; align-content: center; padding-left: 14px; border-left: 1px solid color-mix(in srgb, var(--mew-edge) 76%, transparent); }
+.mew-release-current small, .mew-release-progress-meta small, .mew-release-batch small, .mew-release-result small { color: var(--mew-muted); font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mew-release-current strong { color: var(--mew-text); font-size: 30px; font-weight: 900; line-height: 0.95; font-variant-numeric: tabular-nums; }
+.mew-release-current em { color: color-mix(in srgb, var(--mew-muted) 88%, var(--mew-text)); font-size: 9px; font-style: normal; font-weight: 850; white-space: nowrap; }
+.mew-release-progress { display: grid; gap: 8px; min-width: 0; }
+.mew-release-progress-track { position: relative; height: 8px; overflow: hidden; background: color-mix(in srgb, var(--mew-control) 86%, transparent); border: 1px solid color-mix(in srgb, var(--mew-edge) 74%, transparent); }
+.mew-release-progress-track span { display: block; width: var(--release-progress, 0%); height: 100%; background: linear-gradient(90deg, var(--release-tone), color-mix(in srgb, var(--release-tone) 62%, var(--mew-blue))); transition: width 260ms ease; }
+.mew-release-progress-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; min-width: 0; }
+.mew-release-progress-meta span { display: grid; gap: 2px; min-width: 0; padding: 0 10px; border-left: 1px solid color-mix(in srgb, var(--mew-edge) 72%, transparent); }
+.mew-release-progress-meta span:first-child { padding-left: 0; border-left: 0; }
+.mew-release-progress-meta strong { color: var(--mew-text); font-size: 16px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+.mew-release-batches { display: flex; flex-wrap: wrap; gap: 0; min-width: 0; padding: 2px 0; }
+.mew-release-batch { display: grid; gap: 3px; min-width: 82px; padding: 0 10px 0 0; margin-right: 10px; border-right: 1px solid color-mix(in srgb, var(--mew-edge) 68%, transparent); }
+.mew-release-batch.is-current { box-shadow: inset 0 -2px 0 var(--release-tone); }
+.mew-release-batch.is-sent strong, .mew-release-batch.is-sent em { color: color-mix(in srgb, var(--mew-green) 78%, var(--mew-text)); }
+.mew-release-batch.is-more { border-right: 0; opacity: 0.78; }
+.mew-release-batch strong { color: var(--mew-text); font-size: 12px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-release-batch em { color: var(--mew-muted); font-size: 8px; font-style: normal; font-weight: 850; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mew-release-result { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: start; min-width: 0; padding: 10px 0 0; border-top: 1px solid color-mix(in srgb, var(--mew-edge) 66%, transparent); color: var(--mew-green); }
+.mew-release-result.is-error { color: var(--mew-red); }
+.mew-release-result svg { margin-top: 1px; color: currentColor; }
+.mew-release-result div { display: grid; gap: 2px; min-width: 0; }
+.mew-release-result strong { color: var(--mew-text); font-size: 12px; font-weight: 900; line-height: 1.35; overflow-wrap: anywhere; }
+.mew-release-log { display: grid; gap: 0; min-width: 0; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--mew-edge) 62%, transparent); }
+.mew-release-log > .mew-eyebrow { margin-bottom: 2px; }
+.mew-release-log-row { --log-tone: var(--mew-muted); display: grid; grid-template-columns: auto minmax(118px, 0.36fr) minmax(0, 1fr) auto; gap: 9px; align-items: start; min-width: 0; padding: 6px 0; color: var(--log-tone); }
+.mew-release-log-row.is-running { --log-tone: var(--release-tone); }
+.mew-release-log-row.is-complete { --log-tone: var(--mew-green); }
+.mew-release-log-row.is-error { --log-tone: var(--mew-red); }
+.mew-release-log-row i { width: 7px; height: 7px; margin-top: 5px; background: var(--log-tone); box-shadow: 0 0 0 3px color-mix(in srgb, var(--log-tone) 14%, transparent); }
+.mew-release-log-row strong { min-width: 0; color: var(--mew-text); font-size: 10px; font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-release-log-row small { min-width: 0; color: var(--mew-muted); font-size: 10px; font-weight: 700; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mew-release-log-row time { color: var(--mew-muted); font-size: 9px; font-weight: 800; white-space: nowrap; }
+.mew-release-warning { padding: 9px 0 0; border-top: 1px solid color-mix(in srgb, var(--mew-red) 32%, var(--mew-edge)); color: var(--mew-red); font-size: 10px; font-weight: 900; }
+.mew-release-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--mew-edge) 72%, transparent); }
+.mew-release-action-copy { display: grid; gap: 3px; min-width: 0; }
+.mew-release-action-copy strong { color: var(--mew-text); font-size: 12px; font-weight: 900; line-height: 1.25; overflow-wrap: anywhere; }
+.mew-release-action-copy small { color: var(--mew-muted); font-size: 10px; font-weight: 750; line-height: 1.38; overflow-wrap: anywhere; }
+.mew-release-buttons { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.mew-release-complete-note { display: inline-flex; align-items: center; gap: 7px; color: color-mix(in srgb, var(--mew-green) 82%, var(--mew-text)); font-size: 10px; font-weight: 900; white-space: nowrap; }
 .mew-wizard-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--mew-edge); background: var(--mew-elevated); }
 .mew-wizard-foot-right { display: flex; align-items: center; gap: 8px; }
 .mew-history-lane--composer { padding: 0; border: 0; }
 .mew-panel-head--composer { justify-content: space-between; align-items: center; }
 .mew-panel-head--composer .mew-eyebrow { margin-right: 6px; }
-.mew-panel-head--composer .mew-wizard-close { margin-left: auto; }
+.mew-panel-head-actions { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 @keyframes mewWizardFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mewWizardRise { from { opacity: 0; transform: translateY(14px) scale(0.99); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes mewComposerIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes mewPreviewRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes mewSettingPulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 32%, transparent); } 45% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--wizard-accent, var(--mew-tone)) 13%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+@keyframes mewSenderMenuIn { from { opacity: 0; transform: translateY(5px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
 
 .mew-proof-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 18px 14px; border-top: 1px solid var(--mew-edge); }
@@ -3092,15 +3952,20 @@ html[data-show-scrollbars="1"] .mew-processing-feed::-webkit-scrollbar-thumb { b
   .mew-recap-sender { grid-template-columns: auto minmax(0, 1fr); }
   .mew-recap-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .mew-recap-timeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .mew-wizard-copy-split { grid-template-columns: 1fr; }
-  .mew-wizard-copy-resizer { display: none; }
-  .mew-wizard-preview { position: static; }
+  .mew-copy-builder { width: 100%; }
+  .mew-copy-status { grid-template-columns: auto minmax(0, 1fr); }
+  .mew-copy-task-list { grid-column: 1 / -1; }
   .mew-wizard-steps { display: none; }
   .mew-wizard-audience-board { grid-template-columns: 1fr; gap: 10px; }
+  .mew-wizard-audience-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .mew-demo-silo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mew-wizard-batch-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .mew-wizard-review-layout { grid-template-columns: 1fr; }
+  .mew-proof-recipient-row { grid-template-columns: 1fr; }
+  .mew-wizard-batch-plan { grid-template-columns: minmax(120px, 0.42fr) minmax(0, 1fr); }
   .mew-compose-sender-copy { grid-template-columns: 1fr; gap: 10px; }
   .mew-compose-sender-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mew-demo-recipient, .mew-demo-recipient--wide, .mew-demo-recipient--compact { grid-column: auto; }
 }
 @media (max-width: 620px) {
   .mew-compose { grid-template-columns: minmax(240px, var(--compose-left)) 8px minmax(240px, 1fr); }
@@ -3118,19 +3983,48 @@ html[data-show-scrollbars="1"] .mew-processing-feed::-webkit-scrollbar-thumb { b
   .mew-recap-timeline { grid-template-columns: 1fr; gap: 8px; }
   .mew-recap-timeline span { padding-left: 0; border-left: 0; }
   .mew-device-pair { grid-template-columns: minmax(0, 1fr) minmax(130px, 0.68fr); }
-  .mew-wizard-copy-split { grid-template-columns: minmax(0, 1fr); }
-  .mew-wizard-copy-resizer { display: none; }
-  .mew-wizard-preview { position: relative; top: auto; }
   .mew-device--mobile { justify-self: stretch; width: 100%; max-width: none; }
   .mew-sendgrid-facts { grid-template-columns: 1fr; }
   .mew-setup-switch { margin-left: 0; }
   .mew-setup-field { min-width: 100%; }
   .mew-wizard-audience-hero { grid-template-columns: auto minmax(0, 1fr); }
   .mew-wizard-audience-count { grid-column: 1 / -1; justify-items: start; }
-  .mew-wizard-audience-metrics, .mew-batch-stats, .mew-batch-route { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mew-wizard-audience-metrics, .mew-release-progress-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mew-commit-summary-table span { grid-template-columns: 1fr; gap: 3px; }
+  .mew-commit-summary-table em { justify-self: start; text-align: left; }
+  .mew-copy-status { grid-template-columns: 1fr; }
+  .mew-copy-status-icon { width: 30px; height: 30px; }
+  .mew-copy-task-list { grid-template-columns: 1fr; }
+  .mew-wizard-copy-fields { padding: 9px; }
+  .mew-email-builder::before { inset: 9px 9px auto; }
+  .mew-email-block { padding: 12px; }
+  .mew-email-block > span { grid-template-columns: minmax(0, 1fr) auto; }
+  .mew-email-block > span i { grid-column: 1 / -1; justify-self: start; }
+  .mew-email-block--subject .mew-wizard-input--subject { font-size: 18px; }
+  .mew-copy-signature-preview, .mew-copy-signature-card { grid-template-columns: 1fr; }
+  .mew-copy-signature-mark { width: 34px; height: 34px; }
+  .mew-wizard-batch-plan { grid-template-columns: 1fr; }
+  .mew-release-hero, .mew-release-actions { grid-template-columns: 1fr; }
+  .mew-release-mark { width: 38px; height: 38px; }
+  .mew-release-current { justify-items: start; padding-left: 0; border-left: 0; }
+  .mew-release-buttons { width: 100%; justify-content: stretch; }
+  .mew-release-buttons .mew-btn { flex: 1 1 160px; justify-content: center; }
+  .mew-release-log-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .mew-release-log-row small { grid-column: 2 / -1; white-space: normal; }
+  .mew-demo-silo-grid { grid-template-columns: 1fr; }
+  .mew-demo-silo-head { grid-template-columns: 1fr; }
+  .mew-demo-silo-head .mew-mini-action { justify-self: start; }
+  .mew-demo-recipient, .mew-demo-recipient--wide, .mew-demo-recipient--compact { grid-column: auto; }
+  .mew-demo-recipient-head { align-items: stretch; flex-direction: column; }
+  .mew-demo-recipient-actions { width: 100%; justify-content: flex-start; }
   .mew-wizard-batch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mew-compose-sender { grid-template-columns: 1fr; align-items: start; gap: 8px; }
   .mew-compose-sender-settings { grid-template-columns: 1fr; }
+  .mew-compose-rank-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .mew-compose-sender-menu { position: fixed; left: 14px; right: 14px; top: auto; bottom: 18px; max-height: min(420px, calc(100vh - 36px)); overflow-y: auto; }
+  .mew-compose-sender-menu::before { display: none; }
+  .mew-compose-sender-option { grid-template-columns: minmax(0, 1fr) 18px; }
+  .mew-compose-sender-option em { grid-column: 1 / -1; white-space: normal; }
 }
 `;
 

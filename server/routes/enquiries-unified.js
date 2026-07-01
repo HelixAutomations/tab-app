@@ -490,6 +490,10 @@ function buildEmailListSystemSignatureHtml() {
 
 function buildEmailListOutreachSignatureV2({ operatorEmail, signatureInitials }) {
   const signatureEmail = normalizeEmails(operatorEmail)[0] || '';
+  const initials = String(signatureInitials || '').trim().toUpperCase();
+  if (signatureEmail.toLowerCase() === 'team@helix-law.com' || initials === 'TEAM') {
+    return buildEmailListSystemSignatureHtml();
+  }
   const personalSignature = loadPersonalSignatureHtml({ signatureInitials, fromEmail: signatureEmail });
   return personalSignature || buildEmailListSystemSignatureHtml();
 }
@@ -1419,7 +1423,7 @@ router.post('/email-lists/preview', async (req, res) => {
   const signatureInitials = String(req.body?.signatureInitials || req.user?.initials || '').trim().toUpperCase();
   const signatureMode = normaliseEmailListSignatureMode(req.body?.signatureMode);
   const operatorDisplayName = String(req.body?.operatorName || req.user?.name || req.user?.displayName || '').trim();
-  const operatorSignatureEmail = authenticatedEmail || normalizeEmails(req.body?.operatorEmail)[0] || senderEmail;
+  const operatorSignatureEmail = normalizeEmails(req.body?.operatorEmail)[0] || authenticatedEmail || senderEmail;
 
   trackEvent('Enquiry.EmailLists.SendGridPreview.Started', {
     operation,
@@ -1494,22 +1498,24 @@ router.post('/email-lists/test-send', async (req, res) => {
   const preheaderText = String(req.body?.preheader || req.body?.previewText || '').trim().slice(0, 180);
   const campaignName = String(req.body?.campaignName || '').trim().slice(0, 120);
   const authenticatedEmail = normalizeEmails(req.user?.email || req.headers?.['x-user-email'])[0] || '';
-  const requestedRecipient = normalizeEmails(req.body?.recipientEmail || req.body?.toEmail)[0] || '';
-  const recipientEmail = authenticatedEmail || requestedRecipient;
+  const requestedRecipients = normalizeEmails(req.body?.recipientEmails || req.body?.recipientEmail || req.body?.toEmail)
+    .filter((email) => /@helix-law\.com$/i.test(email))
+    .slice(0, 10);
+  const recipientEmails = Array.from(new Set([authenticatedEmail, ...requestedRecipients].filter(Boolean).map((email) => email.toLowerCase())));
   const senderEmail = resolveEmailListSendGridSender(req.body?.sender || req.body?.fromEmail);
   const signatureInitials = String(req.body?.signatureInitials || req.user?.initials || '').trim().toUpperCase();
   const signatureMode = normaliseEmailListSignatureMode(req.body?.signatureMode);
   const operatorDisplayName = String(req.body?.operatorName || req.user?.name || req.user?.displayName || '').trim();
-  const operatorSignatureEmail = authenticatedEmail || normalizeEmails(req.body?.operatorEmail)[0] || recipientEmail;
+  const operatorSignatureEmail = normalizeEmails(req.body?.operatorEmail)[0] || authenticatedEmail || recipientEmail;
 
   if (!isDemoMode || !enquiryId.startsWith(EMAIL_LIST_DEMO_ENQUIRY_PREFIX)) {
     return res.status(400).json({ error: 'SendGrid test emails are restricted to demo enquiries' });
   }
-  if (authenticatedEmail && requestedRecipient && authenticatedEmail.toLowerCase() !== requestedRecipient.toLowerCase()) {
-    return res.status(400).json({ error: 'Test email recipient must be the current user' });
-  }
-  if (!recipientEmail || !/@helix-law\.com$/i.test(recipientEmail)) {
+  if (!authenticatedEmail || !/@helix-law\.com$/i.test(authenticatedEmail)) {
     return res.status(400).json({ error: 'A current Helix user email is required' });
+  }
+  if (recipientEmails.length === 0 || recipientEmails.some((email) => !/@helix-law\.com$/i.test(email))) {
+    return res.status(400).json({ error: 'Test email recipients must be Helix users' });
   }
   if (!senderEmail) {
     return res.status(400).json({ error: 'Unsupported SendGrid sender' });
@@ -1555,18 +1561,19 @@ router.post('/email-lists/test-send', async (req, res) => {
     });
     const plainText = preheaderText ? `${preheaderText}\n\n${bodyText}` : bodyText;
     const sendGridPayload = {
-      personalizations: [{
-        to: [{ email: recipientEmail }],
+      personalizations: recipientEmails.map((email) => ({
+        to: [{ email }],
         custom_args: {
           source: 'email-control-room',
           mode: 'demo-test',
           enquiryId,
           requestId,
           signatureMode,
+          recipientEmail: email,
         },
-      }],
+      })),
       from: { email: senderEmail, name: 'Helix Law' },
-      reply_to: { email: 'support@helix-law.com', name: 'Helix Law' },
+      reply_to: { email: 'team@helix-law.com', name: 'Helix Law' },
       subject,
       content: [
         { type: 'text/plain', value: plainText },
@@ -1606,6 +1613,7 @@ router.post('/email-lists/test-send', async (req, res) => {
       triggeredBy,
       sender: senderEmail,
       enquiryId,
+      recipientCount: String(recipientEmails.length),
       durationMs: String(durationMs),
       sendGridMessageId,
     });
@@ -1619,6 +1627,7 @@ router.post('/email-lists/test-send', async (req, res) => {
       enquiryId,
       requestId,
       sendGridMessageId,
+      recipients: recipientEmails.map((email) => ({ email, status: 'accepted' })),
       message: 'Test email sent',
     });
   } catch (error) {
@@ -1675,7 +1684,7 @@ router.post('/email-lists/sendgrid-bulk-send', async (req, res) => {
   const signatureInitials = String(req.body?.signatureInitials || req.user?.initials || '').trim().toUpperCase();
   const signatureMode = normaliseEmailListSignatureMode(req.body?.signatureMode);
   const operatorDisplayName = String(req.body?.operatorName || req.user?.name || req.user?.displayName || '').trim();
-  const operatorSignatureEmail = normalizeEmails(req.user?.email || req.headers?.['x-user-email'] || req.body?.operatorEmail)[0] || senderEmail || '';
+  const operatorSignatureEmail = normalizeEmails(req.body?.operatorEmail || req.user?.email || req.headers?.['x-user-email'])[0] || senderEmail || '';
   const recipientsInput = Array.isArray(req.body?.recipients) ? req.body.recipients : [];
   const expectedRecipientCount = Number.parseInt(String(req.body?.expectedRecipientCount || ''), 10);
   const confirmMassSend = req.body?.confirmMassSend === true || String(req.body?.confirmMassSend || '').toLowerCase() === 'true';

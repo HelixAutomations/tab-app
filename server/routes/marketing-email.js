@@ -49,6 +49,16 @@ const EMAIL_SENDGRID_RECIPIENT_ID_SUBSTITUTION = '-helix_recipient_id-';
 const TAG_BLOCK_PATTERN = /\b(do\s*not\s*(send|email|market)|unsubscribe|unsubscribed|opt[\s-]*out|no\s*(email|marketing)|suppress|suppression|gdpr|privacy|spam|complaint|bounce|invalid\s*email)\b/i;
 const DEMO_SOURCE_ENQUIRY_ID = 'DEMO-ENQ-0003';
 const DEMO_CAMPAIGN_KEY = 'demo-marketing-email-setup';
+const DEMO_INTERNAL_RECIPIENTS = [
+  { sourceEnquiryId: 'DEMO-EMAIL-LZ', acid: 'DEMO-LZ', displayName: 'Luke', initials: 'LZ', email: 'lz@helix-law.com' },
+  { sourceEnquiryId: 'DEMO-EMAIL-EA', acid: 'DEMO-EA', displayName: 'Emma', initials: 'EA', email: 'ea@helix-law.com' },
+  { sourceEnquiryId: 'DEMO-EMAIL-JW', acid: 'DEMO-JW', displayName: 'Jonathan', initials: 'JW', email: 'jw@helix-law.com' },
+  { sourceEnquiryId: 'DEMO-EMAIL-AC', acid: 'DEMO-AC', displayName: 'Alex', initials: 'AC', email: 'ac@helix-law.com' },
+  { sourceEnquiryId: 'DEMO-EMAIL-KW', acid: 'DEMO-KW', displayName: 'Kanchel', initials: 'KW', email: 'kw@helix-law.com' },
+  { sourceEnquiryId: 'DEMO-EMAIL-WH', acid: 'DEMO-WH', displayName: 'Wolfgang', initials: 'WH', email: 'wh@helix-law.com' },
+  { sourceEnquiryId: 'DEMO-EMAIL-LD', acid: 'DEMO-LD', displayName: 'Libby', initials: 'LD', email: 'ld@helix-law.com' },
+];
+const DEMO_INTERNAL_RECIPIENT_EMAILS = new Set(DEMO_INTERNAL_RECIPIENTS.map((recipient) => recipient.email.toLowerCase()));
 let cachedSendGridApiKey = null;
 
 const SOURCE_COLUMN_CANDIDATES = {
@@ -130,6 +140,47 @@ function textPresence(value) {
 function emailDomainOnly(value) {
   const email = normalizeEmails(value)[0] || '';
   return emailDomain(email) || null;
+}
+
+function demoAudienceSourceListSql(alias = '') {
+  const prefix = alias ? `${alias}.` : '';
+  const values = DEMO_INTERNAL_RECIPIENTS
+    .map((recipient) => `N'${recipient.sourceEnquiryId.replace(/'/g, "''")}'`)
+    .join(', ');
+  return `${prefix}source_enquiry_id IN (${values})`;
+}
+
+function demoSourceNamesMap() {
+  const names = new Map();
+  for (const recipient of DEMO_INTERNAL_RECIPIENTS) {
+    names.set(recipient.sourceEnquiryId, recipient.displayName);
+    names.set(recipient.acid, recipient.displayName);
+  }
+  return names;
+}
+
+function demoSourceEmailsMap() {
+  const emails = new Map();
+  for (const recipient of DEMO_INTERNAL_RECIPIENTS) {
+    emails.set(recipient.sourceEnquiryId, recipient.email);
+    emails.set(recipient.acid, recipient.email);
+  }
+  return emails;
+}
+
+function isInternalDemoEmail(value) {
+  const email = normalizeEmails(value)[0] || '';
+  return Boolean(email && DEMO_INTERNAL_RECIPIENT_EMAILS.has(email.toLowerCase()));
+}
+
+function parseSelectedMemberIds(value) {
+  const list = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  for (const entry of list) {
+    const memberId = trim(entry);
+    if (/^[0-9a-f-]{36}$/i.test(memberId)) seen.add(memberId.toLowerCase());
+  }
+  return Array.from(seen);
 }
 
 function buildCampaignActivityPayload(req, {
@@ -507,6 +558,10 @@ function buildSystemSignatureHtml() {
 
 function buildOutreachSignatureV2({ operatorEmail, signatureInitials }) {
   const signatureEmail = normalizeEmails(operatorEmail)[0] || '';
+  const initials = String(signatureInitials || '').trim().toUpperCase();
+  if (signatureEmail.toLowerCase() === 'team@helix-law.com' || initials === 'TEAM') {
+    return buildSystemSignatureHtml();
+  }
   const personalSignature = loadPersonalSignatureHtml({ signatureInitials, fromEmail: signatureEmail });
   return personalSignature || buildSystemSignatureHtml();
 }
@@ -1066,7 +1121,7 @@ async function readStreams(projectConn, { demoOnly = false, schema = null } = {}
   const state = schema || await readSchemaState(projectConn);
   const listCounts = await readListCounts({ demoOnly });
   const memberJoinPredicate = demoOnly
-    ? (state.hasMemberDemoSeed ? 'm.stream_key = s.stream_key AND m.demo_seed = 1' : '1 = 0')
+    ? (state.hasMemberDemoSeed ? `m.demo_seed = 1 AND ${demoAudienceSourceListSql('m')}` : '1 = 0')
     : 'm.stream_key = s.stream_key';
   const result = await withRequest(projectConn, async (request) => request.query(`
     SELECT
@@ -1136,6 +1191,84 @@ function mapMemberRow(row) {
   };
 }
 
+async function ensureDemoAudienceMembers(projectConn, { schema = null, actor = 'api' } = {}) {
+  const state = schema || await readSchemaState(projectConn);
+  if (!state.hasMembers || !state.hasMemberDemoSeed) return { available: false, affectedCount: 0 };
+  const payload = DEMO_INTERNAL_RECIPIENTS.map((recipient) => ({
+    streamKey: 'commercial',
+    acid: recipient.acid,
+    sourceEnquiryId: recipient.sourceEnquiryId,
+    emailHash: hashEmail(recipient.email),
+    emailDomain: emailDomain(recipient.email),
+    areaOfWork: 'Commercial',
+    rank: 4,
+    tagsJson: JSON.stringify(['demo-recipient', 'internal', recipient.initials]),
+    client: false,
+    clientStatus: 'prospect',
+    qualificationStatus: 'qualified',
+    qualificationReason: 'Internal demo recipient',
+    sendable: true,
+  }));
+  const result = await withRequest(projectConn, async (request) => {
+    request.input('membersJson', sql.NVarChar(sql.MAX), JSON.stringify(payload));
+    request.input('actor', sql.NVarChar(160), actor || 'api');
+    return request.query(`
+      WITH source_rows AS (
+        SELECT *
+        FROM OPENJSON(@membersJson) WITH (
+          stream_key NVARCHAR(40) '$.streamKey',
+          acid NVARCHAR(120) '$.acid',
+          source_enquiry_id NVARCHAR(120) '$.sourceEnquiryId',
+          email_hash CHAR(64) '$.emailHash',
+          email_domain NVARCHAR(160) '$.emailDomain',
+          area_of_work NVARCHAR(160) '$.areaOfWork',
+          [rank] TINYINT '$.rank',
+          tags_json NVARCHAR(MAX) '$.tagsJson',
+          client BIT '$.client',
+          client_status NVARCHAR(40) '$.clientStatus',
+          qualification_status NVARCHAR(40) '$.qualificationStatus',
+          qualification_reason NVARCHAR(300) '$.qualificationReason',
+          sendable BIT '$.sendable'
+        )
+      )
+      MERGE dbo.marketing_email_audience_members AS target
+      USING source_rows AS source
+      ON target.source_enquiry_id = source.source_enquiry_id
+      WHEN MATCHED THEN UPDATE SET
+        stream_key = source.stream_key,
+        acid = source.acid,
+        email_hash = source.email_hash,
+        email_domain = source.email_domain,
+        area_of_work = source.area_of_work,
+        [rank] = source.[rank],
+        tags_json = source.tags_json,
+        client = source.client,
+        matter_id = NULL,
+        client_status = source.client_status,
+        qualification_status = source.qualification_status,
+        qualification_reason = source.qualification_reason,
+        sendable = source.sendable,
+        demo_seed = 1,
+        last_seen_at = COALESCE(target.last_seen_at, SYSUTCDATETIME()),
+        last_qualified_at = SYSUTCDATETIME(),
+        updated_at = SYSUTCDATETIME(),
+        updated_by = @actor
+      WHEN NOT MATCHED THEN INSERT (
+        stream_key, acid, source_enquiry_id, email_hash, email_domain, area_of_work, [rank], tags_json,
+        client, matter_id, client_status, qualification_status, qualification_reason, sendable,
+        demo_seed, last_seen_at, last_qualified_at, created_by
+      ) VALUES (
+        source.stream_key, source.acid, source.source_enquiry_id, source.email_hash, source.email_domain, source.area_of_work, source.[rank], source.tags_json,
+        source.client, NULL, source.client_status, source.qualification_status, source.qualification_reason, source.sendable,
+        1, SYSUTCDATETIME(), SYSUTCDATETIME(), @actor
+      );
+    `);
+  }, 1);
+  const affectedCount = Number(result.rowsAffected?.reduce((sum, count) => sum + count, 0) || 0);
+  trackEvent('MarketingEmail.DemoAudienceSeed.Completed', { operation: 'marketing-email-demo-audience-seed', actor: actor || 'api', recipientCount: String(DEMO_INTERNAL_RECIPIENTS.length), affectedCount: String(affectedCount) });
+  return { available: true, affectedCount };
+}
+
 async function readMembers(projectConn, streamKey, limit, { demoOnly = false, schema = null } = {}) {
   const cappedLimit = Math.max(1, Math.min(Number(limit) || 200, 1000));
   const state = schema || await readSchemaState(projectConn);
@@ -1146,12 +1279,12 @@ async function readMembers(projectConn, streamKey, limit, { demoOnly = false, sc
     const result = await request.query(`
       SELECT TOP (@limit)
         CONVERT(nvarchar(36), member_id) AS member_id,
-        stream_key,
+        ${demoOnly ? '@streamKey AS stream_key' : 'stream_key'},
         acid,
         source_enquiry_id,
         email_hash,
         email_domain,
-        area_of_work,
+        ${demoOnly ? '(SELECT TOP 1 label FROM dbo.marketing_email_audience_streams WHERE stream_key = @streamKey) AS area_of_work' : 'area_of_work'},
         [rank],
         tags_json,
         client,
@@ -1164,37 +1297,46 @@ async function readMembers(projectConn, streamKey, limit, { demoOnly = false, sc
         created_at,
         last_qualified_at
       FROM dbo.marketing_email_audience_members
-      WHERE stream_key = @streamKey
-        ${demoOnly ? 'AND demo_seed = 1' : ''}
+      WHERE ${demoOnly ? `demo_seed = 1 AND ${demoAudienceSourceListSql()}` : 'stream_key = @streamKey'}
       ORDER BY sendable DESC, [rank] ASC, last_seen_at DESC;
     `);
     return result.recordset || [];
   });
 }
 
-async function countCampaignSelection(projectConn, { streamKey, excludeClients, rankMin, rankMax, demoOnly = false, schema = null }) {
+async function countCampaignSelection(projectConn, { streamKey, excludeClients, rankMin, rankMax, demoOnly = false, schema = null, selectedMemberIds = [] }) {
   const state = schema || await readSchemaState(projectConn);
   if (demoOnly && !state.hasMemberDemoSeed) return { selectedCount: 0, blockedCount: 0 };
+  const selectedIds = parseSelectedMemberIds(selectedMemberIds);
   return withRequest(projectConn, async (request) => {
     request.input('streamKey', sql.NVarChar(40), streamKey);
     request.input('excludeClients', sql.Bit, Boolean(excludeClients));
     request.input('rankMin', sql.TinyInt, rankMin == null ? null : rankMin);
     request.input('rankMax', sql.TinyInt, rankMax == null ? null : rankMax);
+    request.input('selectedMemberIdsJson', sql.NVarChar(sql.MAX), JSON.stringify(selectedIds));
+    request.input('hasSelectedMemberIds', sql.Bit, selectedIds.length > 0);
     const result = await request.query(`
+      WITH selected_member_ids AS (
+        SELECT DISTINCT TRY_CONVERT(uniqueidentifier, [value]) AS member_id
+        FROM OPENJSON(@selectedMemberIdsJson)
+        WHERE TRY_CONVERT(uniqueidentifier, [value]) IS NOT NULL
+      )
       SELECT
-        SUM(CASE WHEN sendable = 1
-          AND (@excludeClients = 0 OR client = 0)
-          AND (@rankMin IS NULL OR [rank] >= @rankMin)
-          AND (@rankMax IS NULL OR [rank] <= @rankMax)
+        SUM(CASE WHEN m.sendable = 1
+          AND (@excludeClients = 0 OR m.client = 0)
+          AND (@rankMin IS NULL OR m.[rank] >= @rankMin)
+          AND (@rankMax IS NULL OR m.[rank] <= @rankMax)
+          AND (@hasSelectedMemberIds = 0 OR selected.member_id IS NOT NULL)
           THEN 1 ELSE 0 END) AS selected_count,
-        SUM(CASE WHEN sendable = 0
-          OR (@excludeClients = 1 AND client = 1)
-          OR (@rankMin IS NOT NULL AND ([rank] IS NULL OR [rank] < @rankMin))
-          OR (@rankMax IS NOT NULL AND ([rank] IS NULL OR [rank] > @rankMax))
+        SUM(CASE WHEN m.sendable = 0
+          OR (@excludeClients = 1 AND m.client = 1)
+          OR (@rankMin IS NOT NULL AND (m.[rank] IS NULL OR m.[rank] < @rankMin))
+          OR (@rankMax IS NOT NULL AND (m.[rank] IS NULL OR m.[rank] > @rankMax))
+          OR (@hasSelectedMemberIds = 1 AND selected.member_id IS NULL)
           THEN 1 ELSE 0 END) AS blocked_count
-      FROM dbo.marketing_email_audience_members
-      WHERE stream_key = @streamKey
-        ${demoOnly ? 'AND demo_seed = 1' : ''};
+      FROM dbo.marketing_email_audience_members AS m
+      LEFT JOIN selected_member_ids AS selected ON selected.member_id = m.member_id
+      WHERE ${demoOnly ? `m.demo_seed = 1 AND ${demoAudienceSourceListSql('m')}` : 'm.stream_key = @streamKey'};
     `);
     const row = result.recordset?.[0] || {};
     return {
@@ -1690,7 +1832,7 @@ async function buildCampaignSendPlan(projectConn, { campaignId, limit, demoOnly 
   if (!campaign) return { campaign: null, effectiveDemoOnly: demoOnly, rows: [], ready: [], skipped: [] };
   const effectiveDemoOnly = demoOnly || Boolean(campaign.demo_seed);
   const rows = await readCampaignSendRows(projectConn, { campaignId, limit, demoOnly: effectiveDemoOnly, schema });
-  const sourceEmails = effectiveDemoOnly ? new Map() : await resolveSourceEmails(rows.map((row) => row.source_enquiry_id));
+  const sourceEmails = effectiveDemoOnly ? demoSourceEmailsMap() : await resolveSourceEmails(rows.map((row) => row.source_enquiry_id));
   const seenEmails = new Set();
   const ready = [];
   const skipped = [];
@@ -1698,7 +1840,7 @@ async function buildCampaignSendPlan(projectConn, { campaignId, limit, demoOnly 
   for (const row of rows) {
     const recipientId = trim(row.recipient_id);
     const sourceEnquiryId = trim(row.source_enquiry_id);
-    const resolvedEmail = normalizeEmails(sourceEmails.get(sourceEnquiryId))[0] || '';
+    const resolvedEmail = normalizeEmails(sourceEmails.get(sourceEnquiryId) || sourceEmails.get(trim(row.acid)))[0] || '';
     if (!resolvedEmail) {
       skipped.push({ recipientId, providerError: 'Recipient email unavailable from source enquiry' });
       continue;
@@ -1820,10 +1962,11 @@ async function updateCampaignSendSummary(projectConn, { campaignId, actor, sendG
   return mapCampaignRow(result.recordset?.[0] || {});
 }
 
-async function snapshotCampaignRecipients(projectConn, { campaignId, streamKey, excludeClients, rankMin, rankMax, actor, demoOnly = false, schema = null }) {
+async function snapshotCampaignRecipients(projectConn, { campaignId, streamKey, excludeClients, rankMin, rankMax, actor, demoOnly = false, schema = null, selectedMemberIds = [] }) {
   const state = schema || await readSchemaState(projectConn);
   if (!state.hasCampaignRecipients) return { available: false, insertedCount: 0 };
   if (demoOnly && !state.hasMemberDemoSeed) return { available: true, insertedCount: 0 };
+  const selectedIds = parseSelectedMemberIds(selectedMemberIds);
 
   const result = await withRequest(projectConn, async (request) => {
     request.input('campaignId', sql.UniqueIdentifier, campaignId);
@@ -1832,10 +1975,18 @@ async function snapshotCampaignRecipients(projectConn, { campaignId, streamKey, 
     request.input('rankMin', sql.TinyInt, rankMin == null ? null : rankMin);
     request.input('rankMax', sql.TinyInt, rankMax == null ? null : rankMax);
     request.input('demoSeed', sql.Bit, Boolean(demoOnly));
+    request.input('selectedMemberIdsJson', sql.NVarChar(sql.MAX), JSON.stringify(selectedIds));
+    request.input('hasSelectedMemberIds', sql.Bit, selectedIds.length > 0);
     request.input('actor', sql.NVarChar(160), actor || 'api');
     return request.query(`
       DELETE FROM dbo.marketing_email_campaign_recipients
       WHERE campaign_id = @campaignId;
+
+      WITH selected_member_ids AS (
+        SELECT DISTINCT TRY_CONVERT(uniqueidentifier, [value]) AS member_id
+        FROM OPENJSON(@selectedMemberIdsJson)
+        WHERE TRY_CONVERT(uniqueidentifier, [value]) IS NOT NULL
+      )
 
       INSERT INTO dbo.marketing_email_campaign_recipients (
         campaign_id, member_id, stream_key, acid, source_enquiry_id, email_hash, email_domain,
@@ -1844,34 +1995,36 @@ async function snapshotCampaignRecipients(projectConn, { campaignId, streamKey, 
       )
       SELECT
         @campaignId,
-        member_id,
-        stream_key,
-        acid,
-        source_enquiry_id,
-        email_hash,
-        email_domain,
-        area_of_work,
-        [rank],
-        tags_json,
-        client,
-        client_status,
-        CASE WHEN sendable = 1
-          AND (@excludeClients = 0 OR client = 0)
-          AND (@rankMin IS NULL OR [rank] >= @rankMin)
-          AND (@rankMax IS NULL OR [rank] <= @rankMax)
+        m.member_id,
+        ${demoOnly ? '@streamKey' : 'm.stream_key'},
+        m.acid,
+        m.source_enquiry_id,
+        m.email_hash,
+        m.email_domain,
+        ${demoOnly ? '(SELECT TOP 1 label FROM dbo.marketing_email_audience_streams WHERE stream_key = @streamKey)' : 'm.area_of_work'},
+        m.[rank],
+        m.tags_json,
+        m.client,
+        m.client_status,
+        CASE WHEN m.sendable = 1
+          AND (@excludeClients = 0 OR m.client = 0)
+          AND (@rankMin IS NULL OR m.[rank] >= @rankMin)
+          AND (@rankMax IS NULL OR m.[rank] <= @rankMax)
+          AND (@hasSelectedMemberIds = 0 OR selected.member_id IS NOT NULL)
           THEN N'selected' ELSE N'blocked' END,
-        CASE WHEN sendable = 0 THEN qualification_reason
-          WHEN @excludeClients = 1 AND client = 1 THEN N'Client excluded by campaign setting'
-          WHEN @rankMin IS NOT NULL AND ([rank] IS NULL OR [rank] < @rankMin) THEN N'Below rank window'
-          WHEN @rankMax IS NOT NULL AND ([rank] IS NULL OR [rank] > @rankMax) THEN N'Above rank window'
+        CASE WHEN m.sendable = 0 THEN m.qualification_reason
+          WHEN @excludeClients = 1 AND m.client = 1 THEN N'Client excluded by campaign setting'
+          WHEN @rankMin IS NOT NULL AND (m.[rank] IS NULL OR m.[rank] < @rankMin) THEN N'Below rank window'
+          WHEN @rankMax IS NOT NULL AND (m.[rank] IS NULL OR m.[rank] > @rankMax) THEN N'Above rank window'
+          WHEN @hasSelectedMemberIds = 1 AND selected.member_id IS NULL THEN N'Excluded by demo recipient selection'
           ELSE N'Selected at campaign lock' END,
         N'not_sent',
         @demoSeed,
         SYSUTCDATETIME(),
         @actor
-      FROM dbo.marketing_email_audience_members
-      WHERE stream_key = @streamKey
-        ${demoOnly ? 'AND demo_seed = 1' : ''};
+      FROM dbo.marketing_email_audience_members AS m
+      LEFT JOIN selected_member_ids AS selected ON selected.member_id = m.member_id
+      WHERE ${demoOnly ? `m.demo_seed = 1 AND ${demoAudienceSourceListSql('m')}` : 'm.stream_key = @streamKey'};
     `);
   });
   return { available: true, insertedCount: Number(result.rowsAffected?.[1] || 0) };
@@ -1886,6 +2039,7 @@ router.get('/streams', async (req, res) => {
   try {
     const projectConn = deriveProjectDataConnectionString();
     const schema = await readSchemaState(projectConn);
+    if (demoOnly) await ensureDemoAudienceMembers(projectConn, { schema, actor });
     const streams = await readStreams(projectConn, { demoOnly, schema });
     const durationMs = Date.now() - startedAt;
     trackEvent('MarketingEmail.Streams.Completed', { operation, actor, demoOnly: String(demoOnly), durationMs: String(durationMs), streamCount: String(streams.length) });
@@ -1911,6 +2065,7 @@ router.post('/streams/refresh', async (req, res) => {
     const projectConn = deriveProjectDataConnectionString();
     const schema = await readSchemaState(projectConn);
     await ensureSeedStreams(projectConn);
+    if (demoOnly) await ensureDemoAudienceMembers(projectConn, { schema, actor });
     const sourceRows = demoOnly ? [] : await readSourceCandidates(limit);
     const members = sourceRows.map(toMemberRecord);
     const changed = !demoOnly && materialise ? await upsertMembers(projectConn, members, actor) : 0;
@@ -2011,8 +2166,9 @@ router.get('/streams/:streamKey/members', async (req, res) => {
   try {
     const projectConn = deriveProjectDataConnectionString();
     const schema = await readSchemaState(projectConn);
+    if (demoOnly) await ensureDemoAudienceMembers(projectConn, { schema, actor });
     const rows = await readMembers(projectConn, streamKey, req.query.limit, { demoOnly, schema });
-    const sourceNames = demoOnly ? new Map() : await resolveSourceNames(rows).catch((nameError) => {
+    const sourceNames = demoOnly ? demoSourceNamesMap() : await resolveSourceNames(rows).catch((nameError) => {
       trackException(nameError, { operation, phase: 'resolve-source-names', streamKey });
       trackEvent('MarketingEmail.StreamMembers.NamesWarning', { operation, streamKey, error: nameError?.message || 'Unknown error' });
       return new Map();
@@ -2313,15 +2469,19 @@ router.post('/campaigns', async (req, res) => {
   if (!campaignName) return res.status(400).json({ ok: false, error: 'Campaign name is required' });
   const sender = req.body?.senderEmail || req.body?.sender_email ? resolveSender(req.body?.senderEmail || req.body?.sender_email) : null;
   if ((req.body?.senderEmail || req.body?.sender_email) && !sender) return res.status(400).json({ ok: false, error: 'Unsupported SendGrid sender' });
-  const excludeClients = req.body?.excludeClients !== false && String(req.body?.excludeClients || req.body?.exclude_clients || 'true').toLowerCase() !== 'false';
-  const rankMin = excludeClients ? 4 : 0;
-  const rankMax = 4;
+  const selectedMemberIds = demoOnly ? parseSelectedMemberIds(req.body?.selectedMemberIds || req.body?.selected_member_ids || req.body?.memberIds || req.body?.member_ids) : [];
+  const excludeClients = demoOnly ? false : req.body?.excludeClients !== false && String(req.body?.excludeClients || req.body?.exclude_clients || 'true').toLowerCase() !== 'false';
+  const requestedRankMin = parseRank(req.body?.rankMin ?? req.body?.rank_min);
+  const requestedRankMax = parseRank(req.body?.rankMax ?? req.body?.rank_max);
+  const rankMin = requestedRankMin == null ? (excludeClients ? 4 : 0) : requestedRankMin;
+  const rankMax = requestedRankMax == null ? 4 : requestedRankMax;
   trackEvent('MarketingEmail.CampaignCreate.Started', { operation, actor, streamKey, demoOnly: String(demoOnly) });
   try {
     const projectConn = deriveProjectDataConnectionString();
     const schema = await readSchemaState(projectConn);
     if (demoOnly && !schema.hasCampaignDemoSeed) return res.status(409).json({ ok: false, error: 'Run the Marketing Email campaign recipients demo migration before creating demo campaigns' });
-    const counts = await countCampaignSelection(projectConn, { streamKey, excludeClients, rankMin, rankMax, demoOnly, schema });
+    if (demoOnly) await ensureDemoAudienceMembers(projectConn, { schema, actor });
+    const counts = await countCampaignSelection(projectConn, { streamKey, excludeClients, rankMin, rankMax, demoOnly, schema, selectedMemberIds });
     const campaignKey = nullable(req.body?.campaignKey || req.body?.campaign_key, 120) || `${demoOnly ? 'demo' : streamKey}-${Date.now().toString(36)}`;
     const demoColumn = schema.hasCampaignDemoSeed ? ', demo_seed' : '';
     const demoValue = schema.hasCampaignDemoSeed ? ', @demoSeed' : '';
@@ -2429,6 +2589,7 @@ router.post('/campaigns/:campaignId/lock', async (req, res) => {
   const actor = getActor(req);
   const demoOnly = isDemoRequest(req);
   const campaignId = trim(req.params.campaignId);
+  const requestedSelectedMemberIds = parseSelectedMemberIds(req.body?.selectedMemberIds || req.body?.selected_member_ids || req.body?.memberIds || req.body?.member_ids);
   if (!/^[0-9a-f-]{36}$/i.test(campaignId)) return res.status(400).json({ ok: false, error: 'Invalid campaign id' });
   try {
     const projectConn = deriveProjectDataConnectionString();
@@ -2444,6 +2605,8 @@ router.post('/campaigns/:campaignId/lock', async (req, res) => {
     const current = campaignResult.recordset?.[0];
     if (!current) return res.status(404).json({ ok: false, error: 'Campaign not found' });
     const effectiveDemoOnly = demoOnly || Boolean(current.demo_seed);
+    const selectedMemberIds = effectiveDemoOnly ? requestedSelectedMemberIds : [];
+    if (effectiveDemoOnly) await ensureDemoAudienceMembers(projectConn, { schema, actor });
     const counts = await countCampaignSelection(projectConn, {
       streamKey: current.stream_key,
       excludeClients: Boolean(current.exclude_clients),
@@ -2451,6 +2614,7 @@ router.post('/campaigns/:campaignId/lock', async (req, res) => {
       rankMax: current.rank_max == null ? null : Number(current.rank_max),
       demoOnly: effectiveDemoOnly,
       schema,
+      selectedMemberIds,
     });
     const snapshot = await snapshotCampaignRecipients(projectConn, {
       campaignId,
@@ -2461,6 +2625,7 @@ router.post('/campaigns/:campaignId/lock', async (req, res) => {
       actor,
       demoOnly: effectiveDemoOnly,
       schema,
+      selectedMemberIds,
     });
     const updateResult = await withRequest(projectConn, async (request) => {
       request.input('campaignId', sql.UniqueIdentifier, campaignId);
@@ -2584,7 +2749,9 @@ router.post('/campaigns/:campaignId/sendgrid-batch', async (req, res) => {
     const campaign = plan.campaign;
     plannedRecipients = plan.ready;
     if (!campaign) return res.status(404).json({ ok: false, error: 'Campaign not found' });
-    if (plan.effectiveDemoOnly && !dryRun) return res.status(403).json({ ok: false, error: 'Demo campaigns cannot trigger bulk SendGrid sends' });
+    if (plan.effectiveDemoOnly && !dryRun && !plan.ready.every((recipient) => isInternalDemoEmail(recipient.email))) {
+      return res.status(403).json({ ok: false, error: 'Demo sends are restricted to the internal demo recipient segment' });
+    }
     if (trim(campaign.status) !== 'locked') return res.status(409).json({ ok: false, error: 'Lock the campaign snapshot before sending' });
 
     const bodyText = trim(req.body?.body || req.body?.bodyText);
@@ -2675,7 +2842,7 @@ router.post('/campaigns/:campaignId/sendgrid-batch', async (req, res) => {
 
     const signatureInitials = trim(req.body?.signatureInitials || req.user?.initials || actor).toUpperCase();
     const signatureMode = normaliseSignatureMode(campaign.signature_mode || req.body?.signatureMode);
-    const operatorEmail = normalizeEmails(req.user?.email || req.headers?.['x-user-email'] || req.body?.operatorEmail)[0] || senderEmail;
+    const operatorEmail = normalizeEmails(req.body?.operatorEmail || req.user?.email || req.headers?.['x-user-email'])[0] || senderEmail;
     const html = buildSendGridEmailHtml({
       bodyText,
       preheaderText: trim(campaign.preheader),
