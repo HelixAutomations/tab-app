@@ -133,6 +133,8 @@ type CampaignBatchPreview = {
 };
 
 type MemberCampaignHistoryItem = {
+  historyId?: string;
+  kind?: 'campaign-email' | 'campaign-reply';
   recipientId: string;
   campaignId: string;
   campaignKey: string;
@@ -140,6 +142,9 @@ type MemberCampaignHistoryItem = {
   campaignName: string;
   subject: string;
   senderEmail: string;
+  sourceEnquiryId?: string;
+  activeCampaignId?: string;
+  replyToken?: string;
   campaignStatus: string;
   selectionStatus: string;
   selectionReason: string;
@@ -151,7 +156,13 @@ type MemberCampaignHistoryItem = {
   lockedAt: string | null;
   sentAt: string | null;
   campaignSentAt: string | null;
+  receivedAt?: string | null;
   sentBy: string;
+  actionType?: string;
+  sentiment?: string;
+  matchSource?: string;
+  matchConfidence?: number | null;
+  needsReview?: boolean;
 };
 
 type MemberCampaignHistoryState = {
@@ -276,9 +287,10 @@ const formatHistoryToken = (value: string): string => value
   .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
   .join(' ');
 
-const campaignHistoryEventAt = (item: MemberCampaignHistoryItem): string | null => item.sentAt || item.campaignSentAt || item.lockedAt || item.snapshotAt || item.createdAt;
+const campaignHistoryEventAt = (item: MemberCampaignHistoryItem): string | null => item.receivedAt || item.sentAt || item.campaignSentAt || item.lockedAt || item.snapshotAt || item.createdAt;
 
 const campaignHistoryStatusMeta = (item: MemberCampaignHistoryItem): { label: string; tone: 'sent' | 'pending' | 'failed' | 'held' } => {
+  if (item.kind === 'campaign-reply') return { label: item.needsReview ? 'Needs review' : 'Reply received', tone: item.needsReview ? 'held' : 'sent' };
   const sendStatus = item.sendStatus.toLowerCase();
   const selectionStatus = item.selectionStatus.toLowerCase();
   if (sendStatus === 'sent' || item.sentAt) return { label: 'Emailed', tone: 'sent' };
@@ -288,6 +300,12 @@ const campaignHistoryStatusMeta = (item: MemberCampaignHistoryItem): { label: st
   if (selectionStatus === 'blocked') return { label: 'Held', tone: 'held' };
   if (sendStatus === 'not_sent') return { label: 'Selected', tone: 'pending' };
   return { label: formatHistoryToken(sendStatus || item.campaignStatus || 'Recorded'), tone: 'pending' };
+};
+
+const formatMatchConfidence = (value?: number | null): string => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+  const percent = value <= 1 ? value * 100 : value;
+  return `${Math.round(percent)}% match`;
 };
 
 const displayContactName = (member: AudienceMember): string => {
@@ -1751,21 +1769,27 @@ const MarketingEmailWorkbench: React.FC<MarketingEmailWorkbenchProps> = ({
                                   {historyItems.map((item) => {
                                     const statusMeta = campaignHistoryStatusMeta(item);
                                     const eventAt = campaignHistoryEventAt(item);
-                                    const providerLabel = item.providerStatus ? formatHistoryToken(item.providerStatus) : statusMeta.label;
+                                    const isReplyAction = item.kind === 'campaign-reply';
+                                    const matchLabel = item.matchSource ? `Matched by ${formatHistoryToken(item.matchSource)}` : 'Reply action';
+                                    const providerLabel = isReplyAction ? matchLabel : item.providerStatus ? formatHistoryToken(item.providerStatus) : statusMeta.label;
+                                    const detailText = isReplyAction
+                                      ? [item.actionType ? formatHistoryToken(item.actionType) : 'Reply captured', item.sentiment ? formatHistoryToken(item.sentiment) : '', formatMatchConfidence(item.matchConfidence)].filter(Boolean).join(' · ')
+                                      : item.subject || 'No subject';
+                                    const itemKey = item.historyId || `${item.kind || 'campaign-email'}-${item.recipientId}-${eventAt || item.campaignId}`;
                                     return (
-                                      <article key={item.recipientId} className={`mew-ledger-history-item is-${statusMeta.tone}`}>
+                                      <article key={itemKey} className={`mew-ledger-history-item is-${statusMeta.tone}`}>
                                         <span className="mew-ledger-history-dot" aria-hidden="true" />
                                         <div className="mew-ledger-history-card">
                                           <header>
-                                            <span><FiMail size={11} aria-hidden="true" /> Campaign email</span>
+                                            <span><FiMail size={11} aria-hidden="true" /> {isReplyAction ? 'Campaign reply' : 'Campaign email'}</span>
                                             {eventAt && <time dateTime={eventAt}>{formatStamp(eventAt)}</time>}
                                           </header>
                                           <strong title={item.campaignName || item.campaignKey}>{item.campaignName || item.campaignKey || 'Untitled campaign'}</strong>
-                                          <p title={item.subject || 'No subject'}>{item.subject || 'No subject'}</p>
+                                          <p title={detailText}>{detailText}</p>
                                           <footer>
                                             <span className={`mew-ledger-history-state is-${statusMeta.tone}`}>{statusMeta.label}</span>
                                             <span>{providerLabel}</span>
-                                            {item.senderEmail && <span>{item.senderEmail}</span>}
+                                            {!isReplyAction && item.senderEmail && <span>{item.senderEmail}</span>}
                                           </footer>
                                         </div>
                                       </article>

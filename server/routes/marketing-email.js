@@ -41,6 +41,11 @@ const EMAIL_SENDGRID_SECRET_NAMES = [
 const EMAIL_SENDGRID_SIGNATURE_MODES = new Set(['data-hub-v2', 'legacy']);
 const EMAIL_SENDGRID_BATCH_LIMIT = 200;
 const EMAIL_SENDGRID_REPLY_TO_EMAIL = 'team@helix-law.com';
+const EMAIL_SENDGRID_REPLY_TOKEN_PREFIX = 'HXR';
+const ENQUIRY_PLATFORM_API_KEY = '2011';
+const EMAIL_SENDGRID_REPLY_TOKEN_SUBSTITUTION = '-helix_reply_token-';
+const EMAIL_SENDGRID_CAMPAIGN_ID_SUBSTITUTION = '-helix_campaign_id-';
+const EMAIL_SENDGRID_RECIPIENT_ID_SUBSTITUTION = '-helix_recipient_id-';
 const TAG_BLOCK_PATTERN = /\b(do\s*not\s*(send|email|market)|unsubscribe|unsubscribed|opt[\s-]*out|no\s*(email|marketing)|suppress|suppression|gdpr|privacy|spam|complaint|bounce|invalid\s*email)\b/i;
 const DEMO_SOURCE_ENQUIRY_ID = 'DEMO-ENQ-0003';
 const DEMO_CAMPAIGN_KEY = 'demo-marketing-email-setup';
@@ -269,10 +274,37 @@ function hashEmail(email) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function buildCampaignReplyToken(campaignId, recipientId) {
+  const campaign = trim(campaignId).toLowerCase();
+  const recipient = trim(recipientId).toLowerCase();
+  if (!campaign || !recipient) return '';
+  const digest = crypto
+    .createHash('sha256')
+    .update(`marketing-email-reply:${campaign}:${recipient}`)
+    .digest('base64url')
+    .replace(/[^A-Za-z0-9]/g, '')
+    .slice(0, 14)
+    .toUpperCase();
+  return digest ? `${EMAIL_SENDGRID_REPLY_TOKEN_PREFIX}-${digest}` : '';
+}
+
 function emailDomain(email) {
   const value = trim(email).toLowerCase();
   const atIndex = value.lastIndexOf('@');
   return atIndex > 0 ? value.slice(atIndex + 1, atIndex + 161) : null;
+}
+
+function toIsoOrNull(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function normaliseCampaignReplyKey(value) {
+  let text = trim(value).toLowerCase();
+  if (!text) return '';
+  while (/^(re|fw|fwd)\s*:/i.test(text)) text = text.replace(/^(re|fw|fwd)\s*:/i, '').trim();
+  return text.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 200);
 }
 
 function isUsableEmail(email) {
@@ -375,6 +407,14 @@ async function getSendGridApiKey() {
   return null;
 }
 
+function getEnquiryPlatformBaseUrl() {
+  return trim(process.env.ENQUIRY_PLATFORM_BASE_URL) || 'https://enquiry-processing-v2.azurewebsites.net';
+}
+
+function getEnquiryPlatformApiKey() {
+  return ENQUIRY_PLATFORM_API_KEY;
+}
+
 async function fetchSendGridJson(path) {
   const apiKey = await getSendGridApiKey();
   if (!apiKey) return { configured: false, ok: false, statusCode: null, body: null };
@@ -441,6 +481,13 @@ function buildSendGridPreheaderHtml(value) {
   return `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;line-height:1px;font-size:1px;">${escapeEmailHtml(preheader)}</div>`;
 }
 
+function buildHiddenReplyCorrelationHtml() {
+  const token = EMAIL_SENDGRID_REPLY_TOKEN_SUBSTITUTION;
+  const campaignId = EMAIL_SENDGRID_CAMPAIGN_ID_SUBSTITUTION;
+  const recipientId = EMAIL_SENDGRID_RECIPIENT_ID_SUBSTITUTION;
+  return `<!-- helix-reply-token:${token};campaign:${campaignId};recipient:${recipientId} --><span data-helix-reply-token="${token}" data-helix-campaign-id="${campaignId}" data-helix-recipient-id="${recipientId}" style="display:none!important;mso-hide:all;max-height:0;max-width:0;overflow:hidden;opacity:0;color:transparent;line-height:0;font-size:0;">helix-reply-token:${token}</span>`;
+}
+
 function stripEmailDocumentShell(html, bodyMarker) {
   const markerWrapper = `<div style="margin-bottom:12px;">${bodyMarker}</div>`;
   return String(html || '')
@@ -467,15 +514,16 @@ function buildOutreachSignatureV2({ operatorEmail, signatureInitials }) {
 function buildSendGridEmailHtml({ bodyText, preheaderText, fromEmail, signatureInitials, signatureMode, operatorName, operatorEmail }) {
   const bodyHtml = `<div style="font-family:Raleway,Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.4;color:rgb(0,0,0);">${plainTextToEmailHtml(bodyText)}</div>`;
   const preheaderHtml = buildSendGridPreheaderHtml(preheaderText);
+  const replyCorrelationHtml = buildHiddenReplyCorrelationHtml();
   const resolvedSignatureMode = normaliseSignatureMode(signatureMode);
   if (resolvedSignatureMode === 'data-hub-v2') {
-    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><title>Helix Email</title></head><body style="margin:0;padding:0;font-family:Raleway,Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.4;color:rgb(0,0,0);">${preheaderHtml}${bodyHtml}${buildOutreachSignatureV2({ operatorName, operatorEmail, signatureInitials })}</body></html>`;
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><title>Helix Email</title></head><body style="margin:0;padding:0;font-family:Raleway,Arial,Helvetica,sans-serif;font-size:10pt;line-height:1.4;color:rgb(0,0,0);">${preheaderHtml}${replyCorrelationHtml}${bodyHtml}${buildOutreachSignatureV2({ operatorName, operatorEmail, signatureInitials })}</body></html>`;
   }
 
   const personalSignature = loadPersonalSignatureHtml({ signatureInitials, fromEmail });
   return personalSignature && personalSignature.trim()
-    ? `${preheaderHtml}${bodyHtml}<br />${personalSignature}`
-    : maybeWrapSignature(`${preheaderHtml}${bodyHtml}`);
+    ? `${preheaderHtml}${replyCorrelationHtml}${bodyHtml}<br />${personalSignature}`
+    : maybeWrapSignature(`${preheaderHtml}${replyCorrelationHtml}${bodyHtml}`);
 }
 
 function normaliseSendLimit(value) {
@@ -1191,14 +1239,21 @@ function mapCampaignRow(row) {
 }
 
 function mapMemberCampaignHistoryRow(row) {
+  const recipientId = trim(row.recipient_id);
+  const campaignId = trim(row.campaign_id);
   return {
-    recipientId: trim(row.recipient_id),
-    campaignId: trim(row.campaign_id),
+    historyId: `campaign:${recipientId}`,
+    kind: 'campaign-email',
+    recipientId,
+    campaignId,
     campaignKey: trim(row.campaign_key),
     streamKey: trim(row.stream_key),
     campaignName: trim(row.campaign_name),
     subject: trim(row.subject),
     senderEmail: trim(row.sender_email),
+    sourceEnquiryId: trim(row.source_enquiry_id),
+    activeCampaignId: trim(row.acid),
+    replyToken: buildCampaignReplyToken(campaignId, recipientId),
     campaignStatus: trim(row.campaign_status),
     selectionStatus: trim(row.selection_status),
     selectionReason: trim(row.selection_reason),
@@ -1212,6 +1267,199 @@ function mapMemberCampaignHistoryRow(row) {
     campaignSentAt: row.campaign_sent_at ? new Date(row.campaign_sent_at).toISOString() : null,
     sentBy: trim(row.sent_by),
   };
+}
+
+function getFirstField(source, names) {
+  for (const name of names) {
+    if (source && Object.prototype.hasOwnProperty.call(source, name)) return source[name];
+  }
+  return null;
+}
+
+function normaliseReplyActionRow(row) {
+  const matchConfidence = Number(getFirstField(row, ['matchConfidence', 'MatchConfidence', 'confidence', 'Confidence']));
+  const rawNeedsReview = getFirstField(row, ['needsReview', 'NeedsReview']);
+  return {
+    actionId: trim(getFirstField(row, ['id', 'Id', 'actionId', 'ActionId'])),
+    campaignId: trim(getFirstField(row, ['campaignId', 'CampaignId'])),
+    campaignKey: trim(getFirstField(row, ['campaignKey', 'CampaignKey'])),
+    recipientId: trim(getFirstField(row, ['recipientId', 'RecipientId'])),
+    sourceEnquiryId: trim(getFirstField(row, ['sourceEnquiryId', 'SourceEnquiryId'])),
+    activeCampaignId: trim(getFirstField(row, ['activeCampaignId', 'ActiveCampaignId', 'acid', 'ACID'])),
+    streamKey: trim(getFirstField(row, ['streamKey', 'StreamKey'])),
+    senderEmailHash: trim(getFirstField(row, ['senderEmailHash', 'SenderEmailHash'])).toLowerCase(),
+    senderEmailDomain: trim(getFirstField(row, ['senderEmailDomain', 'SenderEmailDomain'])).toLowerCase(),
+    actionType: trim(getFirstField(row, ['actionType', 'ActionType'])) || 'reply',
+    sentiment: trim(getFirstField(row, ['sentiment', 'Sentiment'])) || 'Unknown',
+    matchSource: trim(getFirstField(row, ['matchSource', 'MatchSource', 'campaignResolutionSource', 'CampaignResolutionSource'])),
+    matchConfidence: Number.isFinite(matchConfidence) ? matchConfidence : null,
+    needsReview: typeof rawNeedsReview === 'string' ? ['1', 'true', 'yes'].includes(rawNeedsReview.trim().toLowerCase()) : Boolean(rawNeedsReview),
+    receivedAt: toIsoOrNull(getFirstField(row, ['receivedAtUtc', 'ReceivedAtUtc', 'receivedAt', 'ReceivedAt'])),
+    createdAt: toIsoOrNull(getFirstField(row, ['createdAt', 'CreatedAt'])),
+  };
+}
+
+function extractReplyActionRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+  return ['actions', 'replyActions', 'items', 'results', 'data']
+    .map((key) => payload[key])
+    .find((value) => Array.isArray(value)) || [];
+}
+
+function buildReplyActionLookupRows(rows) {
+  return (rows || []).map((row) => ({
+    recipientId: trim(row.recipient_id),
+    campaignId: trim(row.campaign_id),
+    campaignKey: trim(row.campaign_key),
+    campaignKeyNormalised: normaliseCampaignReplyKey(row.campaign_key),
+    sourceEnquiryId: trim(row.source_enquiry_id),
+    activeCampaignId: trim(row.acid),
+    streamKey: trim(row.stream_key),
+    emailHash: trim(row.email_hash).toLowerCase(),
+    emailDomain: trim(row.email_domain).toLowerCase(),
+    replyToken: buildCampaignReplyToken(row.campaign_id, row.recipient_id).toLowerCase(),
+    campaignName: trim(row.campaign_name),
+    campaignNameKey: normaliseCampaignReplyKey(row.campaign_name),
+    senderEmail: trim(row.sender_email),
+    subject: trim(row.subject),
+    subjectKey: normaliseCampaignReplyKey(row.subject),
+  }));
+}
+
+function replyMatch(row, source, confidence) {
+  return { row, source, confidence };
+}
+
+function findSingleReplySubjectMatch(campaignKey, lookupRows) {
+  if (!campaignKey) return null;
+  const matches = lookupRows.filter((row) => (
+    row.campaignKeyNormalised === campaignKey
+    || row.subjectKey === campaignKey
+    || row.campaignNameKey === campaignKey
+  ));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function findReplyActionCampaignMatch(action, lookupRows) {
+  const recipientId = trim(action.recipientId).toLowerCase();
+  const campaignId = trim(action.campaignId).toLowerCase();
+  const sourceEnquiryId = trim(action.sourceEnquiryId).toLowerCase();
+  const activeCampaignId = trim(action.activeCampaignId).toLowerCase();
+  const rawCampaignKey = trim(action.campaignKey).toLowerCase().replace(/[\[\]]/g, '');
+  const campaignKey = normaliseCampaignReplyKey(action.campaignKey);
+  const senderHash = trim(action.senderEmailHash).toLowerCase();
+  const senderDomain = trim(action.senderEmailDomain).toLowerCase();
+  const exactRecipient = lookupRows.find((row) => recipientId && row.recipientId.toLowerCase() === recipientId);
+  if (exactRecipient) return replyMatch(exactRecipient, 'explicit-recipient', 1);
+  const exactToken = lookupRows.find((row) => rawCampaignKey && row.replyToken && row.replyToken === rawCampaignKey);
+  if (exactToken) return replyMatch(exactToken, 'reply-token', 1);
+  const exactCampaign = lookupRows.find((row) => campaignId && row.campaignId.toLowerCase() === campaignId);
+  if (exactCampaign) return replyMatch(exactCampaign, 'explicit-campaign', 0.96);
+  const subjectMatch = findSingleReplySubjectMatch(campaignKey, lookupRows);
+  if (subjectMatch) return replyMatch(subjectMatch, 'subject-recipient-stream', 0.86);
+  const exactSource = lookupRows.find((row) => sourceEnquiryId && row.sourceEnquiryId.toLowerCase() === sourceEnquiryId);
+  if (exactSource) return replyMatch(exactSource, 'source-enquiry-recipient', 0.78);
+  const exactActiveCampaign = lookupRows.find((row) => activeCampaignId && row.activeCampaignId.toLowerCase() === activeCampaignId);
+  if (exactActiveCampaign) return replyMatch(exactActiveCampaign, 'active-campaign-recipient', 0.76);
+  const campaignMatches = lookupRows.filter((row) => !campaignId || row.campaignId.toLowerCase() === campaignId);
+  if (senderHash) {
+    const hashMatch = campaignMatches.find((row) => row.emailHash && row.emailHash === senderHash);
+    if (hashMatch) return replyMatch(hashMatch, 'sender-hash-recipient', 0.72);
+  }
+  if (senderDomain) {
+    const domainMatches = campaignMatches.filter((row) => row.emailDomain && row.emailDomain === senderDomain);
+    if (domainMatches.length === 1) return replyMatch(domainMatches[0], 'sender-domain-recipient', 0.62);
+  }
+  return null;
+}
+
+function mapCampaignReplyActionToHistory(action, lookupRows) {
+  const matchResult = findReplyActionCampaignMatch(action, lookupRows);
+  if (!matchResult) return null;
+  const match = matchResult.row;
+  const eventAt = action.receivedAt || action.createdAt || null;
+  const matchSource = action.matchSource || matchResult.source;
+  return {
+    historyId: `reply:${action.actionId || match.recipientId}:${eventAt || 'unknown'}`,
+    kind: 'campaign-reply',
+    recipientId: match.recipientId,
+    campaignId: action.campaignId || match.campaignId,
+    campaignKey: action.campaignKey || match.campaignKey,
+    streamKey: action.streamKey || match.streamKey,
+    campaignName: match.campaignName,
+    subject: match.subject,
+    senderEmail: match.senderEmail,
+    sourceEnquiryId: action.sourceEnquiryId || match.sourceEnquiryId,
+    activeCampaignId: action.activeCampaignId || match.activeCampaignId,
+    replyToken: match.replyToken.toUpperCase(),
+    campaignStatus: 'reply_received',
+    selectionStatus: 'reply',
+    selectionReason: '',
+    sendStatus: 'reply_received',
+    providerStatus: action.needsReview ? 'needs_review' : matchSource,
+    sendgridMessageId: '',
+    snapshotAt: null,
+    createdAt: action.createdAt,
+    lockedAt: null,
+    sentAt: null,
+    campaignSentAt: null,
+    receivedAt: eventAt,
+    sentBy: '',
+    actionType: action.actionType,
+    sentiment: action.sentiment,
+    matchSource,
+    matchConfidence: action.matchConfidence ?? matchResult.confidence,
+    needsReview: action.needsReview,
+  };
+}
+
+function sortCampaignHistory(items) {
+  return items.sort((left, right) => {
+    const leftAt = left.receivedAt || left.sentAt || left.campaignSentAt || left.lockedAt || left.snapshotAt || left.createdAt || '';
+    const rightAt = right.receivedAt || right.sentAt || right.campaignSentAt || right.lockedAt || right.snapshotAt || right.createdAt || '';
+    return rightAt.localeCompare(leftAt);
+  });
+}
+
+async function readCampaignReplyActionsForMember(rows, { streamKey }) {
+  const lookupRows = buildReplyActionLookupRows(rows);
+  if (!lookupRows.length) return [];
+  const apiKey = getEnquiryPlatformApiKey();
+  if (!apiKey) return [];
+  const params = new URLSearchParams();
+  const addCsv = (name, values) => {
+    const unique = [...new Set(values.map((value) => trim(value)).filter(Boolean))];
+    if (unique.length) params.set(name, unique.slice(0, 40).join(','));
+  };
+  params.set('limit', '120');
+  params.set('streamKey', streamKey);
+  addCsv('campaignIds', lookupRows.map((row) => row.campaignId));
+  addCsv('campaignKeys', lookupRows.flatMap((row) => [row.campaignKey, row.campaignKeyNormalised, row.subjectKey, row.campaignNameKey, row.replyToken]));
+  addCsv('recipientIds', lookupRows.map((row) => row.recipientId));
+  addCsv('sourceEnquiryIds', lookupRows.map((row) => row.sourceEnquiryId));
+  addCsv('activeCampaignIds', lookupRows.map((row) => row.activeCampaignId));
+  addCsv('senderEmailHashes', lookupRows.map((row) => row.emailHash));
+  addCsv('senderEmailDomains', lookupRows.map((row) => row.emailDomain));
+  const url = `${getEnquiryPlatformBaseUrl().replace(/\/$/, '')}/api/campaign-reply-actions?${params.toString()}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'x-api-key': apiKey,
+    },
+  });
+  const text = await response.text();
+  let payload = null;
+  try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
+  if (!response.ok) {
+    trackEvent('MarketingEmail.MemberCampaignHistory.ReplyActionsUpstreamFailed', { streamKey, status: String(response.status) });
+    return [];
+  }
+  return extractReplyActionRows(payload)
+    .map(normaliseReplyActionRow)
+    .map((action) => mapCampaignReplyActionToHistory(action, lookupRows))
+    .filter(Boolean);
 }
 
 async function readCampaignForSend(projectConn, campaignId, schema) {
@@ -1321,6 +1569,10 @@ async function readMemberCampaignHistory(projectConn, { streamKey, memberId, dem
         c.campaign_name,
         c.subject,
         c.sender_email,
+        r.source_enquiry_id,
+        r.acid,
+        r.email_hash,
+        r.email_domain,
         c.status AS campaign_status,
         r.selection_status,
         r.selection_reason,
@@ -1795,9 +2047,14 @@ router.get('/streams/:streamKey/members/:memberId/campaign-history', async (req,
     const projectConn = deriveProjectDataConnectionString();
     const schema = await readSchemaState(projectConn);
     const rows = await readMemberCampaignHistory(projectConn, { streamKey, memberId, demoOnly, schema });
-    const history = rows.map(mapMemberCampaignHistoryRow);
+    const replyHistory = demoOnly ? [] : await readCampaignReplyActionsForMember(rows, { streamKey }).catch((replyError) => {
+      trackException(replyError, { operation, phase: 'campaign-reply-actions', streamKey });
+      trackEvent('MarketingEmail.MemberCampaignHistory.ReplyActionsWarning', { operation, streamKey, error: replyError?.message || 'Unknown error' });
+      return [];
+    });
+    const history = sortCampaignHistory([...rows.map(mapMemberCampaignHistoryRow), ...replyHistory]);
     const durationMs = Date.now() - startedAt;
-    trackEvent('MarketingEmail.MemberCampaignHistory.Completed', { operation, actor, streamKey, demoOnly: String(demoOnly), durationMs: String(durationMs), rowCount: String(history.length) });
+    trackEvent('MarketingEmail.MemberCampaignHistory.Completed', { operation, actor, streamKey, demoOnly: String(demoOnly), durationMs: String(durationMs), rowCount: String(history.length), replyActionCount: String(replyHistory.length) });
     trackMetric('MarketingEmail.MemberCampaignHistory.Duration', durationMs, { operation, streamKey });
     return res.json({ ok: true, mode: demoOnly ? 'demo' : 'live', streamKey, count: history.length, history, generatedAt: new Date().toISOString() });
   } catch (error) {
@@ -2430,20 +2687,34 @@ router.post('/campaigns/:campaignId/sendgrid-batch', async (req, res) => {
     });
     const plainText = campaign.preheader ? `${trim(campaign.preheader)}\n\n${bodyText}` : bodyText;
     const sendGridPayload = {
-      personalizations: plan.ready.map((recipient) => ({
-        to: [{ email: recipient.email }],
-        custom_args: {
-          source: 'marketing-email-workbench',
-          mode: 'campaign-batch',
-          requestId,
-          campaignId,
-          recipientId: recipient.recipientId,
-          sourceEnquiryId: recipient.sourceEnquiryId,
-          activeCampaignId: recipient.acid,
-          streamKey: recipient.streamKey,
-          signatureMode,
-        },
-      })),
+      personalizations: plan.ready.map((recipient) => {
+        const replyToken = buildCampaignReplyToken(campaignId, recipient.recipientId);
+        return {
+          to: [{ email: recipient.email }],
+          headers: {
+            'X-Helix-Reply-Token': replyToken,
+            'X-Helix-Campaign-Id': campaignId,
+            'X-Helix-Recipient-Id': recipient.recipientId,
+          },
+          substitutions: {
+            [EMAIL_SENDGRID_REPLY_TOKEN_SUBSTITUTION]: replyToken,
+            [EMAIL_SENDGRID_CAMPAIGN_ID_SUBSTITUTION]: campaignId,
+            [EMAIL_SENDGRID_RECIPIENT_ID_SUBSTITUTION]: recipient.recipientId,
+          },
+          custom_args: {
+            source: 'marketing-email-workbench',
+            mode: 'campaign-batch',
+            requestId,
+            campaignId,
+            recipientId: recipient.recipientId,
+            sourceEnquiryId: recipient.sourceEnquiryId,
+            activeCampaignId: recipient.acid,
+            streamKey: recipient.streamKey,
+            signatureMode,
+            replyToken,
+          },
+        };
+      }),
       from: { email: senderEmail, name: 'Helix Law' },
       reply_to: { email: EMAIL_SENDGRID_REPLY_TO_EMAIL, name: 'Helix Law' },
       subject,
